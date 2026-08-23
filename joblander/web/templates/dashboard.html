@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}指挥中心 · joblander{% endblock %}
+{% block main %}
+<div class="topbar"><span class="crumb"><b>指挥中心 · {{ today }}</b></span><span class="sp"></span>
+  <button class="btn pri" id="refresh-all" onclick="refreshAll(this)" title="依次拉取：Notion 战线 → Google 日历 → Gmail 邮箱，完成后刷新页面">↻ 全量刷新</button>
+</div>
+<h1>{{ greet }}</h1>
+<div class="sub">活跃战线 {{ active|length }}/{{ rows|length }} 行
+  {%- if cal_days and cal_days[0].events %} ｜ 今天 {{ cal_days[0].events|length }} 场{% endif %}
+  {%- if overdue or due %} ｜ {{ (overdue|length) + (due|length) }} 件要动{% endif %}
+  {%- if pending %} ｜ {{ pending|length }} 单等你批{% endif %}
+  {%- if not overdue %} ｜ 无逾期 ✅{% endif %}</div>
+<div class="note" style="margin:-14px 0 16px">数据源：Notion 战线 {{ fresh.get('tracker') or '—' }}（自动 ↻15min）｜ Google 日历 {{ fresh.get('calendar') or '—' }}（↻30min）｜ Gmail {{ fresh.get('gmail') or '—' }}（↻30min）｜ 公司档案・提案・日记 = 本地实时 ｜ MCF 每晚 02:30 进新机会</div>
+
+<h2 style="margin-top:14px">📅 近 4 天场次</h2>
+<div class="card{% if cal_days[0].events %}" style="border-left:3px solid var(--blue){% endif %}">
+  {% for d in cal_days %}
+  <div class="row"><span class="when">{{ d.label }}<br><span class="note" style="margin:0">{{ d.date[5:] }} {{ d.wd }}</span></span>
+    <div class="body">
+      {% for e in d.events %}
+      <div{% if not loop.first %} style="margin-top:5px"{% endif %}><span class="num">{{ e.start[11:16] or '全天' }}</span>
+        <b>{{ e.title }}</b>
+        {% if e.kind == 'interview' %}<span class="pill teal">面试</span>{% endif %}
+        <span class="note">{{ e.start[11:16] }}–{{ (e.end or '')[11:16] }}</span></div>
+      {% else %}<span class="note">无面试场次 ✅{% if cal_stale %}　（日历缓存等 daemon 刷新，最长 30 分钟）{% endif %}</span>{% endfor %}
+    </div></div>
+  {% endfor %}
+</div>
+
+{% if overdue or due or pending %}
+<div class="card" style="border-left:3px solid var(--accent);margin-top:12px">
+  <h2 style="margin-top:0">▸ 现在就做（按序）</h2>
+  {% for r in overdue[:2] %}<div class="row"><span class="when">🔴</span><div class="body"><b>{{ r.Company }}</b>：{{ r.get('Next Steps') or '推进' }}（逾期 {{ r.get('Follow-up Reminder') }}）</div><a class="btn" href="/company/{{ r.notion_page_id }}">打开档案</a></div>{% endfor %}
+  {% for r in due[:2] %}<div class="row"><span class="when">🟡</span><div class="body"><b>{{ r.Company }}</b>：{{ r.get('Next Steps') or '推进' }}</div><a class="btn" href="/company/{{ r.notion_page_id }}">打开档案</a></div>{% endfor %}
+  {% for p in scribe_pending %}<div class="row"><span class="when">✍</span><div class="body"><b>{{ p.company }}</b>：{{ {'scout.followup':'跟进更新','note.suggest':'字段建议','calendar.sync':'日历同步'}.get(p.origin or '', '面后录入') }}等你批（改/批都在档案页）</div><a class="btn pri" href="/company/{{ p.notion_page_id }}#pending">去批</a></div>{% endfor %}
+  {% for p in cal_pending %}
+  <div class="row"><span class="when">🗓</span>
+    <div class="body"><b>{{ p.company }}</b>：作战室排了面试，但日历接下来 7 天没这场
+      <div class="meta">来源：tracker↔日历每周对账（{{ p.note }}）——补上时间就能建入 Google 日历，或否决</div>
+      <details style="margin-top:6px"><summary class="note" style="cursor:pointer;margin:0">补时间建入日历</summary>
+        <form class="amend" data-file="{{ p._file }}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
+          <span style="flex:2;min-width:160px"><label>事件标题</label><input name="title" value="{{ p.title }}"></span>
+          <span><label>日期</label><input name="date" type="date" value="{{ p.date }}"></span>
+          <span><label>时间</label><input name="time" type="time" value="{{ p.time }}"></span>
+          <span><label>时长（分）</label><input name="duration_min" type="number" value="{{ p.duration_min }}" style="width:80px"></span>
+          <button class="btn pri" type="button" onclick="calApply(this)" title="按详情创建 Google Calendar 事件——这一步就是逐次确认">确认建事件</button>
+          <button class="btn danger" type="button" onclick="post('/api/proposal/reject',{file:'{{ p._file }}'},{btn:this,ok:'已否决',reload:true})">否决</button>
+        </form>
+      </details>
+    </div></div>
+  {% endfor %}
+  {% if diary_pending %}<div class="row"><span class="when">📓</span><div class="body">日记草稿就绪——在下方改两句，定稿进参谋部日报</div><a class="btn" href="#diary">去定稿</a></div>{% endif %}
+</div>
+{% endif %}
+
+<div class="grid3" style="margin-top:12px">
+  <div class="card stat {{ 'alert' if overdue else 'ok' }}"><div class="k">{{ overdue|length }}</div><div class="t">逾期 follow-up</div></div>
+  <div class="card stat {{ 'warn' if due else 'ok' }}"><div class="k">{{ due|length }}</div><div class="t">今日到期</div></div>
+  <div class="card stat {{ 'alert' if pending else 'ok' }}"><div class="k">{{ pending|length }}</div><div class="t">待批提案（长在各自属地）</div></div>
+</div>
+
+{% if overdue %}<h2>🔴 逾期</h2><div class="card">
+  {% for r in overdue %}<div class="row"><span class="when">{{ (r.get('Follow-up Reminder') or '')[5:] }}</span>
+    <div class="body"><b><a href="/company/{{ r.notion_page_id }}">{{ r.Company }}</a></b>
+      {% if r.Priority %}<span class="pill {{ {'High':'red','Medium':'amber','Low':'blue'}[r.Priority] }}">{{ r.Priority }}</span>{% endif %}
+      <div class="meta">{{ r.get('Next Steps') or '—' }}</div></div></div>{% endfor %}
+</div>{% endif %}
+
+{% if due %}<h2>🟡 今日到期</h2><div class="card">
+  {% for r in due %}<div class="row"><span class="when">今天</span>
+    <div class="body"><b><a href="/company/{{ r.notion_page_id }}">{{ r.Company }}</a></b>
+      {% if r.Priority %}<span class="pill {{ {'High':'red','Medium':'amber','Low':'blue'}[r.Priority] }}">{{ r.Priority }}</span>{% endif %}
+      <div class="meta">{{ r.get('Next Steps') or '—' }}</div></div></div>{% endfor %}
+</div>{% endif %}
+
+<h2>High 战线</h2><div class="card">
+  {% for r in high %}<div class="row"><span class="when">{{ (r.get('Follow-up Reminder') or '—')[5:] }}</span>
+    <div class="body"><b><a href="/company/{{ r.notion_page_id }}">{{ r.Company }}</a></b>
+      <span class="pill teal">{{ r.Status }}</span>
+      <div class="meta">{{ r.get('Next Steps') or '—' }}</div></div></div>
+  {% else %}<div class="note">无 High 行</div>{% endfor %}
+</div>
+
+<h2 id="diary">📓 今日日记 <span class="note" style="text-transform:none;letter-spacing:0">素材=各公司档案今天的战线事件；数据同步、评估重算这类系统动作不入日记。定稿落参谋部日报。</span></h2>
+{% if battles %}
+<div class="card" style="margin-bottom:10px">
+  {% for b in battles %}<div class="row"><span class="when">{{ {'interview':'🎯','call':'📞','email':'✉️','note':'📝','transcript':'🎙','intake':'📥','offer':'🏁'}.get(b.kind,'•') }}</span>
+    <div class="body"><b>{{ b.company }}</b> {{ b.title }}{% if b.summary %}<div class="meta">{{ b.summary[:90] }}</div>{% endif %}</div></div>{% endfor %}
+</div>
+{% endif %}
+{% if diary_pending %}
+{% for p in diary_pending %}
+<div class="prop">
+  <div class="hd"><span class="pill blue">AI 草稿</span><span class="note" style="margin:0">直接在下面改，定稿即入 {{ today }}.md 的「今日日记」段</span></div>
+  <div class="bd"><textarea id="diary-body" style="min-height:200px;font-size:13px">{{ p.body_entry }}</textarea></div>
+  <div class="ft">
+    <button class="btn pri" onclick="post('/api/proposal/amend_apply',{file:'{{ p._file }}',body_entry:gv('diary-body')},{btn:this,ok:'已定稿入日报',reload:true})">定稿入日报</button>
+    <button class="btn danger" onclick="post('/api/proposal/reject',{file:'{{ p._file }}'},{btn:this,ok:'已否决',reload:true})">否决</button>
+  </div>
+</div>
+{% endfor %}
+{% elif diary_final %}
+<div class="card">
+  <div style="white-space:pre-wrap;font-size:13.5px">{{ diary_final }}</div>
+  <div class="note" style="margin-top:10px">已定稿 · <a href="/wsdoc/13-daily/{{ daily_name }}">在参谋部日报里看完整版</a></div>
+</div>
+{% else %}
+<div class="card"><div class="note" style="margin:0">{% if battles %}草稿 21:30 自动生成，也可以<button class="btn" style="margin:0 6px" onclick="post('/api/diary/draft',{},{btn:this,ok:'草稿已生成',reload:true})">现在生成</button>{% else %}今天还没有战线事件——打了仗（面试/通话/邮件落档案）之后，这里 21:30 自动出日记草稿。{% endif %}</div></div>
+{% endif %}
+
+<div class="card" style="margin-top:10px">
+  <h2 style="margin-top:0">🖊 我的手记 <span class="note" style="text-transform:none;letter-spacing:0">你自己的总结与感受——与 AI 生成的部分分开存放，永不被自动覆盖</span></h2>
+  <textarea id="my-notes" style="min-height:100px" placeholder="今天的感受、判断、要提醒自己的话……">{{ my_notes }}</textarea>
+  <div style="margin-top:8px"><button class="btn pri" onclick="post('/api/daily/notes',{name:'{{ daily_name }}',text:gv('my-notes')},{btn:this,ok:'手记已存进日报',reload:true})">保存手记</button></div>
+</div>
+
+{% if cal_pending %}
+<script>
+async function calApply(btn){
+  const form = btn.closest('form.amend');
+  const data = { file: form.dataset.file };
+  new FormData(form).forEach((v,k)=>data[k]=v);
+  if(!data.date || !data.time){ toast('先补齐日期和时间'); return; }
+  await post('/api/proposal/amend_apply', data, {btn, ok:'日历事件已创建', reload:true});
+}
+</script>
+{% endif %}
+<script>
+async function refreshAll(btn){
+  const steps = [['Notion 战线','/api/pull',{}],
+                 ['Google 日历','/api/calendar/refresh',{}],
+                 ['Gmail 邮箱','/api/scan',{days:2}]];
+  btn.disabled = true;
+  let fails = 0;
+  for(let i = 0; i < steps.length; i++){
+    btn.textContent = `${i+1}/${steps.length} ${steps[i][0]}…`;
+    const out = await post(steps[i][1], steps[i][2], {ok:`${steps[i][0]} ✓`});
+    if(out === undefined) fails++;          // post 内部已 toast 失败原因，继续下一源
+  }
+  btn.textContent = fails ? `完成（${fails} 个源失败）` : '完成，刷新中…';
+  setTimeout(()=>location.reload(), fails ? 1200 : 400);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,17 @@
+# 私有配置与数据 —— 永不入库
+config.yaml
+data/
+*.env
+.env*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.log

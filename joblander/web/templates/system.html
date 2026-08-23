@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}系统 · joblander{% endblock %}
+{% block main %}
+<div class="topbar"><span class="crumb">系统 / <b>Agent 与守卫</b></span></div>
+<h1>Agent 与守卫</h1>
+<div class="sub">7 能力 Agent ｜ 8 常驻作业 ｜ Event Log {{ total_events }} 条 ｜ 权限长在工具上 ｜
+  Notion 写回：<span class="pill {{ 'green' if notion_write else 'amber' }}">{{ '开（并行镜像期）' if notion_write else '关（本地档案为唯一写入面）' }}</span></div>
+
+<div class="grid2" style="margin-bottom:12px">
+  <div class="card">
+    <h2 style="margin-top:0">外部连接</h2>
+    {% for c in creds %}
+    <div class="row"><span class="when">{{ '●' if c.ok else '○' }}</span>
+      <div class="body"><b>{{ c.label }}</b> <span class="pill {{ 'green' if c.ok else 'red' }}">{{ c.note }}</span></div></div>
+    {% endfor %}
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">常驻作业 {% if fails24 %}<span class="pill red">24h 内 {{ fails24 }} 次失败</span>{% else %}<span class="pill green">24h 零失败</span>{% endif %}</h2>
+    {% for j in jobs %}
+    <div class="row"><span class="when">{{ '●' if j.ok else '⚠' }}</span>
+      <div class="body">{{ j.label }}<div class="meta num">{{ j.last }}</div></div></div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h2 style="margin-top:0">能力层 <span class="note" style="font-weight:400">（状态以运行代码为准，不照设计文档报）</span></h2>
+    {% for nm, ds, st in [
+      ('Scout · 侦察','邮件/贴入/MCF → 抽取 + 三级查重（集团互斥）+ 夜扫初筛评分','live'),
+      ('Researcher · 调研','尽调员 ReAct 单成员（ADR-16）：可喂料可零输入，MCF 挂牌薪资自动入证据，来源分级','live'),
+      ('Analyst · 军师','策略纯函数：offer 快照在役（/offers）；城市换算已实现未接线','partial'),
+      ('Coordinator · 调度','排期缺口对账 + 日历确认写 + 排期参谋（邀约→规则对照+回复草稿，公司页 📅）','live'),
+      ('Prep · 参谋','brief = 全史+口径卡+Playbook（CLI/T-24h/页面三入口）+ 定制简历','live'),
+      ('Scribe · 书记','转写 → 录入+复盘提案 → 批准落 tracker/档案/Playbook；daemon 收件箱自动触发','live'),
+      ('Sentinel · 宪兵','规则层三型（pattern/precision/pair）横切简历/复盘/入池/审计；判断层 v0（LLM 按清单判定）内嵌复盘链 + CLI check','live')] %}
+    <div class="row"><div class="body"><b>{{ nm }}</b>
+      <span class="pill {{ 'green' if st.startswith('live') else 'amber' }}">{{ st }}</span>
+      <div class="meta">{{ ds }}</div></div></div>
+    {% endfor %}
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">口径守卫 · 你被保护着什么</h2>
+    <div class="note" style="margin-bottom:10px">规则层（正则，零成本）拦事实错误，词表在私有 config，改动后金标回归自动兜底。判断层 v0（LLM 按清单逐条判定 ok/attention）已内嵌复盘链与 CLI check，失败不阻塞（冷落安全）。</div>
+    {% for r in rules %}
+    <div class="row"><div class="body"><span class="num">{{ r.id }}</span>
+      <span class="pill {{ 'red' if r.get('action','block')=='block' else 'amber' }}">{{ '拦截' if r.get('action','block')=='block' else '提醒' }}</span>
+      <div class="meta">{{ r.get('why','') }}</div></div></div>
+    {% endfor %}
+    <details style="margin-top:10px"><summary class="note" style="cursor:pointer">判断层检查清单（{{ checks|length }} 条 · v0 在役于复盘链）</summary>
+    {% for c in checks %}<div class="row"><div class="body meta">{{ c }}</div></div>{% endfor %}</details>
+  </div>
+</div>
+
+<h2>事件分布</h2>
+<div class="card"><div style="display:flex;flex-wrap:wrap;gap:8px">
+  {% for k, v in kinds %}<span class="pill gray"><span class="num">{{ k }}</span>&nbsp;× {{ v }}</span>{% endfor %}
+</div></div>
+{% endblock %}

@@ -1,0 +1,89 @@
+# 复制为 config.yaml（已 gitignore）后填入真实值。
+# 原则：所有个人数据、账号凭证、薪资阈值、红线词表只存在于 config.yaml 与 workspace，
+# 引擎仓库里只有占位符（DESIGN §13 公私边界）。
+#
+# 查找顺序：显式路径 > $JOBLANDER_CONFIG > 仓库根 config.yaml
+# 配好后跑 `python -m joblander onboard` 做一次完备性体检。
+
+# ---------- 必填 ----------
+
+workspace_dir: /path/to/your/private/workspace   # 简历、素材库、转写收件箱、公司档案所在目录
+
+llm:
+  provider: openai                # openai | gemini
+  model: gpt-5.6-sol              # pro 档：复盘/简历/评估/画像/周报/调研
+  model_flash: gpt-5.6-luna       # flash 档：抽取/初筛/扫描/日记/字段建议；不配则退回 model
+  model_eval: gpt-5.6-sol         # eval 档：评测裁判——永不弱于产物档；不配则退回 model
+  # API key 走环境变量，不进 config：OPENAI_API_KEY / GEMINI_API_KEY
+
+# ---------- 强烈建议 ----------
+
+# Sentinel 口径守卫的规则实例。引擎只实现规则「类型」，词表与数字全在这里。
+# 三种类型：
+#   pattern   —— 命中即拦（内部代号、绩效评级、真实薪资等硬红线）
+#   precision —— 数字漂移即事实错误，恒为 block，并给出精确值
+#   pair      —— 锚点词附近必须/禁止出现某些说法（窗口内共现检查）
+sentinel:
+  rules:
+    - id: codename                # 示例：内部项目代号不得外流
+      type: pattern
+      action: block               # block | warn
+      patterns: ["ProjectX", "内部代号示例"]
+      why: "内部代号"
+      guidance: "转译成通用技术描述"
+      # audiences: [outbound, internal]   # 缺省只管 outbound；internal 时 block 降级为 warn
+
+    - id: metric-drift            # 示例：关键战绩数字只许逐字说
+      type: precision
+      drift_patterns: ['(?i)around\s*99\s*k', '大约\s*99\s*[Kk]']
+      exact_note: "98,765"
+      why: "战绩数字漂移即事实错误"
+
+    - id: tc-pair                 # 示例：报总包必须带拆解，且不得与「到手」连用
+      type: pair
+      action: warn
+      window: 120
+      anchor_patterns: ['(?i)\b250\s*k\b']
+      required_nearby: ["base", "bonus", "equity", "拆解"]
+      forbidden_nearby: ["到手", "cash-in-hand"]
+
+# Analyst 的决策参数（策略即代码：判断可解释、可回归）。示例为占位数字。
+policy:
+  quote_tc_sgd: 250000            # 对外报价锚点（年度总包）——必填，Analyst 硬依赖
+  fx:                             # 折算汇率（→ SGD）——必填，Analyst 硬依赖
+    SGD: 1.0
+    USD: 1.34
+    EUR: 1.42
+    GBP: 1.70
+    RMB: 0.186
+  equity_discount_factors:        # 股权折价档：期权/未上市按更狠的折价计入总包
+    light: 1.0                    # 上市公司 RSU，面值即价值
+    medium: 0.5
+    heavy: 0.0                    # 早期期权，按 0 计——不为纸面财富让步现金
+  reference_conversions:          # （可选）搬迁机会的参考换算线，信息参考非一票否决
+    berlin: {tc: 200000, currency: EUR, sgd_equiv: 280000}
+  group_exclusivity:              # （可选）同集团互斥：投了 A 就不该再投 B，去重时按组判定
+    - ["集团公司A", "集团公司B"]
+
+# ---------- 可选集成（不配则该功能静默跳过） ----------
+
+search:                           # 尽调员的搜索引擎（首次用尽调必配一个）
+  provider: tavily                # tavily（推荐，免费档够用）| brave | google
+  api_key: your-key-here          # 或设环境变量 SEARCH_API_KEY
+  # cx: your-google-cse-id        # 仅 provider: google 需要
+  # providers:                    # 多引擎并行（配了即覆盖上面的单引擎）：各查各的，
+  #   - {provider: tavily, api_key: tvly-xxx}    # 按 URL 去重、交错合并，抗单引擎波动
+  #   - {provider: brave, api_key: BSA-xxx}
+
+notion:                           # 用 Notion 当 tracker 的 source of truth；不配则纯本地档案
+  token: ntn_xxx                  # notion.so/my-integrations，只授权 Tracker 所在页面
+  tracker_data_source_id: ""      # collection://<id>
+  write_enabled: true             # false = 只读镜像，全部写入只落本地公司档案（18-companies/）
+
+gmail:                            # 邮件自动 sourcing；GCP Console → Credentials → OAuth client (Desktop app)
+  client_id: xxx.apps.googleusercontent.com
+  client_secret: xxx
+  # scope 只给 gmail.readonly；跑 `python -m joblander gmail-auth` 走一次授权
+
+# 主动侦察的搜索偏好不在本文件——存 workspace 的 02-targets/sourcing-prefs.yaml，
+# web 作战室「新机会」页可直接编辑（intent/keywords/locations/exclude/notes）

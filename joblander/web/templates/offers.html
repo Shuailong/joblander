@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Offer 对比 · joblander{% endblock %}
+{% block main %}
+<div class="topbar"><span class="crumb"><a href="/pipeline">作战室</a> / <b>Offer 对比</b></span><span class="sp"></span>
+  <button class="btn" onclick="addRow()">＋ 加一个 offer</button>
+  <button class="btn pri" onclick="saveOffers(this)">保存并计算</button>
+</div>
+<h1>Offer 对比（W13）</h1>
+<div class="sub">原则：<b>报价按面值、比较按折价</b>——期权按流动性折价档计入；结构确定性 &gt; 数字。锚点差距只显示百分比，不在屏幕上摆锚点数。</div>
+
+<div class="card" style="padding:8px 12px;overflow-x:auto">
+<table id="otable">
+<tr><th>Offer 名</th><th>月 base</th><th>币种</th><th>bonus 月数</th><th>或 bonus %</th><th>期权面值/年</th><th>折价档</th><th>保底</th><th>备注</th><th></th></tr>
+{% for o in offers %}
+<tr class="orow">
+  <td><input name="name" value="{{ o.name }}"></td>
+  <td><input name="base_monthly" type="number" value="{{ o.base_monthly }}" style="width:90px"></td>
+  <td><input name="currency" value="{{ o.currency or 'SGD' }}" style="width:60px"></td>
+  <td><input name="bonus_months" type="number" step="0.5" value="{{ o.bonus_months or 0 }}" style="width:60px"></td>
+  <td><input name="bonus_pct" type="number" step="1" value="{{ o.bonus_pct or 0 }}" style="width:60px"></td>
+  <td><input name="equity_face_annual" type="number" value="{{ o.equity_face_annual or 0 }}" style="width:90px"></td>
+  <td><input name="equity_tier" value="{{ o.equity_tier or 'heavy' }}" style="width:70px" title="折价档名来自私有 policy（如 liquid/heavy）"></td>
+  <td style="text-align:center"><input name="bonus_guaranteed" type="checkbox" {{ 'checked' if o.bonus_guaranteed }} style="width:auto"></td>
+  <td><input name="notes" value="{{ o.notes or '' }}"></td>
+  <td><button class="btn danger" onclick="this.closest('tr').remove()">✕</button></td>
+</tr>
+{% endfor %}
+</table>
+<div class="note">没有 offer 时也可以先拿「假想 offer」演习谈判空间；数据存私有 workspace（15-offers/）。</div>
+</div>
+
+{% if snaps %}
+<h2>对比矩阵（按折价 TC 排序）</h2>
+<div class="card" style="padding:4px 8px;overflow-x:auto">
+<table>
+<tr><th>Offer</th><th>现金/年</th><th>期权面值/年</th><th>TC 面值</th><th><b>TC 折价</b></th><th>vs 锚点</th><th>bonus 保底</th><th>备注</th></tr>
+{% for s in snaps %}
+<tr><td><b>{{ s.name }}</b></td>
+  <td class="num">{{ "{:,.0f}".format(s.cash_sgd) }}</td>
+  <td class="num">{{ "{:,.0f}".format(s.equity_face_sgd) }}</td>
+  <td class="num">{{ "{:,.0f}".format(s.tc_face_sgd) }}</td>
+  <td class="num"><b>{{ "{:,.0f}".format(s.tc_discounted_sgd) }}</b></td>
+  <td class="num">{{ "%+.1f" | format(s.gap_vs_anchor_pct) }}%</td>
+  <td>{{ '✅' if s.bonus_guaranteed else '—' }}</td>
+  <td style="font-size:12.5px">{{ s.notes }}</td></tr>
+{% endfor %}
+</table>
+</div>
+<div class="note">谈判提醒：重折价期权的公司谈判重心压现金；多 offer 对齐时间窗制造竞争；对外口径以 brief 的口径卡为准。</div>
+{% elif offers %}
+<div class="sentinel warn">已存 {{ offers|length }} 个 offer，但换算失败——检查私有 config 的 policy（汇率/折价档）。</div>
+{% endif %}
+
+<script>
+function addRow(){
+  const tpl = document.querySelector('.orow');
+  const tr = tpl ? tpl.cloneNode(true) : rowFromScratch();
+  tr.querySelectorAll('input').forEach(i=>{ if(i.type==='checkbox') i.checked=false; else i.value = i.name==='currency'?'SGD':(i.name==='equity_tier'?'heavy':(i.type==='number'?'0':'')); });
+  document.getElementById('otable').appendChild(tr);
+}
+function rowFromScratch(){
+  const tr = document.createElement('tr'); tr.className='orow';
+  tr.innerHTML = `<td><input name="name"></td><td><input name="base_monthly" type="number" style="width:90px"></td>
+  <td><input name="currency" value="SGD" style="width:60px"></td><td><input name="bonus_months" type="number" step="0.5" value="0" style="width:60px"></td>
+  <td><input name="bonus_pct" type="number" value="0" style="width:60px"></td><td><input name="equity_face_annual" type="number" value="0" style="width:90px"></td>
+  <td><input name="equity_tier" value="heavy" style="width:70px"></td><td style="text-align:center"><input name="bonus_guaranteed" type="checkbox" style="width:auto"></td>
+  <td><input name="notes"></td><td><button class="btn danger" onclick="this.closest('tr').remove()">✕</button></td>`;
+  return tr;
+}
+async function saveOffers(btn){
+  const offers = [...document.querySelectorAll('.orow')].map(tr=>{
+    const o = {};
+    tr.querySelectorAll('input').forEach(i=>o[i.name] = i.type==='checkbox' ? i.checked : i.value);
+    return o;
+  }).filter(o=>o.name && o.base_monthly);
+  btn.disabled = true;
+  try{
+    const r = await fetch('/api/offers/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({offers})});
+    if(!r.ok) throw new Error('保存失败');
+    toast('已保存，重新计算'); setTimeout(()=>location.reload(),500);
+  }catch(e){ toast(e.message); btn.disabled=false; }
+}
+if (!document.querySelector('.orow')) addRow();
+</script>
+{% endblock %}

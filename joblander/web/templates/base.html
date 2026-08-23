@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}joblander{% endblock %}</title>
+<link rel="stylesheet" href="/static/app.css?v={{ v }}">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛬</text></svg>">
+<script src="/static/app.js?v={{ v }}" defer></script>
+</head>
+<body>
+<div class="frame">
+  <aside class="side">
+    <div class="brand"><span class="glyph">▸▸▸</span><b>joblander</b></div>
+    <div class="nav">
+      <a href="/" class="{{ 'on' if nav=='dash' }}"><span class="ico">◈</span>指挥中心{% if pending_n %}<span class="cnt hot" title="{{ pending_n }} 单更新提案等你批（公司页/指挥中心）">{{ pending_n }}</span>{% endif %}</a>
+      <a href="/sourcing" class="{{ 'on' if nav=='src' }}"><span class="ico">◎</span>新机会{% if leads_n %}<span class="cnt hot" title="{{ leads_n }} 条新线索待决策">{{ leads_n }}</span>{% endif %}</a>
+      <a href="/pipeline" class="{{ 'on' if nav=='pipe' }}"><span class="ico">▦</span>作战室</a>
+      <a href="/playbook" class="{{ 'on' if nav=='pb' }}"><span class="ico">♟</span>参谋部</a>
+      <a href="/drill" class="{{ 'on' if nav=='drill' }}"><span class="ico">⚔</span>练兵场</a>
+      <a href="/arsenal" class="{{ 'on' if nav=='ars' }}"><span class="ico">▤</span>弹药库</a>
+    </div>
+    <div class="navgrp">系统</div>
+    <div class="nav">
+      <a href="/system" class="{{ 'on' if nav=='sys' }}"><span class="ico">⚙</span>系统</a>
+    </div>
+    <div class="foot">
+      <div><span class="dot"></span>引擎在线（127.0.0.1）</div>
+      <div style="margin-top:4px">
+        <a href="#" onclick="post('/api/pull',{},{ok:'已同步 Notion',reload:true});return false" title="自动每 15 分钟拉一次">↻ 同步 Notion{% if notion_pulled %}<span style="opacity:.75">（{{ notion_pulled }}）</span>{% endif %}</a>
+      </div>
+    </div>
+  </aside>
+  <main class="main">
+    {% block main %}{% endblock %}
+  </main>
+</div>
+
+<div id="tasktray" aria-live="polite"></div>
+
+<button id="backtop" title="回到顶部" aria-label="回到顶部"><span class="chute-ic">🪂</span></button>
+
+<dialog id="dlg-intake">
+  <h3>＋ 新机会</h3>
+  <div class="note" style="margin:0 0 8px">贴 WhatsApp / InMail / 邮件 / JD 原文，或直接贴 JD 链接（LinkedIn / MCF / 官网，自动解析页面），也可以只传一个 JD 附件——抽取、查重后进审批，批准才建行。</div>
+  <textarea id="gi-text" placeholder="原文或 JD 链接粘贴到这里（有附件时可空）"></textarea>
+  <label>JD 附件（可空：PDF/文本——正文进抽取，文件随批准落公司档案）</label>
+  <input type="file" id="gi-file" accept=".pdf,.txt,.md,.html,.docx">
+  <label>来源</label>
+  <select id="gi-src"><option>whatsapp</option><option>linkedin</option><option>email</option><option>paste</option></select>
+  <div class="dlg-ft">
+    <button class="btn" onclick="this.closest('dialog').close()">取消</button>
+    <button class="btn pri" onclick="const f=document.getElementById('gi-file');const d={text:gv('gi-text'),source:gv('gi-src')};if(f.files.length)d.file=f.files[0];post('/api/intake',d,{btn:this,ok:'已入待入池',then:()=>location='/sourcing'})">抽取 → 待入池</button>
+  </div>
+</dialog>
+
+<script>
+function dlg(id){ document.getElementById(id).showModal(); }
+function gv(id){ return document.getElementById(id).value; }
+</script>
+</body>
+</html>

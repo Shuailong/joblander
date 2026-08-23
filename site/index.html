@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ailayoff.me — from laid off to landed · 从被裁到上岸</title>
+<meta name="description" content="An open-source, local-first multi-agent war room for running your job search — sourcing, honest fit-scoring, tailored resumes, interview briefs, daily reports. Built by one of the laid-off. 开源、local-first 的多智能体求职作战系统。">
+<meta property="og:title" content="ailayoff.me — from laid off to landed">
+<meta property="og:description" content="An open-source, local-first multi-agent war room for the laid-off: sourcing, honest scoring, tailored resumes, interview briefs. Your data never leaves your machine.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://ailayoff.me/">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪂</text></svg>">
+<script>
+/* 语言判定要赶在首帧渲染前：URL 参数 > 记忆选择 > 浏览器语言 */
+(function(){
+  var q = new URLSearchParams(location.search).get('lang');
+  var saved = null; try { saved = localStorage.getItem('al-lang'); } catch(e){}
+  var lang = (q === 'zh' || q === 'en') ? q
+           : (saved === 'zh' || saved === 'en') ? saved
+           : (navigator.language || '').toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
+  if (q) { try { localStorage.setItem('al-lang', q); } catch(e){} }
+  document.documentElement.dataset.lang = lang;
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+})();
+</script>
+<style>
+/* ---------- Notion 色板：token 只在这里定义，组件一律引用 token ---------- */
+:root{
+  --bg:#ffffff;
+  --fg:#37352f;
+  --fg2:#787774;
+  --fg3:#9b9a97;
+  --line:rgba(55,53,47,.12);
+  --line-soft:rgba(55,53,47,.08);
+  --hover:#f7f7f5;
+  --callout:#f7f7f5;
+  --code-bg:#f7f6f3;
+  --code-fg:#4d4b47;
+  --code-comment:#9b9a97;
+  --icode-fg:#eb5757;
+  --icode-bg:rgba(135,131,120,.15);
+  --accent:#2383e2;
+  --accent-ink:#1b6ec2;
+  --cover-a:#d9e9f7; --cover-b:#ecf4fa; --cover-c:#f8fbfd;
+  --shadow:0 1px 2px rgba(15,15,15,.04), 0 4px 14px rgba(15,15,15,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#191919;
+    --fg:#d4d4d2;
+    --fg2:#9b9b9b;
+    --fg3:#6e6e6e;
+    --line:rgba(255,255,255,.13);
+    --line-soft:rgba(255,255,255,.08);
+    --hover:#232323;
+    --callout:#202020;
+    --code-bg:#202020;
+    --code-fg:#c9c9c7;
+    --code-comment:#6e6e6e;
+    --icode-fg:#ff7369;
+    --icode-bg:rgba(135,131,120,.18);
+    --accent:#529cca;
+    --accent-ink:#6cb0dd;
+    --cover-a:#1f2b3a; --cover-b:#1c2431; --cover-c:#1c2027;
+    --shadow:0 1px 2px rgba(0,0,0,.25), 0 4px 14px rgba(0,0,0,.28);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#191919; --fg:#d4d4d2; --fg2:#9b9b9b; --fg3:#6e6e6e;
+  --line:rgba(255,255,255,.13); --line-soft:rgba(255,255,255,.08);
+  --hover:#232323; --callout:#202020; --code-bg:#202020; --code-fg:#c9c9c7;
+  --code-comment:#6e6e6e; --icode-fg:#ff7369; --icode-bg:rgba(135,131,120,.18);
+  --accent:#529cca; --accent-ink:#6cb0dd;
+  --cover-a:#1f2b3a; --cover-b:#1c2431; --cover-c:#1c2027;
+  --shadow:0 1px 2px rgba(0,0,0,.25), 0 4px 14px rgba(0,0,0,.28);
+}
+:root[data-theme="light"]{
+  --bg:#ffffff; --fg:#37352f; --fg2:#787774; --fg3:#9b9a97;
+  --line:rgba(55,53,47,.12); --line-soft:rgba(55,53,47,.08);
+  --hover:#f7f7f5; --callout:#f7f7f5; --code-bg:#f7f6f3; --code-fg:#4d4b47;
+  --code-comment:#9b9a97; --icode-fg:#eb5757; --icode-bg:rgba(135,131,120,.15);
+  --accent:#2383e2; --accent-ink:#1b6ec2;
+  --cover-a:#d9e9f7; --cover-b:#ecf4fa; --cover-c:#f8fbfd;
+  --shadow:0 1px 2px rgba(15,15,15,.04), 0 4px 14px rgba(15,15,15,.05);
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji";
+  font-size:16px; line-height:1.65;
+  text-rendering:optimizeLegibility; -webkit-font-smoothing:antialiased;
+}
+::selection{background:rgba(35,131,226,.22)}
+a{color:var(--accent-ink); text-decoration:none}
+a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:3px}
+
+/* 双语开关：一次只渲染一种语言 */
+[data-lang="en"] .zh{display:none !important}
+[data-lang="zh"] .en{display:none !important}
+
+/* ---------- 顶栏（Notion 面包屑） ---------- */
+.topbar{
+  position:sticky; top:0; z-index:9;
+  display:flex; align-items:center; gap:10px;
+  height:45px; padding:0 16px;
+  background:color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line-soft);
+  font-size:14px;
+}
+.crumb{display:flex; align-items:center; gap:7px; min-width:0; white-space:nowrap; overflow:hidden}
+.crumb b{font-weight:600}
+.crumb .slash{color:var(--fg3)}
+.crumb .sys{color:var(--fg2); font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; overflow:hidden; text-overflow:ellipsis}
+.sp{flex:1}
+.langseg{display:flex; border:1px solid var(--line); border-radius:6px; overflow:hidden}
+.langseg button{
+  appearance:none; border:0; margin:0; padding:4px 11px;
+  background:transparent; color:var(--fg2);
+  font:inherit; font-size:13px; cursor:pointer;
+}
+.langseg button + button{border-left:1px solid var(--line)}
+.langseg button.on{background:var(--hover); color:var(--fg); font-weight:600}
+.langseg button:hover:not(.on){background:var(--hover)}
+
+/* logo 🪂 兼任回顶按钮：下滑后轻摆示意可点，点击收伞回弹 + 平滑回顶 */
+.chute-top{cursor:pointer; display:inline-block; transform-origin:50% 22%; transition:transform .15s ease; border-radius:4px}
+.chute-top:hover{transform:scale(1.18)}
+.chute-top:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.chute-top.wake{animation:chute-sway 2.4s ease-in-out infinite}
+.chute-top.land{animation:chute-land .6s ease}
+@keyframes chute-sway{0%,100%{transform:rotate(-9deg)}50%{transform:rotate(9deg)}}
+@keyframes chute-land{0%{transform:translateY(-7px) rotate(0)}35%{transform:translateY(1px) rotate(-11deg)}60%{transform:translateY(-2px) rotate(8deg)}100%{transform:translateY(0) rotate(0)}}
+@media (prefers-reduced-motion: reduce){.chute-top.wake, .chute-top.land{animation:none}}
+
+/* footer 🪂：常态漂浮，点击复制本页链接（呼应「留一顶降落伞给下一个人」）+ 回弹反馈 */
+footer .chute-share{cursor:pointer; transform-origin:50% 18%; transition:transform .15s ease; border-radius:6px; animation:chute-drift 3.6s ease-in-out infinite}
+footer .chute-share:hover{transform:scale(1.15)}
+footer .chute-share:focus-visible{outline:2px solid var(--accent); outline-offset:3px}
+footer .chute-share.land{animation:chute-land .6s ease}
+@keyframes chute-drift{0%,100%{transform:translateY(0) rotate(-6deg)}50%{transform:translateY(-6px) rotate(6deg)}}
+.copied-note{font-size:12.5px; color:var(--accent-ink); min-height:17px; margin-top:2px; opacity:0; transition:opacity .3s ease}
+.copied-note.show{opacity:1}
+@media (prefers-reduced-motion: reduce){footer .chute-share, footer .chute-share.land{animation:none}}
+
+/* ---------- 封面 + 页头（Notion page） ---------- */
+.cover{
+  height:210px;
+  background:linear-gradient(118deg, var(--cover-a), var(--cover-b) 55%, var(--cover-c));
+  position:relative; overflow:hidden;
+}
+.cover .chute{
+  position:absolute; font-size:150px; opacity:.16;
+  right:6%; top:-18px; transform:rotate(10deg);
+  user-select:none; pointer-events:none;
+}
+.page{max-width:708px; margin:0 auto; padding:0 24px}
+.wide{max-width:960px; margin:0 auto; padding:0 24px}
+.pagehead{margin-top:-52px; position:relative}
+.picon{font-size:74px; line-height:1; display:inline-block; filter:drop-shadow(0 2px 4px rgba(15,15,15,.12))}
+h1{
+  font-size:clamp(30px, 6vw, 43px); line-height:1.18; font-weight:700;
+  letter-spacing:-.015em; margin:14px 0 6px; text-wrap:balance;
+}
+.tagline{color:var(--fg2); font-size:17px; margin:0 0 22px}
+@media (prefers-reduced-motion: no-preference){
+  .pagehead, .props, .co-hero{animation:rise .55s cubic-bezier(.2,.7,.3,1) both}
+  .props{animation-delay:.08s}
+  .co-hero{animation-delay:.16s}
+  @keyframes rise{from{opacity:0; transform:translateY(8px)}to{opacity:1; transform:none}}
+}
+
+/* 属性行（Notion properties） */
+.props{margin:0 0 8px; font-size:14px}
+.prow{display:flex; gap:8px; padding:4px 0; align-items:baseline}
+.pkey{flex:0 0 128px; color:var(--fg3); display:flex; gap:7px; align-items:baseline; white-space:nowrap}
+.pval{color:var(--fg); min-width:0}
+.pval .dim{color:var(--fg2)}
+
+hr{border:0; border-top:1px solid var(--line-soft); margin:26px 0}
+
+/* ---------- Notion 块 ---------- */
+.callout{
+  display:flex; gap:13px; align-items:flex-start;
+  background:var(--callout); border-radius:6px;
+  padding:16px 18px; margin:14px 0;
+}
+.callout .ic{font-size:20px; line-height:1.5; flex:0 0 auto}
+.callout p{margin:0}
+.callout p + p{margin-top:8px}
+.co-hero{font-size:16px}
+.co-hero .sig{color:var(--fg2); font-size:14.5px}
+
+h2{
+  font-size:26px; font-weight:700; letter-spacing:-.01em;
+  margin:60px 0 4px; text-wrap:balance;
+}
+h2 .em{margin-right:10px}
+.secsub{color:var(--fg2); margin:0 0 18px; font-size:15.5px}
+p{margin:12px 0}
+.muted{color:var(--fg2)}
+.small{font-size:13.5px; color:var(--fg3)}
+code.i{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.85em; color:var(--icode-fg);
+  background:var(--icode-bg); border-radius:3px; padding:2px 5px;
+}
+.quote{
+  border-left:3px solid var(--fg); padding:2px 0 2px 16px;
+  margin:20px 0; font-size:17px; font-weight:500;
+}
+
+/* 卡片画廊（Notion gallery view） */
+.cards{
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(272px, 1fr));
+  gap:14px; margin:20px 0 6px; align-items:stretch;
+}
+.card{
+  border:1px solid var(--line); border-radius:8px;
+  padding:16px 18px 15px; background:var(--bg);
+  transition:background .15s ease, box-shadow .15s ease;
+}
+.card:hover{background:var(--hover); box-shadow:var(--shadow)}
+.card .em{font-size:26px; line-height:1; display:block; margin-bottom:10px}
+.card h3{margin:0 0 6px; font-size:15.5px; font-weight:600; line-height:1.4}
+.card h3 .alias{color:var(--fg3); font-weight:400; font-size:13px; margin-left:6px}
+.card p{margin:0; font-size:14px; line-height:1.6; color:var(--fg2)}
+
+/* 规矩：细 callout 堆叠 */
+.rule{margin:10px 0}
+.rule b{display:block; margin-bottom:2px}
+.rule p{font-size:14.5px; color:var(--fg2)}
+
+/* 架构图（纯 CSS，复用全站 token：双语/暗色/响应式自动继承） */
+.arch{border:1px solid var(--line); border-radius:10px; padding:22px 18px 16px; margin:18px 0}
+.lanecap{text-align:center; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--fg3); margin:0 0 8px}
+.lane{display:flex; flex-wrap:wrap; gap:8px; justify-content:center; align-items:stretch}
+.chip{border:1px solid var(--line); border-radius:7px; padding:7px 12px; font-size:13px; background:var(--bg); text-align:center; line-height:1.45}
+.chip .cap{display:block; font-size:11px; color:var(--fg3)}
+.chip.ghost{border-style:dashed; color:var(--fg2)}
+.chip .crew{display:flex; gap:5px; justify-content:center; flex-wrap:wrap; margin-top:6px}
+.chip .crew i{font-style:normal; font-size:11px; line-height:1.5; padding:1px 8px;
+  border:1px solid var(--line); border-radius:999px; color:var(--fg2); background:var(--hover); white-space:nowrap}
+.flow{display:flex; align-items:baseline; justify-content:center; gap:7px; padding:8px 0 14px; color:var(--fg3); font-size:12.5px}
+.flow .ar{color:var(--fg3)}
+.gate{border:1.6px solid var(--accent); background:color-mix(in srgb, var(--accent) 8%, var(--bg));
+  border-radius:8px; padding:10px 20px; font-weight:600; font-size:14.5px;
+  display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; justify-content:center}
+.gate .what{font-weight:400; font-size:13px; color:var(--fg2)}
+.chip.core{background:var(--hover); border-color:var(--line)}
+.lane .join{align-self:center; color:var(--fg3); font-size:13px}
+.guard{border:1.6px dashed var(--fg3); background:var(--callout); border-radius:8px;
+  padding:9px 18px; font-size:13.5px; text-align:center; line-height:1.5}
+.guard b{font-size:14px}
+.guard .cap{display:block; font-size:11.5px; color:var(--fg3)}
+.loopnote{display:flex; justify-content:center; align-items:baseline; gap:7px; margin-top:16px;
+  font-size:12.5px; color:var(--fg3); text-align:center}
+.loopnote .ar{font-size:15px}
+
+/* 代码块 */
+.codeblock{
+  background:var(--code-bg); border-radius:8px;
+  padding:16px 18px; margin:16px 0;
+  overflow-x:auto;
+}
+.codeblock pre{
+  margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:13.5px; line-height:1.75; color:var(--code-fg);
+}
+.codeblock .c{color:var(--code-comment)}
+
+/* 待办（Notion to-do list） */
+.todo{display:flex; gap:10px; align-items:flex-start; padding:5px 0; font-size:15.5px}
+.todo .box{
+  flex:0 0 16px; width:16px; height:16px; margin-top:5px;
+  border:1.4px solid var(--fg3); border-radius:3.5px; position:relative;
+}
+.todo.done .box{background:var(--accent); border-color:var(--accent)}
+.todo.done .box::after{
+  content:""; position:absolute; left:4.4px; top:1.4px;
+  width:4.5px; height:8.5px;
+  border:solid #fff; border-width:0 2px 2px 0; transform:rotate(43deg);
+}
+.todo .note{color:var(--fg3); font-size:13.5px; display:block}
+
+/* 折叠（Notion toggle） */
+details.faq{border-bottom:1px solid var(--line-soft)}
+details.faq summary{
+  cursor:pointer; list-style:none; display:flex; gap:8px; align-items:baseline;
+  padding:12px 2px; font-weight:600; font-size:15.5px;
+}
+details.faq summary::-webkit-details-marker{display:none}
+details.faq summary::before{
+  content:"▸"; color:var(--fg3); flex:0 0 14px;
+  transition:transform .18s ease; transform-origin:40% 50%;
+}
+details.faq[open] summary::before{transform:rotate(90deg)}
+details.faq .body{padding:0 2px 16px 22px; color:var(--fg2); font-size:14.5px}
+details.faq .body p{margin:0 0 8px}
+
+/* 按钮 */
+.btns{display:flex; gap:10px; flex-wrap:wrap; margin:18px 0 6px}
+.btn{
+  display:inline-flex; align-items:center; gap:7px;
+  border-radius:6px; padding:8px 16px; font-size:14.5px; font-weight:500;
+  border:1px solid var(--line); color:var(--fg); background:var(--bg);
+  cursor:pointer; text-decoration:none;
+}
+.btn:hover{background:var(--hover); text-decoration:none}
+.btn.pri{background:var(--accent); border-color:var(--accent); color:#fff}
+.btn.pri:hover{filter:brightness(1.06); background:var(--accent)}
+.btn[aria-disabled="true"]{opacity:.55; cursor:default; pointer-events:none}
+
+/* 兴趣互动：纯匿名点击（走 Analytics 自定义事件，不留个人信息），留一个可选的邮件入口 */
+.interest{border:1px solid var(--line); border-radius:8px; padding:20px 22px; margin:26px 0 4px; text-align:center}
+.interest .iq{margin:0 0 14px; font-size:16px; font-weight:600}
+.ibtns{display:flex; align-items:center; justify-content:center; gap:12px; flex-wrap:wrap; min-height:36px}
+.ithanks{font-size:14px; color:var(--accent-ink); opacity:0; transition:opacity .3s ease}
+.ithanks.show{opacity:1}
+.imore{margin:16px 0 0; font-size:13.5px; color:var(--fg3)}
+.imore a{color:var(--accent-ink)}
+#btnInterested:disabled{opacity:.6; cursor:default}
+
+footer{
+  text-align:center; color:var(--fg3); font-size:13.5px;
+  padding:56px 24px 64px;
+}
+footer .chute{font-size:30px; display:block; margin-bottom:10px}
+footer .sig{color:var(--fg2); font-size:15px; margin-bottom:8px}
+
+@media (max-width:560px){
+  .cover{height:150px}
+  .cover .chute{font-size:110px}
+  .pkey{flex-basis:108px}
+  h2{margin-top:48px}
+  .crumb .sys{display:none}
+}
+@media (prefers-reduced-motion: reduce){
+  *{transition:none !important; animation:none !important}
+}
+</style>
+</head>
+<body>
+
+<nav class="topbar">
+  <span class="crumb"><span class="chute-top" id="chuteTop" role="button" tabindex="0" title="回到顶部 · Back to top" aria-label="Back to top">🪂</span> <b>ailayoff.me</b> <span class="slash">/</span> <span class="sys">joblander</span></span>
+  <span class="sp"></span>
+  <span class="langseg" role="group" aria-label="Language">
+    <button id="lang-en" onclick="setLang('en')">EN</button>
+    <button id="lang-zh" onclick="setLang('zh')">中文</button>
+  </span>
+</nav>
+
+<div class="cover"><span class="chute" aria-hidden="true">🪂</span></div>
+
+<header class="page pagehead">
+  <span class="picon" aria-hidden="true">🪂</span>
+  <h1>
+    <span class="en">From laid&nbsp;off to landed.</span>
+    <span class="zh">从被裁，到上岸。</span>
+  </h1>
+  <p class="tagline">
+    <span class="en">An open-source, local-first multi-agent war room that runs your job search like an operation — while your data never leaves your machine.</span>
+    <span class="zh">一套开源、local-first 的多智能体求职作战系统——把找工作打成一场有章法的战役，数据永远留在你自己的电脑上。</span>
+  </p>
+</header>
+
+<div class="page">
+  <div class="props">
+    <div class="prow">
+      <span class="pkey">📦 <span class="en">Project</span><span class="zh">项目</span></span>
+      <span class="pval"><code class="i">joblander</code> <span class="dim"><span class="en">— agents for sourcing, scoring, resumes, briefs &amp; reports</span><span class="zh">—— 扫机会、评分、简历、简报、战报的 Agent 班子</span></span></span>
+    </div>
+    <div class="prow">
+      <span class="pkey">🚧 <span class="en">Status</span><span class="zh">状态</span></span>
+      <span class="pval"><span class="en">In live combat on its builder's own layoff · repo opens when battle-tested</span><span class="zh">正在作者本人的求职实战中服役 · 打完仗开源</span></span>
+    </div>
+    <div class="prow">
+      <span class="pkey">🔒 <span class="en">Data</span><span class="zh">数据</span></span>
+      <span class="pval"><span class="en">Local-first — code is public, your workspace stays on your machine</span><span class="zh">Local-first —— 代码开源，工作区留在你本机</span></span>
+    </div>
+    <div class="prow">
+      <span class="pkey">🌐 <span class="en">This domain</span><span class="zh">这个域名</span></span>
+      <span class="pval"><span class="en">Future home of the hosted version — today, the story and the plan</span><span class="zh">托管版未来的家 —— 今天先放下故事和计划</span></span>
+    </div>
+    <div class="prow">
+      <span class="pkey">💼 <span class="en">Author</span><span class="zh">作者</span></span>
+      <span class="pval"><a href="https://www.linkedin.com/in/liangshuailong" target="_blank" rel="noopener">LinkedIn ↗</a> <span class="dim"><span class="en">— open to AI engineering roles</span><span class="zh">—— AI 工程岗位机会，欢迎来聊</span></span></span>
+    </div>
+  </div>
+
+  <hr>
+
+  <div class="callout co-hero">
+    <span class="ic" aria-hidden="true">🪂</span>
+    <div>
+      <p class="en">I got laid off in July 2026. Instead of refreshing job boards at 2&nbsp;a.m., I built my search a war room — agents that scout roles, score them honestly against my real track record, forge tailored resumes, and brief me before every interview. It runs my own search today, live. When the battle's won, it's yours.</p>
+      <p class="zh">2026 年 7 月，我被裁了。与其凌晨两点刷招聘网站，不如给求职建一间作战室——Agent 帮我扫岗位、对照真实履历诚实打分、锻造定制简历、每场面试前递上情报简报。它此刻正在我自己的求职里实战服役。打完这仗，它就是你的。</p>
+      <p class="en">And if you have a role in hand that could end this battle sooner — <a href="https://www.linkedin.com/in/liangshuailong" target="_blank" rel="noopener">find me on LinkedIn</a>.</p>
+      <p class="zh">如果你手头正好有能让这仗早点结束的机会——<a href="https://www.linkedin.com/in/liangshuailong" target="_blank" rel="noopener">来 LinkedIn 找我</a>。</p>
+      <p class="sig"><b>ai·layoff·me</b> — <span class="en">three words that read like bad news. This site is the reply.</span><span class="zh">这三个词连起来像一条坏消息。这个网站，是我的回答。</span></p>
+    </div>
+  </div>
+
+  <div class="interest">
+    <p class="iq"><span class="en">Would this actually help you?</span><span class="zh">这东西对你有用吗？</span></p>
+    <div class="ibtns">
+      <button class="btn pri" id="btnInterested" type="button">
+        <span class="en">🙋 Yes, I'd use this</span><span class="zh">🙋 会，我想用</span>
+      </button>
+      <span class="ithanks" id="ithanks" aria-live="polite"></span>
+    </div>
+    <p class="imore">
+      <span class="en">Want a heads-up when the hosted version ships, or just want to say hi?</span><span class="zh">想在托管版上线时收到通知，或者只是想打个招呼？</span>
+      <a href="mailto:liangshuailong@gmail.com?subject=ailayoff.me"><span class="en">Email me →</span><span class="zh">给我发邮件 →</span></a>
+    </p>
+  </div>
+</div>
+
+<div class="wide">
+  <h2><span class="em">✨</span><span class="en">What's inside</span><span class="zh">系统亮点</span></h2>
+  <p class="secsub"><span class="en">Six rooms, one campaign.</span><span class="zh">六个房间，一场战役。</span></p>
+
+  <div class="cards">
+    <div class="card">
+      <span class="em" aria-hidden="true">🎛️</span>
+      <h3><span class="en">Command Center<span class="alias">指挥中心</span></span><span class="zh">指挥中心<span class="alias">Command Center</span></span></h3>
+      <p class="en">Open the door, know where you stand: the next four days of interviews, today's decisions, and a diary drafted from what actually happened — not what you wish had.</p>
+      <p class="zh">推门就知道战况：未来四天的场次、今天该拍板的事，以及一份从真实事件里长出来的日记草稿——不是愿望清单。</p>
+    </div>
+    <div class="card">
+      <span class="em" aria-hidden="true">📡</span>
+      <h3><span class="en">Leads<span class="alias">新机会</span></span><span class="zh">新机会<span class="alias">Leads</span></span></h3>
+      <p class="en">Scans your inbox and job boards; paste any JD link and a scout agent parses it, scores fit against your achievement bank, and queues it for your yes or no.</p>
+      <p class="zh">扫邮箱、扫职位站；丢一条 JD 链接进来，侦察 Agent 解析岗位、对照你的弹药库打匹配分，排好队等你说要不要。</p>
+    </div>
+    <div class="card">
+      <span class="em" aria-hidden="true">⚔️</span>
+      <h3><span class="en">War Room<span class="alias">作战室</span></span><span class="zh">作战室<span class="alias">War Room</span></span></h3>
+      <p class="en">Every company in play on one board — drag cards through stages, edit inline in table view, two-way sync with your Notion tracker.</p>
+      <p class="zh">所有战线一张看板：拖卡片换阶段、表格原位编辑，和 Notion 追踪表双向同步。</p>
+    </div>
+    <div class="card">
+      <span class="em" aria-hidden="true">🎯</span>
+      <h3><span class="en">Arsenal<span class="alias">弹药库</span></span><span class="zh">弹药库<span class="alias">Arsenal</span></span></h3>
+      <p class="en">Your STAR stories are the single source of truth. A resume agent forges a per-company PDF from them — versioned, with bullets on exactly what changed and why.</p>
+      <p class="zh">STAR 素材是唯一事实源。简历 Agent 据此为每家公司锻造定制 PDF——版本化留档，附上「改了哪、为什么」。</p>
+    </div>
+    <div class="card">
+      <span class="em" aria-hidden="true">🧠</span>
+      <h3><span class="en">Staff Office<span class="alias">参谋部</span></span><span class="zh">参谋部<span class="alias">Staff Office</span></span></h3>
+      <p class="en">A capability radar against the JDs you actually target, morning briefs, daily and weekly reports — with a notes section that stays in your own hand.</p>
+      <p class="zh">对照目标 JD 的能力雷达，晨报、日报、周报——并且永远留一栏给你亲笔写的手记。</p>
+    </div>
+    <div class="card">
+      <span class="em" aria-hidden="true">🏋️</span>
+      <h3><span class="en">Drill Ground<span class="alias">练兵场</span></span><span class="zh">练兵场<span class="alias">Drill Ground</span></span></h3>
+      <p class="en">Random algorithm problems with a built-in Python judge. Warm up your hands before the whiteboard does it for you.</p>
+      <p class="zh">随机算法题 + 内置 Python 判题器。白板考你之前，先自己热热手。</p>
+    </div>
+  </div>
+</div>
+
+<div class="page">
+  <h2><span class="em">⚖️</span><span class="en">House rules</span><span class="zh">四条规矩</span></h2>
+  <p class="secsub"><span class="en">The constraints are the product.</span><span class="zh">这些约束本身就是产品。</span></p>
+
+  <div class="callout rule">
+    <span class="ic" aria-hidden="true">🤝</span>
+    <div>
+      <b><span class="en">Agents propose. You decide.</span><span class="zh">Agent 只提案，人来拍板。</span></b>
+      <p class="en">No message ever leaves for a real human on your behalf. Drafts, yes — the send button is yours. No auto-apply, ever.</p>
+      <p class="zh">任何发给真人的消息都不会替你发出。可以起草，发送键永远在你手里。绝不自动投递。</p>
+    </div>
+  </div>
+  <div class="callout rule">
+    <span class="ic" aria-hidden="true">📜</span>
+    <div>
+      <b><span class="en">Everything is an event.</span><span class="zh">万事皆事件。</span></b>
+      <p class="en">Interviews, emails, transcripts, edits, decisions — each company is an append-only file you can audit later.</p>
+      <p class="zh">面试、邮件、转写、修改、决策——每家公司一份只增不删的档案，全程可回溯。</p>
+    </div>
+  </div>
+  <div class="callout rule">
+    <span class="ic" aria-hidden="true">⚖️</span>
+    <div>
+      <b><span class="en">No inflated scores.</span><span class="zh">反虚高。</span></b>
+      <p class="en">Fit is measured against your actual track record, not wishful keywords. Where you're weak, it says weak — before the interviewer does.</p>
+      <p class="zh">匹配分对照你的真实履历打，不靠关键词自我感动。哪里是短板就标短板——赶在面试官指出来之前。</p>
+    </div>
+  </div>
+  <div class="callout rule">
+    <span class="ic" aria-hidden="true">🔒</span>
+    <div>
+      <b><span class="en">Local-first.</span><span class="zh">Local-first。</span></b>
+      <p class="en">The code is a public repo. The workspace — resumes, transcripts, pipeline — lives outside it on your machine, and is never committed.</p>
+      <p class="zh">代码是公开仓库；工作区——简历、转写、pipeline——建在仓库之外、留在你本机，永不提交。</p>
+    </div>
+  </div>
+
+  <h2><span class="em">🧭</span><span class="en">Why this exists</span><span class="zh">为什么做这个</span></h2>
+  <p class="en">Getting laid off hands you two problems: the search itself, and the shapeless days it comes wrapped in. A pipeline you can see beats an anxiety you can't. joblander gives the search edges — stages, files, briefs, reports — so each morning starts with <em>what needs deciding</em>, not <em>where do I even look</em>.</p>
+  <p class="zh">被裁塞给你两个难题：求职本身，和包裹着它的一段没有形状的日子。看得见的 pipeline，胜过看不见的焦虑。joblander 把求职做成一件有棱有角的事——阶段、档案、简报、战报——每个早晨从「今天要拍板什么」开始，而不是「我该从哪看起」。</p>
+  <p class="en">There's a second bet. Its builder interviews for AI engineering roles, so the tool is built the way you'd build at work: a crew of agents, event-sourced state, proposal-and-approval flows, honest evals. The job search became the demo.</p>
+  <p class="zh">还有第二层打算。作者面的是 AI 工程岗，所以这套工具就按上班的标准造：多智能体分工、事件源状态、提案-批准流、诚实的评测。求职本身，成了最好的 demo。</p>
+  <div class="quote">
+    <span class="en">The most convincing system is the one you built because you truly needed it.</span>
+    <span class="zh">最有说服力的作品，是你因为真的需要，而造出来的那一个。</span>
+  </div>
+
+  <h2><span class="em">🏗️</span><span class="en">The architecture</span><span class="zh">架构</span></h2>
+  <p class="secsub"><span class="en">Events in, rules route, agents propose, a sentinel screens, you approve — and the approval is an event too.</span><span class="zh">事件进，规则派工，Agent 提案，宪兵过检，你拍板——而批准本身，也是一条事件。</span></p>
+
+  <div class="arch">
+    <p class="lanecap"><span class="en">Ingestion · gateways only perceive</span><span class="zh">感知层 · 只感知，不判断</span></p>
+    <div class="lane">
+      <span class="chip">📧 <span class="en">Gmail poller</span><span class="zh">Gmail 轮询</span><span class="cap"><span class="en">read-only, always</span><span class="zh">永远只读</span></span></span>
+      <span class="chip">🎙️ <span class="en">Transcript inbox</span><span class="zh">转写收件箱</span></span>
+      <span class="chip">📅 <span class="en">Calendar poller</span><span class="zh">日历轮询</span></span>
+      <span class="chip">🗂️ <span class="en">Notion diff-pull</span><span class="zh">Notion 差量回流</span><span class="cap"><span class="en">tracker edits land as events</span><span class="zh">追踪表改动落为事件</span></span></span>
+      <span class="chip">🕷️ <span class="en">Scraper / paste-in</span><span class="zh">抓取 / 贴入</span></span>
+      <span class="chip">⏰ <span class="en">Clock</span><span class="zh">时钟</span><span class="cap"><span class="en">daily &amp; weekly ticks</span><span class="zh">每日 · 每周定时</span></span></span>
+    </div>
+    <div class="flow"><span class="ar">↓</span><span class="en">everything lands as an event first</span><span class="zh">一切输入，先落事件</span></div>
+
+    <p class="lanecap"><span class="en">Orchestration core · deterministic, no LLM in control flow</span><span class="zh">编排核心 · 纯代码控制流，LLM 不掌舵</span></p>
+    <div class="lane">
+      <span class="chip core">🗄️ Event Log<span class="cap"><span class="en">append-only · single source of truth</span><span class="zh">只增不删 · 唯一事实源</span></span></span>
+      <span class="chip core">⏱️ Daemon<span class="cap"><span class="en">8 resident jobs · never nags, degrades quietly</span><span class="zh">8 个常驻作业 · 永不催办 · 静默降级</span></span></span>
+      <span class="chip core">🖱️ <span class="en">On-demand</span><span class="zh">随手触发</span><span class="cap"><span class="en">UI buttons &amp; CLI · tracked tasks</span><span class="zh">页面按钮与 CLI · 任务化追踪</span></span></span>
+    </div>
+    <div class="flow"><span class="ar">↓</span><span class="en">dispatches stateless workers, context assembled per run</span><span class="zh">派发无状态 worker——每次运行按需装配上下文</span></div>
+
+    <p class="lanecap"><span class="en">Capability layer · 7 domains — a new feature is a new workflow, never a new agent</span><span class="zh">能力层 · 7 个能力域——新功能是新编排，不是新 Agent</span></p>
+    <div class="lane">
+      <span class="chip">🔭 Scout<span class="cap"><span class="en">signals → scored leads · 3-tier dedup</span><span class="zh">侦察 · 信号→评分线索 · 三级查重</span></span></span>
+      <span class="chip">🔎 Researcher<span class="cap"><span class="en">one ReAct diligence loop — seeded or zero-input; every claim dated &amp; cited</span><span class="zh">尽调 ReAct 单循环——可喂料可零输入 · 证据带来源与日期</span></span></span>
+      <span class="chip">🧮 Analyst<span class="cap"><span class="en">policy-as-code: functions decide, LLM narrates</span><span class="zh">军师 · 策略即代码——函数下判断，LLM 只转述</span></span></span>
+      <span class="chip">🗓️ Coordinator<span class="cap"><span class="en">slot rules · gap reconciliation · confirm-to-write</span><span class="zh">调度 · 时段规则 · 排期对账 · 确认制写入</span></span></span>
+      <span class="chip">🎯 Prep<span class="cap"><span class="en">context → ammo, per interview round</span><span class="zh">参谋 · 上下文→弹药，按轮次定制</span></span><span class="crew"><i><span class="en">Brief · deep-think</span><span class="zh">简报 · 深思考</span></i><i><span class="en">Resume forge · ReAct</span><span class="zh">简历锻造 · ReAct</span></i><i><span class="en">Coach · chat</span><span class="zh">教练 · 对话</span></i></span></span>
+      <span class="chip">✍️ Scribe<span class="cap"><span class="en">intake states facts, review judges — split on purpose</span><span class="zh">书记 · 录入陈述事实，复盘才下判断</span></span></span>
+      <span class="chip ghost">🔌 <span class="en">LLM runtime</span><span class="zh">LLM 运行时</span><span class="cap"><span class="en">your own key · 3 model tiers · reasoning-effort dial</span><span class="zh">自带 key · 模型三档 · 思考力度按需</span></span></span>
+    </div>
+    <div class="flow"><span class="ar">↓</span><span class="en">artifacts &amp; change proposals — no agent ever writes directly</span><span class="zh">产物与变更提案——任何 Agent 都不许直接写</span></div>
+
+    <div class="lane">
+      <span class="guard">🛡️ <b>Sentinel</b> · <span class="en">the 7th domain, cross-cutting every exit</span><span class="zh">第 7 个能力域 · 宪兵，横切一切出口</span>
+        <span class="cap"><span class="en">rules layer: auditable wordlists, unit-tested, seeded-violation P/R regression · judgment layer: an LLM checklist watching narrative drift across interviews — the writer never judges its own work</span><span class="zh">规则层：可审计词表 + 播种违例 P/R 回归；判断层：LLM 按清单盯跨场次叙事漂移——写的人不能自己当裁判</span></span></span>
+    </div>
+    <div class="flow"><span class="ar">↓</span><span class="en">screened proposals queue for review</span><span class="zh">过检的提案，排队待批</span></div>
+
+    <p class="lanecap"><span class="en">The gate</span><span class="zh">闸门</span></p>
+    <div class="lane">
+      <span class="gate">👤 <span class="en">YOU</span><span class="zh">你</span> <span class="what"><span class="en">approve · edit · reject — every message to a human is sent by a human</span><span class="zh">批准 · 修改 · 否决——发给真人的消息，永远由真人发出</span></span></span>
+    </div>
+    <div class="flow"><span class="ar">↓</span><span class="en">approved writes only — and the approval is logged as an event</span><span class="zh">批准了才写——审批记录本身也落为事件</span></div>
+
+    <p class="lanecap"><span class="en">Memory &amp; outputs · local workspace</span><span class="zh">记忆与产出 · 本地工作区</span></p>
+    <div class="lane">
+      <span class="chip">🗃️ <span class="en">Company files</span><span class="zh">公司档案</span><span class="cap"><span class="en">event-sourced, auditable</span><span class="zh">事件源 · 可回溯</span></span></span>
+      <span class="chip">🎯 <span class="en">Profile &amp; achievement bank</span><span class="zh">Profile 与弹药库</span><span class="cap"><span class="en">single source for every resume, versioned per company</span><span class="zh">一切简历的唯一素材源 · 按公司版本化</span></span></span>
+      <span class="chip">📖 Playbook<span class="cap"><span class="en">lessons feed the next brief</span><span class="zh">上场的失分，进下场的简报</span></span></span>
+      <span class="chip">🧪 <span class="en">Evals</span><span class="zh">评测</span><span class="cap"><span class="en">golden sets · LLM-as-judge · an LLM-as-user walks the UI</span><span class="zh">金标集 · LLM 当裁判 · 再派一个 LLM 扮用户走全站</span></span></span>
+      <span class="chip">🗂️ <span class="en">Notion &amp; Calendar</span><span class="zh">Notion 与日历</span><span class="cap"><span class="en">written only after approval</span><span class="zh">批准后才写回</span></span></span>
+    </div>
+    <div class="loopnote"><span class="ar">↺</span><span class="en">Every run assembles its context from this memory — the next proposal carries the whole history.</span><span class="zh">每一次运行都从这里装配上下文——下一个提案，带着全部历史。</span></div>
+  </div>
+  <p class="small"><span class="en">Not a vision diagram — the loop above is the one in live service on the author's own search right now.</span><span class="zh">这不是愿景图——上面这个循环，此刻正在作者本人的求职里实战服役。</span></p>
+
+  <h2><span class="em">🚀</span><span class="en">Run it yourself</span><span class="zh">自己跑起来</span></h2>
+  <p class="en">Python 3.10+, dependencies kept thin, web UI server-rendered, bound to <code class="i">127.0.0.1</code> only. Bring your own LLM key.</p>
+  <p class="zh">Python 3.10+，依赖极薄，Web UI 服务端渲染，默认只绑 <code class="i">127.0.0.1</code>。自带 LLM key 即可。</p>
+  <div class="codeblock"><pre>git clone &lt;repo&gt;                       <span class="c"># <span class="en">opening up soon — see roadmap</span><span class="zh">整理开源中——见路线图</span></span>
+cd joblander
+cp config.example.yaml config.yaml     <span class="c"># <span class="en">point it at your private workspace</span><span class="zh">指向你的私有工作区</span></span>
+pip install -e .
+python -m joblander web                <span class="c"># → http://127.0.0.1:8899</span></pre></div>
+  <p class="small"><span class="en">The workspace (resumes, transcripts, pipeline) is created outside the repo and never committed — see the Local-first rule above.</span><span class="zh">工作区（简历、转写、pipeline）建在仓库之外、永不提交——见上面的 Local-first 规矩。</span></p>
+
+  <h2><span class="em">🗺️</span><span class="en">Roadmap</span><span class="zh">路线图</span></h2>
+  <div class="todo done"><span class="box" aria-hidden="true"></span><div><span class="en">Local web UI + CLI — all six rooms live</span><span class="zh">本地 Web UI + CLI——六个房间全部可用</span></div></div>
+  <div class="todo done"><span class="box" aria-hidden="true"></span><div><span class="en">Agent crew: scout, assessor, interview-brief writer, resume customiser</span><span class="zh">Agent 班子：侦察、评估、面试简报、简历定制</span></div></div>
+  <div class="todo done"><span class="box" aria-hidden="true"></span><div><span class="en">Integrations: Notion two-way tracker, Gmail (read-only), Calendar</span><span class="zh">集成：Notion 双向追踪、Gmail（只读）、日历</span></div></div>
+  <div class="todo"><span class="box" aria-hidden="true"></span><div><span class="en">Open-source release of the engine</span><span class="zh">引擎开源发布</span><span class="note"><span class="en">— being hardened in daily combat first</span><span class="zh">—— 先在日常实战里淬炼</span></span></div></div>
+  <div class="todo"><span class="box" aria-hidden="true"></span><div><span class="en">One-command deploy — this domain becomes the hosted demo</span><span class="zh">一键部署——这个域名跑起托管版</span></div></div>
+  <div class="todo"><span class="box" aria-hidden="true"></span><div><span class="en">Guided setup so non-engineers can land too</span><span class="zh">引导式安装，非工程师也能十分钟上手</span></div></div>
+
+  <h2><span class="em">💬</span><span class="en">Questions</span><span class="zh">常见问题</span></h2>
+  <details class="faq">
+    <summary><span class="en">Will it apply to jobs for me?</span><span class="zh">它会自动帮我投递吗？</span></summary>
+    <div class="body">
+      <p class="en">No — by design. It scouts, scores, drafts and preps; submitting an application and sending a message stay human acts. Recruiters can smell automation, and your name deserves better. This rule is load-bearing.</p>
+      <p class="zh">不会，而且是刻意设计。它负责侦察、打分、起草、备战；提交申请和发出消息永远是人的动作。招聘方闻得出群发的味道，你的名字值得更好的对待。这条规矩是承重墙。</p>
+    </div>
+  </details>
+  <details class="faq">
+    <summary><span class="en">Is my data safe?</span><span class="zh">我的数据安全吗？</span></summary>
+    <div class="body">
+      <p class="en">The repo ships code only. Everything personal lives in a separate local folder that git never sees. LLM calls go to whichever provider you configure with your own key — read their terms; nothing else leaves your machine.</p>
+      <p class="zh">仓库里只有代码。所有个人数据放在 git 看不见的独立本地目录。LLM 调用只发给你自己配置、自己掏 key 的服务商——记得读他们的条款；除此之外没有任何数据离开你的电脑。</p>
+    </div>
+  </details>
+  <details class="faq">
+    <summary><span class="en">I'm not an engineer. Can I use it?</span><span class="zh">我不是工程师，能用吗？</span></summary>
+    <div class="body">
+      <p class="en">Today it takes a terminal and a Python install. A hosted, guided version is on the roadmap — that's exactly what this domain is reserved for.</p>
+      <p class="zh">现在需要会开终端、装 Python。托管版和引导式安装在路线图上——这个域名就是给它留的。</p>
+    </div>
+  </details>
+  <details class="faq">
+    <summary><span class="en">Why the name?</span><span class="zh">为什么叫 ailayoff.me？</span></summary>
+    <div class="body">
+      <p class="en">Read it three ways: <i>ai·layoff·me</i>, a plain bad-news sentence; "AI laid off me", the era we're in; or AI + layoff + me — the three ingredients this project is made of. The reply to all three readings is the same: land well, then leave the parachute for the next person.</p>
+      <p class="zh">三种读法：<i>ai·layoff·me</i>，一句平铺直叙的坏消息；"AI laid off me"，我们正身处的时代；或者 AI + 被裁 + 我——这个项目的全部原料。三种读法的回答是同一个：好好落地，然后把降落伞留给下一个人。</p>
+    </div>
+  </details>
+</div>
+
+<footer>
+  <span class="chute chute-share" id="chuteFooter" role="button" tabindex="0" title="复制链接，分享给需要的人 · Copy link to share" aria-label="Copy link to share">🪂</span>
+  <div class="sig"><span class="en">Pack a parachute for the next one.</span><span class="zh">给下一个被裁的人，留一顶降落伞。</span></div>
+  <div class="copied-note" id="copiedNote" aria-live="polite"><span class="en">Link copied — pass it on.</span><span class="zh">链接已复制，传给下一个人。</span></div>
+  <div>© 2026 ailayoff.me · <span class="en">built mid-battle, in public</span><span class="zh">边打仗，边造</span> · <a href="https://www.linkedin.com/in/liangshuailong" target="_blank" rel="noopener">LinkedIn</a></div>
+</footer>
+
+<script>
+function setLang(l){
+  document.documentElement.dataset.lang = l;
+  document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
+  try { localStorage.setItem('al-lang', l); } catch(e){}
+  document.title = l === 'zh'
+    ? 'ailayoff.me —— 从被裁，到上岸'
+    : 'ailayoff.me — from laid off to landed';
+  paintSeg();
+}
+function paintSeg(){
+  var cur = document.documentElement.dataset.lang;
+  ['en','zh'].forEach(function(l){
+    var b = document.getElementById('lang-' + l);
+    b.classList.toggle('on', cur === l);
+    b.setAttribute('aria-pressed', cur === l ? 'true' : 'false');
+  });
+}
+paintSeg();
+if (document.documentElement.dataset.lang === 'zh') setLang('zh');
+
+(function(){
+  var ct = document.getElementById('chuteTop');
+  if (!ct) return;
+  function onScroll(){ ct.classList.toggle('wake', window.scrollY > 400); }
+  addEventListener('scroll', onScroll, {passive: true});
+  onScroll();
+  function jump(){
+    ct.classList.remove('land'); void ct.offsetWidth; ct.classList.add('land');
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }
+  ct.addEventListener('click', jump);
+  ct.addEventListener('keydown', function(e){
+    if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); jump(); }
+  });
+})();
+
+(function(){
+  var cf = document.getElementById('chuteFooter');
+  var note = document.getElementById('copiedNote');
+  if (!cf) return;
+  var noteTimer;
+  function legacyCopy(text){                    // clipboard-write 权限缺失/被拒时兜底
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) {}
+  }
+  function share(){
+    cf.classList.remove('land'); void cf.offsetWidth; cf.classList.add('land');
+    setTimeout(function(){ cf.classList.remove('land'); }, 650);
+    function shown(){
+      if (!note) return;
+      note.classList.add('show');
+      clearTimeout(noteTimer);
+      noteTimer = setTimeout(function(){ note.classList.remove('show'); }, 2200);
+    }
+    var url = location.href.split('#')[0];
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(url).then(shown, function(){ legacyCopy(url); shown(); });
+      } else {
+        legacyCopy(url); shown();
+      }
+    } catch (e) {
+      legacyCopy(url); shown();
+    }
+  }
+  cf.addEventListener('click', share);
+  cf.addEventListener('keydown', function(e){
+    if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); share(); }
+  });
+})();
+</script>
+<script>
+window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
+<script>
+(function(){
+  var b = document.getElementById('btnInterested');
+  var t = document.getElementById('ithanks');
+  if (!b) return;
+  var KEY = 'al-interested';
+  function already(){ try { return localStorage.getItem(KEY) === '1'; } catch (e) { return false; } }
+  function mark(){ try { localStorage.setItem(KEY, '1'); } catch (e) {} }
+  function say(en, zh){
+    if (!t) return;
+    t.innerHTML = '<span class="en">' + en + '</span><span class="zh">' + zh + '</span>';
+    t.classList.add('show');
+  }
+  if (already()){
+    b.disabled = true;
+    say('Thanks — already noted!', '谢谢，已经记下了！');
+  }
+  function pingInterested(){                    // Custom Events 需要 Vercel Pro；免费版走真实 /interested/ 页面浏览量计数
+    try {
+      var f = document.createElement('iframe');
+      f.style.display = 'none';
+      f.setAttribute('aria-hidden', 'true');
+      f.src = '/interested/';
+      document.body.appendChild(f);
+      setTimeout(function(){ f.remove(); }, 2500);
+    } catch (e) {}
+  }
+  b.addEventListener('click', function(){
+    pingInterested();
+    mark();
+    b.disabled = true;
+    say('Thanks — noted!', '谢谢，已经记下了！');
+  });
+})();
+</script>
+</body>
+</html>

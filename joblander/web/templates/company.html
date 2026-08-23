@@ -1,0 +1,633 @@
+{% extends "base.html" %}
+{% block title %}{{ r.Company }} · joblander{% endblock %}
+{% block main %}
+{% set AUDIO_EXT = ('.m4a', '.mp3', '.wav', '.ogg', '.aac') %}
+<div class="topbar"><span class="crumb"><a href="/pipeline">作战室</a> / <b>{{ r.Company }}</b></span><span class="sp"></span>
+  <button class="btn" onclick="dlg('dlg-note')">＋ 记录</button>
+  <button class="btn" onclick="dlg('dlg-scribe')">转写 → 录入</button>
+  <button class="btn pri" onclick="dlg('dlg-brief')">生成 brief</button>
+  <details class="dd"><summary class="btn" title="更多动作">⋯</summary>
+    <div class="ddm">
+      <button class="btn" onclick="post('/api/company/assess',{page_id:'{{ r.notion_page_id }}'},{btn:this,ok:'评估完成',reload:true})" title="按 JD + 本人材料 + 薪酬信号出匹配快照与雷达（LLM，约 30-45 秒）">🎯 评估匹配</button>
+      <button class="btn" onclick="dlg('dlg-slots')" title="贴入含时间的邀约：抽取候选时段 → 对照日历跑排期规则 → 推荐 + 回复草稿（你来发）">📅 排期</button>
+      <button class="btn" onclick="dlg('dlg-research')" title="尽调员多轮检索出带来源简介；有料可喂入当种子，留空全自动">🔎 尽调</button>
+      <button class="btn" onclick="post('/api/company/referral',{page_id:PID},{})" title="按 LinkedIn 人脉地图选内推人 + 触达草稿（你来发）落时间线">🤝 内推</button>
+      {# Notion 唯一入口（正文不再同步，历史纪要点这看）：url 缺失时按 page_id 兜底 #}
+      {% if r.url or r.notion_page_id %}<a class="btn" href="{{ r.url or 'https://www.notion.so/' ~ (r.notion_page_id | replace('-', '')) }}" target="_blank" title="公司页正文在 Notion——本地只存时间线与档案">Notion ↗</a>{% endif %}
+      <button class="btn danger" onclick="delRow(this)" title="从作战室删除这行：Notion 归档（垃圾桶可恢复）；本地档案与时间线保留">🗑 删除</button>
+    </div>
+  </details>
+</div>
+<h1><span class="edc" style="cursor:pointer" title="点改公司名（本地档案/附件/简历版本会跟着搬家）" data-field="Company" data-type="text" data-cur="{{ r.Company }}" data-pid="{{ r.notion_page_id }}">{{ r.Company }}</span> <span class="pill teal" style="vertical-align:4px">{{ r.Status }}</span>
+  <span class="pill {{ {'High':'red','Medium':'amber','Low':'blue'}.get(r.Priority, 'gray') }} edc" style="vertical-align:4px;cursor:pointer" title="点改优先级" data-field="Priority" data-type="select" data-opts=",High,Medium,Low" data-cur="{{ r.Priority or '' }}" data-pid="{{ r.notion_page_id }}">{{ r.Priority or '设优先级 ✎' }}</span>
+  <span class="pill {{ 'red' if meta.get('my_flag') else 'gray' }}" style="vertical-align:4px;cursor:pointer" title="{{ '取消标记' if meta.get('my_flag') else '球在你这边（自动待办算不出来的），作战室会突出显示' }}" onclick="post('/api/company/flag',{page_id:PID,on:{{ 0 if meta.get('my_flag') else 1 }}},{ok:'{{ '已取消标记' if meta.get('my_flag') else '已标记：在你手上' }}',reload:true})">{{ '⚑ 在你手上' if meta.get('my_flag') else '⚐ 在你手上？' }}</span></h1>
+<div class="sub">{{ r.get('Position') or '' }}{% if r.get('Source') %} · {{ r.Source }}{% endif %}{% if r.get('Contact Person') %} · {{ r.get('Contact Person') }}{% endif %}</div>
+
+{# 阶段流转图：与看板同一套阶段模型；悬停看该段包含的具体状态 #}
+<div class="flow">
+  {%- for s in flow_stages -%}
+  {%- if not loop.first %}<i class="fc{{ ' on' if s.state }}"></i>{% endif -%}
+  <span class="fn {{ s.state }}" title="{{ s.hint }}"><i class="dot"></i>{{ s.label }}
+    {%- if s.state == 'cur' and s.statuses | length > 1 %} <b class="fsub">{{ r.Status }}</b>{% endif -%}
+  </span>
+  {%- endfor -%}
+  <i class="fc exit"></i><span class="fn exit{{ ' cur' if flow_closed }}" title="Rejected / Terminated / Withdrawn / Not Apply——任一阶段都可能转入"><i class="dot"></i>{{ r.Status if flow_closed else '关闭' }}</span>
+</div>
+
+{% if due_today %}
+<div class="note" style="margin:0 0 10px;padding:8px 12px;border-radius:8px;background:var(--amber-soft);color:var(--amber);font-weight:500">
+  ⏰ Follow-up 到期（{{ r.get('Follow-up Reminder') }}）——这是看板上标橙色的原因，下一步：{{ r.get('Next Steps') or '（未填，点下面「下一步」补一句）' }}
+</div>
+{% endif %}
+<div class="facts">
+  <div class="f"><div class="l">下一步 ✎</div><div class="v edc" data-field="Next Steps" data-type="text" data-cur="{{ r.get('Next Steps') or '' }}" data-pid="{{ r.notion_page_id }}">{{ r.get('Next Steps') or '—' }}</div></div>
+  <div class="f"><div class="l">follow-up ✎</div><div class="v edc num {{ 'due' if due_today }}" data-field="Follow-up Reminder" data-type="date" data-cur="{{ r.get('Follow-up Reminder') or '' }}" data-pid="{{ r.notion_page_id }}">{{ r.get('Follow-up Reminder') or '—' }}</div></div>
+  <div class="f"><div class="l">一句话定位 ✎</div><div class="v edc" data-field="Highlight" data-type="text" data-cur="{{ r.get('Highlight') or '' }}" data-pid="{{ r.notion_page_id }}" style="font-weight:500;font-size:12.5px">{{ r.get('Highlight') or '—' }}</div></div>
+  <div class="f"><div class="l">联系人 ✎</div><div class="v edc" data-field="Contact Person" data-type="text" data-cur="{{ r.get('Contact Person') or '' }}" data-pid="{{ r.notion_page_id }}">{{ r.get('Contact Person') or '—' }}</div></div>
+</div>
+
+<div style="display:flex;gap:6px;margin:2px 0 10px">
+  <a class="btn" href="#cards">三卡</a>{% if props %}<a class="btn" href="#pending" style="color:var(--amber)">待批 {{ props|length }}</a>{% endif %}<a class="btn" href="#ammo">备战</a><a class="btn" href="#tl">时间线</a>{% if orphans %}<a class="btn" href="#atts">未绑附件</a>{% endif %}
+</div>
+
+<div class="grid3 stretch" id="cards">
+  <div class="card">
+    <div class="cardh"><span class="em">📋</span>岗位<span class="note">带 ✎ 的点值即改</span></div>
+    <div class="kvline"><span>岗位 ✎</span><b class="edc" data-field="Position" data-type="text" data-cur="{{ r.get('Position') or '' }}" data-pid="{{ r.notion_page_id }}">{{ r.get('Position') or '—' }}</b></div>
+    {# 链接放 edc 外面：链接自身 stopPropagation 会吃掉原位编辑的点击，
+       URL 存在时整格都是链接 = 没有任何像素能触发编辑（2026-08-11 报障） #}
+    <div class="kvline"><span>JD 链接 ✎</span><span style="display:inline-flex;gap:6px;align-items:center;min-width:0">
+      <span class="edc" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;display:inline-block;cursor:pointer" title="点击原位编辑" data-field="Job URL" data-type="text" data-cur="{{ r.get('Job URL') or '' }}" data-pid="{{ r.notion_page_id }}">{{ r.get('Job URL') or '⚠️ 无（点这里填）' }}</span>
+      {% if r.get('Job URL') %}<a href="{{ r.get('Job URL') }}" target="_blank" title="打开链接">↗</a>
+      <a href="#" title="清除链接（可重填）" style="color:var(--ink-3)" onclick="post('/api/row/update',{page_id:PID,field:'Job URL',value:''},{ok:'JD 链接已清除',reload:true});return false">✕</a>{% endif %}</span></div>
+    <div class="kvline"><span>JD 文件</span>
+      <span style="display:flex;flex-wrap:wrap;gap:5px">{# display:inline-flex 内联写死：.kvline .pill 的 inline-block+overflow:hidden
+   会把文件名后面的 ✎/✕ 裁掉（2026-08-18 报障：删除键一直不可见） #}
+{% for f in jd_files %}<span class="pill gray" style="display:inline-flex;gap:5px;max-width:200px"><a href="/company/{{ r.notion_page_id }}/jd/{{ f.name }}" target="_blank" title="{{ f.name }}（系统内阅读；PDF 原样打开）" style="color:inherit;overflow:hidden;text-overflow:ellipsis;min-width:0">📄 {{ f.name }}</a>{% if f.name.lower().endswith(('.md', '.txt')) %}<a href="#" title="编辑（旧版自动存回收站可恢复）" style="color:var(--ink-3);flex:none" onclick="jdEdit('{{ f.name }}');return false">✎</a>{% endif %}<a href="#" title="删除（移入回收站可恢复；自动挖掘不会拉回）" style="color:var(--ink-3);flex:none" onclick="jdDel('{{ f.name }}');return false">✕</a></span>{% else %}—{% endfor %}</span></div>
+    <div style="margin-top:10px">
+      <a class="btn" href="#" onclick="dlg('dlg-jd');return false">＋ 添加 JD</a>
+    </div>
+    <div class="note">链接、原文、文件都行——给了 JD，「评估匹配」才有的吃。</div>
+  </div>
+
+  <div class="card">
+    <div class="cardh"><span class="em">🚀</span>投递</div>
+    <div class="kvline"><span>入库</span><b>{{ intake or '—' }}</b></div>
+    <div class="kvline"><span>当前阶段 ✎</span><b class="edc" data-field="Status" data-type="select" data-opts="Added,Dream,In Consideration,To Apply,Screening Called,Applied,Interview Scheduled,Interview Completed,Terminated,Not Apply,Offer Received,Rejected,Withdrawn" data-cur="{{ r.Status }}" data-pid="{{ r.notion_page_id }}">{{ r.Status }}</b></div>
+    <div class="kvline"><span>投递日 ✎</span><b class="edc num" data-field="Date Applied" data-type="date" data-cur="{{ r.get('Date Applied') or '' }}" data-pid="{{ r.notion_page_id }}">{{ r.get('Date Applied') or '—' }}</b></div>
+    <div class="kvline"><span>投出的版本</span>
+      {% set rv = meta.get('resume_variant') or '' %}
+      <select style="width:auto" onchange="post('/api/company/meta',{page_id:'{{ r.notion_page_id }}',resume_variant:this.value},{ok:'已记录'})" title="实际发给对方的是哪版——母版直发或定制简历的具体 v 号（对应版本链，一查便知）">
+        <option value="">未记录</option>
+        <option value="标准版（母版）" {{ 'selected' if rv == '标准版（母版）' }}>标准版（母版）</option>
+        <option value="FDE 版（母版）" {{ 'selected' if rv == 'FDE 版（母版）' }}>FDE 版（母版）</option>
+        {% for v in rstate.versions %}
+        <option value="v{{ v.v }}" {{ 'selected' if rv == 'v' ~ v.v }}>定制 v{{ v.v }} · {{ v.at[:16] }}</option>
+        {% endfor %}
+        {% set vvals = rstate.versions | map(attribute='v') | map('string') | list %}
+        {% if rv and rv not in ['标准版（母版）', 'FDE 版（母版）'] and rv[1:] not in vvals %}
+        <option value="{{ rv }}" selected>{{ rv }}（旧记录）</option>
+        {% endif %}
+      </select></div>
+    <div class="kvline" style="align-items:flex-start"><span>岗位亮点 ✎</span>
+      <span id="hl-box" class="hlbox" data-cur="{{ (meta.get('highlights') or []) | join('\n') }}" title="点击原位编辑：一行一条，失焦保存，Esc 取消">
+        {% for h in meta.get('highlights') or [] %}<div class="hlrow">· {{ h }}</div>{% else %}<span class="note">—（点击添加）</span>{% endfor %}
+      </span></div>
+  </div>
+
+  <div class="card">
+    <div class="cardh"><span class="em">🎯</span>匹配{% if assessment and assessment.assessed_at %}<span class="note">评估于 {{ assessment.assessed_at[:16] }}</span>{% endif %}</div>
+    {% if assessment %}
+      {% set jm = (assessment.jd_match or {}).get('score') %}
+      {% set sm = (assessment.salary_match or {}).get('score') %}
+      <div class="scores2">
+        <div class="scorebox"><span class="big">{{ jm or '—' }}<i>/5</i></span>
+          <div class="lbl">JD 匹配</div>
+          <div class="scorebar"><i style="width:{{ (jm or 0) * 20 }}%"></i></div></div>
+        <div class="scorebox"><span class="big">{{ sm if sm is not none else '—' }}<i>/5</i></span>
+          <div class="lbl">薪酬匹配</div>
+          <div class="scorebar"><i style="width:{{ (sm or 0) * 20 }}%"></i></div></div>
+      </div>
+      {% if match_radar %}
+      <svg id="cradar" width="100%" height="300" viewBox="0 0 400 300" style="margin-top:6px"></svg>
+      <div class="note" style="text-align:center"><span style="color:var(--ink-2)">▬ JD 要求</span> → <span style="color:var(--accent-ink)">▮ 我（按弹药库）</span> · 数字对即两值，<span style="color:var(--amber)">差 1 琥珀</span>/<span style="color:var(--red)">差 ≥2 红</span>{% if not (assessment.radar) %} · 旧版画像轴——重跑「评估匹配」出 JD 定制轴{% endif %}</div>
+      {% else %}
+      <div class="note">重跑「评估匹配」即出 JD 定制雷达（轴从该 JD 提炼，不套通用模板）。</div>
+      {% endif %}
+      <div class="note" style="margin-top:8px">依据与缺口详情见时间线「评估快照」 · JD 或档案有更新再点「评估匹配」</div>
+    {% else %}
+      <div class="note">还没评估过。传 JD 后点顶栏 ⋯ →「评估匹配」，出 JD 匹配度 + 薪酬匹配度 + 匹配雷达。</div>
+    {% endif %}
+  </div>
+</div>
+{% if match_radar %}<script defer>addEventListener('DOMContentLoaded',()=>drawRadar(document.getElementById('cradar'), {{ match_radar | tojson }}));</script>{% endif %}
+
+{% if props %}
+<h2 id="pending">待你批（{{ props|length }}）<span class="note" style="text-transform:none;letter-spacing:0">面后录入 / 跟进更新——批准才写入档案与 Notion 字段（正文只存本地）；字段框可先改</span></h2>
+{% for p in props %}
+<div class="prop" style="border-left:3px solid var(--amber)">
+  <div class="hd">{% if p.origin == 'scout.followup' %}<span class="pill amber">Scout · 跟进更新</span>{% elif p.origin == 'note.suggest' %}<span class="pill gray">记录 · 字段建议</span>{% else %}<span class="pill blue">Scribe · 面后录入</span>{% endif %}<b>{{ p.company }}</b>
+    <span class="src">{{ p._file.split('/')[-1] }}</span></div>
+  <div class="bd">
+    <form class="amend" data-file="{{ p._file }}">
+      {% for k,v in p.field_diffs.items() %}
+      <label>{{ k }}</label><input type="text" name="{{ k }}" value="{{ v or '' }}">
+      {% endfor %}
+    </form>
+    {% if p.body_entry %}<div class="kv" style="max-height:180px;overflow:auto">{{ p.body_entry }}</div>{% endif %}
+    {% if p.playbook_updates %}<div class="kv">Playbook 战况：{% for u in p.playbook_updates %}{{ u.id }}={{ u.outcome }} {% endfor %}（批准后自动回写）</div>{% endif %}
+    {% if p.sentinel and p.sentinel != 'PASS' %}<div class="sentinel warn">{{ p.sentinel }}</div>
+    {% else %}<div class="sentinel pass">Sentinel：PASS</div>{% endif %}
+    {% for j in p.judgment or [] %}<div class="sentinel warn">⚠ {{ j.check[:36] }}…：{{ j.note }}</div>{% endfor %}
+  </div>
+  <div class="ft">
+    <button class="btn pri" onclick="amendApply(this)" title="按编辑框当前值写字段 + 条目入下方时间线 + 回写 Playbook 战况">批准执行（可先改字段）</button>
+    <button class="btn danger" onclick="post('/api/proposal/reject',{file:'{{ p._file }}'},{btn:this,ok:'已否决',reload:true})" title="不写入任何系统，只记账，可反悔">否决</button>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+<h2 id="ammo">备战 <span class="note" style="text-transform:none;letter-spacing:0">下一步：{{ r.get('Next Steps') or '—' }} ｜ 参谋 Brief 在时间线（⛶ 全屏读，历史版本在 10-briefs/）</span></h2>
+<div class="card" style="margin-top:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><b>定制简历</b><span class="pill teal" title="弹药库 × 该司 JD → 定制 HTML/PDF，产出过红线守卫；评审=招聘方盲评+教练分拣">ResumeCustomiserAgent</span>
+    <span class="note" style="margin:0">聊归聊、版归版：补料/提意见先跟教练聊（意见累积，下次整份重新生成），说「出一版」或点 ⚙ 才生成 · 事实定点入弹药库 · 版本只增不覆盖</span>
+    {% if rstate.versions %}{% set cur = rstate.versions[-1] %}<span class="sp2"></span>
+    <span class="note" style="margin:0">当前 <b>v{{ cur.v }}</b>/{{ rstate.versions|length }} 版{% if cur.pdf %} · <a href="/files/{{ rbase }}/{{ cur.file }}.pdf" target="_blank">📄 PDF</a>{% endif %} · <a href="/files/{{ rbase }}/{{ cur.file }}.html" target="_blank">HTML</a></span>{% endif %}
+    {% if rstate.versions or rthread_new or rthread_old %}<button class="btn danger" style="flex-shrink:0;margin-left:auto" onclick="resetResume(this)" title="清空对话与版本从头开始：旧版本与对话归档到 resume/archive-*（不物理删除）；「投出的版本」记录保留">🗑 清空重来</button>{% endif %}
+  </div>
+  {% macro rturn(t) %}
+    {% if t.role == 'version' %}
+    <div class="cb ver"><b>⚙ v{{ t.v }} 出炉</b> · {{ t.at }}{% if t.pdf %} · <a href="/files/{{ rbase }}/{{ t.file }}.pdf" target="_blank">📄 PDF</a>{% endif %} · <a href="/files/{{ rbase }}/{{ t.file }}.html" target="_blank">HTML</a>
+      {% if t.eval %}
+      <div class="meta" style="margin-top:5px">🔍 初筛 <b>{{ t.eval.screen }}</b> · HM <b>{{ t.eval.hm }}</b> · 邀约 <b style="color:{{ 'var(--accent-ink)' if t.eval.interview == 'yes' else 'var(--red)' }}">{{ t.eval.interview }}</b>{% if t.eval.hard %} · <span style="color:var(--red)" title="{{ t.eval.hard | join('；') }}">硬检查 {{ t.eval.hard|length }} ❌</span>{% endif %} — {{ t.eval.one_line }}</div>
+      {% else %}
+      <div class="meta" style="margin-top:5px"><button class="btn" style="padding:2px 8px;font-size:12px" onclick="post('/api/resume/eval',{page_id:PID,version:'{{ t.file }}'},{btn:this})" title="招聘方盲评（HR 初筛 + HM 细读）+ 教练分拣，按需手动跑，不占生成时间">🔍 评审这版</button></div>
+      {% endif %}
+      <details style="margin-top:3px"><summary class="note" style="cursor:pointer">细节{% if t.eval %} · <a href="/wsdoc/16-audits/{{ t.eval.report }}" target="_blank" onclick="event.stopPropagation()">完整评审报告</a>{% endif %}</summary>
+        {% if t.note %}<div class="meta" style="margin-top:4px">本版意见：{{ t.note }}</div>{% endif %}
+        {% if t.changes %}<div class="meta" style="margin-top:4px">定制动作：</div><ul class="rc-chg">{% for c in t.changes %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
+        {% if t.eval and t.eval.top_fixes %}<div class="meta" style="margin-top:4px">招聘方修改建议：</div><ul class="rc-chg">{% for f in t.eval.top_fixes %}<li>{{ f }}</li>{% endfor %}</ul>{% endif %}
+        {% if t.eval and t.eval.needs_user %}<div class="meta" style="margin-top:4px">建议补充的信息（弹药库缺，对话里丢给教练即可）：</div><ul class="rc-chg">{% for x in t.eval.needs_user %}<li>{{ x.q }}</li>{% endfor %}</ul>{% endif %}
+      </details>
+    </div>
+    {% else %}
+    <div class="cb {{ 'user' if t.role == 'user' else 'coach' }}"><b>{{ '你' if t.role == 'user' else '教练' }}</b>：{{ t.text }}
+      {% if t.facts %}
+      <div class="plan">归档计划：{% for f in t.facts %}<div>· {{ f.target if f.target != 'new' else '新条目「' ~ (f.new_title or '未归类') ~ '」' }} ← {{ f.bullets | join('；') }}</div>{% endfor %}
+        {% if t.applied %}<span class="note">✅ 已入库</span>
+        {% else %}<button class="btn" onclick="applyPlan(this, '{{ t.plan_id }}')">✔ 确认入库</button>{% endif %}</div>
+      {% endif %}
+      {% if t.opinions %}<div class="note">📌 意见：{{ t.opinions | join('；') }}</div>{% endif %}</div>
+    {% endif %}
+  {% endmacro %}
+  {% set curev = (rstate.versions[-1].eval if rstate.versions else none) %}
+  <div class="rchat" id="rchat">
+    {% if not rthread_new %}
+    <div class="cb coach"><b>教练</b>：还没有版本。可以先把手里的事实/要求丢给我（我归档、记意见），聊到位了说「出一版」；或空着点「⚙ 生成定制简历」直接出首版。想看招聘方视角反馈，出版后点「🔍 评审这版」。</div>
+    {% endif %}
+    {% if rthread_old %}
+    <details class="rc-hist"><summary class="note" style="cursor:pointer">历史（{{ rthread_old|length }} 条：既往版本与对话）</summary>
+      <div class="rc-histb">{% for t in rthread_old %}{{ rturn(t) }}{% endfor %}</div>
+    </details>
+    {% endif %}
+    {% for t in rthread_new %}{{ rturn(t) }}{% endfor %}
+    {% if curev and curev.needs_user and rthread_new and rthread_new[-1].role == 'version' %}
+    <div class="cb coach"><b>教练</b>：这版评审建议补充的信息（弹药库没有，我不编）——写你手里真实有的，我来归档：
+      <ul class="rc-chg" style="margin:4px 0 0">{% for x in curev.needs_user %}<li>{{ x.q }}</li>{% endfor %}</ul></div>
+    {% endif %}
+  </div>
+  <div class="composer">
+    <textarea id="rc-msg" rows="1" placeholder="和教练聊：补料 / 提意见 / 问问题（⌘+Enter 发送）——聊归聊；说「出一版」或点 ⚙ 才生成新版" onkeydown="if((event.metaKey||event.ctrlKey)&&event.key==='Enter'){event.preventDefault();sendChat(document.getElementById('rc-send'))}" oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,130)+'px'"></textarea>
+    <button class="btn pri" id="rc-send" onclick="sendChat(this)" title="输入框有内容=发给教练（教练判断：明确说出版才生成）；空着点=直接出新版（吃已攒的全部意见，一次生成，不自动改稿）。想看招聘方视角反馈，出版后点「🔍 评审这版」；版本只增不覆盖">⚙ {{ '出下一版' if rstate.versions else '生成定制简历' }}</button>
+  </div>
+  <script>
+  addEventListener('DOMContentLoaded', () => {        // 对话默认停在最新一条
+    const b = document.getElementById('rchat'); if (b) b.scrollTop = b.scrollHeight; });
+  document.addEventListener('click', e => {           // ⋯ 菜单：点外面即收
+    document.querySelectorAll('details.dd[open]').forEach(d => {
+      if (!d.contains(e.target)) d.removeAttribute('open'); }); });
+  function _cb(role, html){
+    const d = document.createElement('div'); d.className = 'cb ' + role;
+    d.innerHTML = '<b>' + (role === 'user' ? '你' : '教练') + '</b>：' + html;
+    const box = document.getElementById('rchat'); box.appendChild(d); box.scrollTop = box.scrollHeight;
+    return d;
+  }
+  function _esc(s){ const e = document.createElement('span'); e.textContent = s; return e.innerHTML; }
+  async function sendChat(btn){
+    const ta = document.getElementById('rc-msg'), msg = ta.value.trim();
+    ta.value = ''; ta.style.height = 'auto';
+    if (msg) _cb('user', _esc(msg));
+    const wait = _cb('coach', '…');
+    try {
+      const out = await post('/api/resume/react', {page_id: PID, message: msg}, {quiet: true, btn: btn});
+      const c = out.chat || {};
+      let h = c.reply ? _esc(c.reply) : '';
+      if (c.facts && c.facts.length){
+        h += '<div class="plan">归档计划（确认后入弹药库）：' + c.facts.map(f =>
+          '<div>· ' + _esc(f.target !== 'new' ? f.target : '新条目「' + (f.new_title || '未归类') + '」')
+          + ' ← ' + _esc((f.bullets || []).join('；')) + '</div>').join('')
+          + '<button class="btn" onclick="applyPlan(this, \'' + c.plan_id + '\')">✔ 确认入库</button></div>';
+      }
+      if (c.opinions && c.opinions.length && !out.task)
+        h += '<div class="note">📌 意见已记下——出下一版时一并执行</div>';
+      if (out.task)
+        h += (h ? '<div class="note">' : '<div class="note" style="margin-top:0">')
+           + '⚙ 新版生成中——完成自动刷新</div>';
+      wait.innerHTML = '<b>教练</b>：' + (h || '收到。');
+    } catch(e) { wait.innerHTML = '<b>教练</b>：出错了——' + _esc(String(e.message || e)) + '（重发即可）'; }
+  }
+  function resetResume(btn){
+    if (!btn.dataset.armed){
+      btn.dataset.armed = '1'; btn.textContent = '确认清空？（旧版本会归档）';
+      setTimeout(() => { btn.dataset.armed = ''; btn.textContent = '🗑 清空重来'; }, 3000);
+      return;
+    }
+    post('/api/resume/reset', {page_id: PID}, {btn: btn, ok: '已清空（旧版本已归档）', reload: true});
+  }
+  async function applyPlan(btn, pid){
+    const out = await post('/api/resume/chat/apply', {page_id: PID, plan_id: pid}, {quiet: true, btn: btn});
+    btn.outerHTML = '<span class="note">✅ 已入库：' + _esc((out.changed || []).join('，') || '无变更') + '</span>';
+    toast('弹药库已更新');
+  }
+  </script>
+</div>
+
+<h2 id="tl">时间线 <span class="note" style="text-transform:none;letter-spacing:0">按日分组 · 点标题展开 ｜ <span class="who ai">AI</span> 系统产出 · <span class="who h">人工</span> 你写的 ｜ 附件挂在事件上 ｜ 只存本地，Notion 原文走页顶 ↗</span></h2>
+<div class="tl2">
+  {% for g in tl_groups %}
+  <div class="tlg">
+    <div class="tlg-d"><b class="num">{{ g.date }}</b><span class="note">周{{ g.weekday }}</span></div>
+    <div class="tlg-body">
+      {% for e in g.entries %}
+      <details class="tle2" {{ 'open' if loop.index0 == 0 and g.date == tl_groups[0].date }}>
+        <summary>
+          <span class="ktag k-{{ e.kind or 'note' }}">{{ {'interview':'🎤','oa':'✍️','call':'📞','email':'✉️','apply':'📤','retro':'🧭','assessment':'📊','intake':'📥','transcript':'📄'}.get(e.kind,'📝') }} {{ kind_labels.get(e.kind, '笔记') }}</span>
+          <b class="t" title="{{ e.title }}">{{ e.title }}</b>
+          <span class="who {{ 'ai' if e.author=='ai' else 'h' }}">{{ 'AI' if e.author=='ai' else '人工' }}</span>
+          {% for p in e.participants[:2] %}<span class="pill blue">{{ p }}</span>{% endfor %}
+          {% if e.attachments %}<span class="pill gray" title="{{ e.attachments|length }} 个附件">📎{{ e.attachments|length }}</span>{% endif %}
+          {% if e.my_review %}<span class="pill amber" title="已写我的复盘">🧭</span>{% endif %}
+          <span class="sp2"></span>
+          {% if e.id %}<span class="acts">{% if e.content_md %}<a href="/company/{{ r.notion_page_id }}/entry/{{ e.id }}" target="_blank" title="全屏阅读完整文档" onclick="event.stopPropagation()">⛶</a> {% endif %}<a href="#" title="给这条事件挂附件（可多选）" onclick="event.preventDefault();this.nextElementSibling.click()">📎</a><input type="file" style="display:none" multiple onchange="upl(this,'{{ e.id }}','attachment')"></span>{% endif %}
+        </summary>
+        <div class="tle2-b">
+          <div class="eview">
+          {% if e.summary %}<div class="meta" style="margin-top:8px">{{ e.summary }}</div>{% endif %}
+          {% if e.content_md %}<div class="mdoc sm" style="margin-top:8px">{{ e.content_md | md | safe }}</div>{% endif %}
+          {% if e.attachments %}<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">
+            {% for a in e.attachments %}<a class="att-chip" href="/files/{{ a }}" target="_blank" title="{{ a.split('/')[-1] }}">{{ a | atticon }} <span class="nm">{{ a.split('/')[-1] }}</span></a>{% endfor %}</div>
+          {% for a in e.attachments if a.lower().endswith(AUDIO_EXT) %}
+          <audio controls preload="none" src="/files/{{ a }}" title="{{ a.split('/')[-1] }}" style="display:block;margin-top:6px;width:100%;max-width:480px;height:32px"></audio>
+          {% endfor %}{% endif %}
+          {% if e.my_review %}
+            <div class="rev"><div class="rl">我的复盘 <span class="note">{{ (e.my_review.updated or '')[:10] }}</span></div>
+              <div style="white-space:pre-wrap">{{ e.my_review.text }}</div></div>
+          {% elif e.kind in ('interview','oa','call','transcript') %}
+            <div class="rev empty"><a href="#" onclick="togEdit(this,true);return false">＋ 写我的复盘</a><span class="note">　AI 的归 AI，你的判断单独留档</span></div>
+          {% endif %}
+          <div class="note" style="margin-top:8px"><a href="#" onclick="togEdit(this);return false">✎ 编辑</a>
+            <a href="#" style="margin-left:10px;color:var(--red)" data-eid="{{ e.id or '' }}" data-date="{{ e.date }}" data-title="{{ e.title }}" onclick="delEntry(this);return false">🗑 删除</a>{% if e.human_edited %}<span title="人工改过：{{ e.human_edited }}">　🖊 {{ e.human_edited[:10] }} 改</span>{% endif %}</div>
+          </div>
+          <form class="editform" style="display:none" data-eid="{{ e.id or '' }}" data-date="{{ e.date }}" data-title="{{ e.title }}">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:6px">
+              <span><label>类型</label><select name="kind" style="width:auto">{% for k, lbl in kind_labels.items() %}<option value="{{ k }}" {{ 'selected' if e.kind == k }}>{{ lbl }}</option>{% endfor %}</select></span>
+              <span><label>日期</label><input name="new_date" type="date" value="{{ e.date }}" style="width:auto"></span>
+              <span style="flex:1;min-width:160px"><label>标题</label><input name="new_title" value="{{ e.title }}"></span>
+              <span style="flex:1;min-width:140px"><label>参与方（、分隔）</label><input name="participants" value="{{ (e.participants or []) | join('、') }}"></span>
+            </div>
+            <label>一句话摘要</label><input name="summary" value="{{ e.summary or '' }}">
+            <div class="mded">
+              <div class="mdtabs">
+                <a class="on" href="#" onclick="mdTab(this,'w');return false">编辑</a>
+                <a href="#" onclick="mdTab(this,'p');return false">预览</a>
+                <span class="note" style="margin:0 0 0 auto;align-self:center">markdown：### 小节 · - 列表 · **粗体** · &gt; 引用 · | 表格 |</span>
+              </div>
+              <textarea name="content_md" class="mdw">{{ e.content_md or '' }}</textarea>
+              <div class="mdp mdoc sm" hidden></div>
+            </div>
+            <label>我的复盘（AI 的归 AI，你的判断单独留档；清空即删）</label>
+            <textarea name="review" style="min-height:64px" placeholder="3 行足矣：打得好的 / 失手的 / 下次改">{{ e.my_review.text if e.my_review else '' }}</textarea>
+            <input type="hidden" name="review_set" value="1">
+            {% if e.id %}
+            <div class="attmgr">
+              <span class="note" style="margin:0">附件</span>
+              {% for a in e.attachments %}
+              <span class="att-chip">{{ a | atticon }} <span class="nm" title="{{ a.split('/')[-1] }}">{{ a.split('/')[-1] }}</span>
+                <a href="#" title="替换（选新文件顶掉这份）" onclick="event.preventDefault();this.nextElementSibling.click()">⇄</a><input type="file" hidden onchange="replaceAtt(this,'{{ a }}')">
+                <a href="#" title="从事件移除（文件保留在未绑附件区）" onclick="detachAtt(this,'{{ a }}');return false">✕</a>
+              </span>
+              {% endfor %}
+              <label class="btn" style="font-size:12px">＋ 添加附件<input type="file" hidden multiple onchange="upl(this,'{{ e.id }}','attachment')"></label>
+            </div>
+            {% endif %}
+            <div style="margin-top:8px;display:flex;gap:8px">
+              <button class="btn pri" type="button" onclick="saveEntry(this)">保存事件</button>
+              <button class="btn" type="button" onclick="togEdit(this)">取消</button>
+            </div>
+          </form>
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div class="card"><div class="note">还没有记录。「＋ 记录」写第一条，或「转写 → 录入」让系统替你写。</div></div>
+  {% endfor %}
+</div>
+
+{% if orphans %}<div class="note" id="atts" style="margin-top:8px">⚠️ 未绑定附件（文件名带日期即可自动挂到当日事件）：
+  {% for o in orphans %}<a class="att-chip" href="/files/{{ o.rel }}" target="_blank" title="{{ o.name }}">{{ o.name | atticon }} <span class="nm">{{ o.name }}</span></a> {% endfor %}</div>{% endif %}
+
+{% if research %}
+<details style="margin-top:22px"><summary class="note" style="cursor:pointer">调研档案（{{ research.get('fetched_at','') }} · {{ research.get('facts',[])|length }} 条事实 · 评估匹配自动引用）</summary>
+<div class="card" style="margin-top:8px">
+  {% if research_summary_html %}<div class="mdbody" style="font-size:13px">{{ research_summary_html | safe }}</div><hr style="border:0;border-top:1px solid var(--line);margin:10px 0">{% endif %}
+  {% for f in research.get('facts', [])[:30] %}<div class="row"><span class="when">{{ f.category }}</span><div class="body">{{ f.claim }}<div class="meta">来源：{{ f.source }} · {{ f.confidence }}</div></div></div>{% endfor %}
+  {% for s in research.get('salary_signals', []) %}<div class="meta">💰 {{ s }}</div>{% endfor %}
+</div></details>
+{% endif %}
+
+{% if r.get('Feedback') %}
+<details style="margin-top:10px"><summary class="note" style="cursor:pointer">tracker Feedback（旧版复盘字段，已由时间线取代）</summary>
+<div class="card" style="white-space:pre-wrap;font-size:13px;margin-top:8px">{{ r.get('Feedback') }}</div></details>
+{% endif %}
+
+<dialog id="dlg-note">
+  <h3>＋ 添加记录</h3>
+  <div class="note" style="margin:0 0 8px">人工记录（通话、邮件、笔记、复盘）。面试转写要 AI 录入的，走「转写 → 录入」。</div>
+  <div style="display:flex;gap:8px">
+    <span style="flex:1"><label>类型</label>
+    <select id="n-kind"><option value="note">笔记</option><option value="call">通话</option><option value="email">邮件</option><option value="interview">面试</option><option value="oa">笔试</option><option value="apply">投递</option><option value="retro">复盘</option></select></span>
+    <span style="flex:1"><label>日期</label><input type="date" id="n-date" value="{{ today }}"></span>
+  </div>
+  <label>标题（事件/人名）</label><input type="text" id="n-title" placeholder="例：HM 电话 / 王某">
+  <label>参与方（逗号分隔，可空）</label><input type="text" id="n-people">
+  <label>内容（支持 markdown；从审批队列/邮件贴过来也行）</label><textarea id="n-content"></textarea>
+  <label>附件（可空，可多选）</label><input type="file" id="n-file" multiple>
+  <div class="dlg-ft">
+    <button class="btn" onclick="this.closest('dialog').close()">取消</button>
+    <button class="btn pri" onclick="saveNote(this)">保存记录</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-scribe">
+  <h3>转写 → 录入提案</h3>
+  <div class="note" style="margin:0 0 8px">贴转写全文或传 PDF——Scribe 出「字段 + 正文 + Playbook 战况」提案，到审批队列改/批后才入档写回。</div>
+  <label>转写全文（可空，若传文件）</label><textarea id="s-text"></textarea>
+  <label>或传文件（PDF / txt / md）</label><input type="file" id="s-file">
+  <div class="dlg-ft">
+    <button class="btn" onclick="this.closest('dialog').close()">取消</button>
+    <button class="btn pri" onclick="runScribe(this)">生成提案（不直接写入）</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-jd">
+  <h3>＋ 添加 JD</h3>
+  <div class="note" style="margin:0 0 8px">手上是什么形态就给什么：<b>链接</b>（官网 / MCF 自动抓正文；LinkedIn 常要登录，抓不到会明说——那就贴原文）、<b>原文</b>（直接粘贴），或 <b>文件</b>（PDF/文本，可多选）。一律存进本地 JD 档案，评估与备战自动引用（多份并存都算数）；贴链接时「JD 链接」为空会顺手填上，<b>同一条链接重贴 = 刷新旧快照</b>；不想要的文件点它后面的 ✕ 删除。</div>
+  <textarea id="jd-paste" placeholder="JD 原文，或 https://…（选了文件这里可空）"></textarea>
+  <label>或选文件</label>
+  <input type="file" id="jd-file" multiple accept=".pdf,.txt,.md,.html,.docx">
+  <div class="dlg-ft">
+    <button class="btn" onclick="this.closest('dialog').close()">取消</button>
+    <button class="btn pri" onclick="saveJd(this)">保存 JD</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-jd-edit">
+  <h3>✎ 编辑 JD</h3>
+  <div class="note" style="margin:0 0 8px"><span id="jde-name"></span> · 保存前旧版自动存 jd/.trash/ 可恢复；评估与简历下次运行吃的就是改后的版本。PDF 不可编辑——删了重传或贴原文。</div>
+  <textarea id="jde-text" style="min-height:300px"></textarea>
+  <div class="dlg-ft">
+    <button class="btn" onclick="this.closest('dialog').close()">取消</button>
+    <button class="btn pri" onclick="jdEditSave(this)">保存</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-research">
+  <h3>公司尽调（W2/W3）</h3>
+  <div class="note" style="margin:0 0 8px">尽调员多轮检索循环：读材料 → 判五项覆盖（动因/面试/技术栈/薪酬/稳定性）→ 为缺口出新查询，直到覆盖或确认死角，出综合简介（每个断言带编号来源）落时间线，末尾附逐轮轨迹；结构化证据进档案，「评估匹配」自动引用。约 2-3 分钟。<b>首次使用需配一个免费 search key</b>（tavily.com 注册约 1 分钟，config 的 search 段填入——没配会明确报错不瞎跑）。</div>
+  <div class="note" style="margin:0 0 8px">手头有料就喂进来当种子（种子打底，缺口照常补搜；登录态站点如 LinkedIn 打不开——复制正文贴材料框）；两栏都留空 = 零输入全自动检索。</div>
+  <label>喂入 URL（一行一个，可空）</label><textarea id="rs-urls" placeholder="https://company.com/about&#10;https://news-article…"></textarea>
+  <label>喂入材料（可空，按低可信级标注）</label><textarea id="rs-notes" placeholder="从 Glassdoor / LinkedIn / 群聊里复制的情报原文……"></textarea>
+  <div class="dlg-ft">
+    <button class="btn" onclick="this.closest('dialog').close()">取消</button>
+    <button class="btn pri" onclick="const d=this.closest('dialog'); post('/api/company/research',{page_id:PID,urls:gv('rs-urls'),notes:gv('rs-notes')},{}); d.close()">🕵️ 开始尽调</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-brief">
+  <h3>生成 brief（W7/W5）</h3>
+  <div class="note" style="margin:0 0 8px">参谋读全部战况（时间线、JD、尽调档案、评估、弹药库、playbook），出 10 分钟能读完的 brief：⚡ 关键打法置顶 + 局面 + 预判问答（≤5）+ 必问（≤3）；口径与 playbook 只指路不复印。日历自动档（T-24h/T-2h）按事件标题猜轮次。约 30-60 秒。</div>
+  <label>轮次</label>
+  <select id="br-round" style="width:100%">
+    <option value="">通用（不指定轮次）</option>
+    <option value="screening">Screening · HR/猎头初筛</option>
+    <option value="tech">技术轮</option>
+    <option value="hm">Hiring Manager 轮</option>
+    <option value="bar">Bar Raiser / 交叉面</option>
+    <option value="negotiation">谈判轮</option>
+  </select>
+  <label>本场特别注意（可空）</label><textarea id="br-note" placeholder="e.g. 对方是 infra 背景 VP，重点讲 agent 平台的工程决策"></textarea>
+  <div class="dlg-ft">
+    <button class="btn" onclick="this.closest('dialog').close()">取消</button>
+    <button class="btn pri" data-co="{{ r.Company }}" onclick="const d=this.closest('dialog'); post('/api/brief',{company:this.dataset.co,round_type:gv('br-round'),note:gv('br-note')},{}); d.close()">生成</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-slots">
+  <h3>排期参谋（W6）</h3>
+  <div class="note" style="margin:0 0 8px">贴入对方的时间邀约（邮件全文即可）。抽取候选时段 → 对照未来 14 天日历跑规则（同日硬面 ≤2 · 缓冲 ≥30min · 技术轮前保护 ≥4h）→ 时段对照 + 回复草稿落入下方时间线。<b>草稿由你自己发出。</b></div>
+  <label>邀约原文</label><textarea id="sl-text" placeholder="e.g. Would any of these work for you? Tue 11am, Wed 2pm or Thu 4pm SGT…"></textarea>
+  <div class="dlg-ft">
+    <button class="btn" onclick="this.closest('dialog').close()">取消</button>
+    <button class="btn pri" onclick="const t=document.getElementById('sl-text').value; this.closest('dialog').close(); post('/api/coordinator/slots',{page_id:PID,text:t},{})">出排期建议</button>
+  </div>
+</dialog>
+
+<script>
+const PID = '{{ r.notion_page_id }}';
+function tog(id){ const el=document.getElementById(id); el.style.display = el.style.display==='none'?'':'none'; }
+(() => {                       // 岗位亮点：展示即编辑（点击换 textarea，失焦提交，Esc 还原）
+  const box = document.getElementById('hl-box');
+  if (!box) return;
+  box.addEventListener('click', () => {
+    if (box.querySelector('textarea')) return;
+    const orig = box.innerHTML, cur = box.dataset.cur;
+    const ta = document.createElement('textarea');
+    ta.value = cur; ta.placeholder = '一行一条'; ta.className = 'inline-ed';
+    ta.style.cssText = 'width:100%;min-height:' + Math.max(box.offsetHeight, 72) + 'px';
+    box.replaceChildren(ta); ta.focus();
+    const commit = async () => {
+      if (ta.value.trim() === cur.trim()) { box.innerHTML = orig; return; }
+      await post('/api/company/meta', {page_id: PID, highlights: ta.value},
+                 {ok: '亮点已存', reload: true});
+    };
+    ta.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape') { ta.removeEventListener('blur', commit); box.innerHTML = orig; }
+    });
+    ta.addEventListener('blur', commit);
+  });
+})();
+function togEdit(a, focusRev){          // view ⇄ edit 同区切换：编辑态顶掉查看态，取消即还原
+  const b = a.closest('.tle2-b'), v = b.querySelector('.eview'), f = b.querySelector('form.editform');
+  const toEdit = f.style.display === 'none';
+  f.style.display = toEdit ? '' : 'none';
+  v.style.display = toEdit ? 'none' : '';
+  if (toEdit && focusRev) f.querySelector('textarea[name=review]').focus();
+}
+function delEntry(a){
+  if (a.dataset.armed !== '1') { a.dataset.armed='1'; a.textContent='🗑 确认删除？'; setTimeout(()=>{a.dataset.armed='0'; a.textContent='🗑 删除';}, 3000); return; }
+  post('/api/company/entry/delete', {page_id:PID, entry_id:a.dataset.eid, date:a.dataset.date, title:a.dataset.title}, {ok:'已删除（附件保留）', reload:true});
+}
+async function delRow(btn){
+  if (btn.dataset.arm !== '1'){                 // 两段式：先点亮确认，3 秒不点自动解除
+    btn.dataset.arm = '1'; btn.textContent = '⚠ 确认删除？';
+    setTimeout(()=>{ btn.dataset.arm=''; btn.textContent='🗑 删除'; }, 3000);
+    return;
+  }
+  const out = await post('/api/row/archive', {page_id: PID},
+                         {ok: '已删除——Notion 垃圾桶可恢复，本地档案保留'});
+  if (out) setTimeout(()=>location='/pipeline', 600);
+}
+function saveEntry(btn){
+  const f = btn.closest('form.editform');
+  const data = { page_id: PID, entry_id: f.dataset.eid, date: f.dataset.date, title: f.dataset.title };
+  new FormData(f).forEach((v,k)=>data[k]=v);
+  post('/api/company/entry/edit', data, {btn, ok:'事件已更新', reload:true});
+}
+async function mdTab(a, mode){
+  const ed = a.closest('.mded');
+  ed.querySelectorAll('.mdtabs a').forEach(x=>x.classList.remove('on'));
+  a.classList.add('on');
+  const w = ed.querySelector('.mdw'), p = ed.querySelector('.mdp');
+  if(mode === 'p'){
+    const out = await post('/api/md/preview', {text: w.value}, {quiet:true});
+    if(out) p.innerHTML = out.html || '<p class="note">（空）</p>';
+    w.hidden = true; p.hidden = false;
+  } else { w.hidden = false; p.hidden = true; }
+}
+async function detachAtt(a, rel){
+  const f = a.closest('form.editform');
+  await post('/api/company/entry/detach', {page_id:PID, entry_id:f.dataset.eid, rel:rel},
+             {ok:'已移除——文件保留在未绑附件区', reload:true});
+}
+async function replaceAtt(input, rel){
+  if(!input.files.length) return;
+  const f = input.closest('form.editform');
+  await uplFile(input.files[0], f.dataset.eid, 'attachment');
+  await post('/api/company/entry/detach', {page_id:PID, entry_id:f.dataset.eid, rel:rel}, {quiet:true});
+  toast('已替换'); setTimeout(()=>location.reload(), 400);
+}
+async function amendApply(btn){
+  const form = btn.closest('.prop').querySelector('form.amend');
+  const data = { file: form.dataset.file };
+  new FormData(form).forEach((v,k)=>data[k]=v);
+  await post('/api/proposal/amend_apply', data, {btn, ok:'已写回，条目已入时间线', reload:true});
+}
+
+// 事实条原位编辑（下一步 / follow-up）
+document.querySelectorAll('.edc').forEach(el => el.addEventListener('click', () => {
+  if (el.querySelector('input,select')) return;
+  const cur = el.dataset.cur !== undefined ? el.dataset.cur
+            : (el.textContent.trim()==='—' ? '' : el.textContent.trim());
+  const rect = el.getBoundingClientRect();
+  el.style.minHeight = rect.height + 'px';   // 折行文本 → 单行控件也不塌缩
+  let inp;
+  if (el.dataset.type === 'select') {
+    inp = document.createElement('select');
+    el.dataset.opts.split(',').forEach(o => {
+      const op = document.createElement('option'); op.value = o; op.textContent = o || '（清空）';
+      if (o === cur) op.selected = true; inp.appendChild(op);
+    });
+  } else {
+    inp = document.createElement('input');
+    inp.type = el.dataset.type==='date' ? 'date' : 'text'; inp.value = cur;
+    inp.style.width = Math.max(rect.width + 18, el.dataset.type==='date' ? 150 : 140) + 'px';
+  }
+  inp.className = 'inline-ed';
+  el.innerHTML=''; el.appendChild(inp); inp.focus();
+  let cancelled = false;
+  inp.addEventListener('blur', async () => {
+    if (cancelled || inp.value===cur){ el.textContent = cur || '—'; el.style.minHeight=''; return; }
+    const out = await post('/api/row/update',{page_id:el.dataset.pid,field:el.dataset.field,value:inp.value},{ok:el.dataset.field+' 已写回'});
+    if(out) setTimeout(()=>location.reload(),400); else { el.textContent = cur || '—'; el.style.minHeight=''; }
+  });
+  inp.addEventListener('keydown', ev=>{
+    if(ev.key==='Enter') inp.blur();
+    if(ev.key==='Escape'){ cancelled = true; inp.blur(); }
+  });
+}));
+
+async function saveNote(btn){
+  const out = await post('/api/company/note',{
+    page_id:PID, kind:gv('n-kind'), date:gv('n-date'), title:gv('n-title'),
+    participants:gv('n-people'), content:gv('n-content')},{btn,ok:'已入档'});
+  if(!out) return;
+  const f = document.getElementById('n-file');
+  for (const file of f.files) await uplFile(file, out.id, 'attachment');
+  if (out.suggested) toast('顺手生成了字段建议——本页「待你批」区等你');
+  setTimeout(()=>location.reload(), out.suggested ? 900 : 400);
+}
+
+function jdDel(name){
+  post('/api/company/jd_delete',{page_id:PID,name:name},{ok:'已移入回收站（jd/.trash 可恢复；自动挖掘不会拉回）',reload:true});
+}
+
+async function jdEdit(name){
+  const r = await fetch('/api/company/jd_raw?page_id='+encodeURIComponent(PID)+'&name='+encodeURIComponent(name));
+  const out = await r.json().catch(()=>null);
+  if(!r.ok){ toast('失败：'+((out&&out.error)||r.statusText)); return; }
+  document.getElementById('jde-name').textContent = name;
+  document.getElementById('jde-text').value = out.text;
+  dlg('dlg-jd-edit');
+}
+async function jdEditSave(btn){
+  const out = await post('/api/company/jd_edit',{page_id:PID,
+    name:document.getElementById('jde-name').textContent,text:gv('jde-text')},
+    {btn,ok:'已保存（旧版在 jd/.trash 可恢复）'});
+  if(out){ btn.closest('dialog').close(); setTimeout(()=>location.reload(),400); }
+}
+
+async function saveJd(btn){
+  // 一个入口收三种形态：文件逐个上传，文本/链接走解析落档，都给了就都存
+  const text = gv('jd-paste').trim(), f = document.getElementById('jd-file');
+  if (!text && !f.files.length) { toast('链接、原文、文件总得给一样'); return; }
+  btn.disabled = true;
+  for (const file of f.files) await uplFile(file, '', 'jd');
+  if (text) {
+    const out = await post('/api/company/jd_paste', {page_id:PID, text:text}, {quiet:true});
+    if (!out) { btn.disabled = false; return; }      // 失败原因 post 已 toast，留在弹窗里改
+    toast('JD 已入档' + (out.url_filled ? '，JD 链接已顺手填上' : ''));
+  }
+  btn.closest('dialog').close();
+  setTimeout(()=>location.reload(), 500);
+}
+
+async function uplFile(file, entryId, kind){
+  const fd = new FormData();
+  fd.append('page_id',PID); fd.append('kind',kind); fd.append('entry_id',entryId||''); fd.append('file',file);
+  const r = await fetch('/api/company/upload',{method:'POST',body:fd});
+  if(!r.ok) toast('附件上传失败'); else toast('附件已入档');
+}
+async function upl(input, entryId, kind){
+  if(!input.files.length) return;
+  for (const file of input.files) await uplFile(file, entryId, kind);
+  setTimeout(()=>location.reload(),400);
+}
+
+async function runScribe(btn){
+  const fd = new FormData();
+  fd.append('page_id',PID); fd.append('transcript',gv('s-text'));
+  const f = document.getElementById('s-file');
+  if (f.files.length) fd.append('file', f.files[0]);
+  btn.disabled=true; btn.textContent='Scribe 工作中…（约 30 秒）';
+  try{
+    const r = await fetch('/api/scribe',{method:'POST',body:fd});
+    const out = await r.json();
+    if(!r.ok) throw new Error(out.error||'失败');
+    toast('提案就绪——就在本页「待你批」'); setTimeout(()=>location.reload(),600);
+  }catch(e){ toast('失败：'+e.message); btn.disabled=false; btn.textContent='生成提案（不直接写入）'; }
+}
+</script>
+{% endblock %}

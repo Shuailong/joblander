@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}作战室 · joblander{% endblock %}
+{% block main %}
+<div class="topbar"><span class="crumb"><b>作战室</b></span><span class="sp"></span>
+  <button class="btn vt" data-v="board" onclick="setView('board')">看板</button>
+  <button class="btn vt" data-v="table" onclick="setView('table')">表格</button>
+  <a class="btn" href="/offers">Offer 对比</a>
+  <button class="btn pri" onclick="dlg('dlg-intake')">＋ 新机会</button>
+</div>
+<h1>作战室 <span class="sub" style="display:inline">活跃 {{ active_n }} / 共 {{ rows|length }}</span></h1>
+<div class="sub">看板拖卡片换阶段；表格点单元格原位改——两种都直接写回（Notion 开写时同步）。</div>
+<div style="display:flex;gap:6px;margin-bottom:12px" id="chips">
+  <button class="btn" data-f="">全部</button>
+  <button class="btn" data-f="⚑">⚑ 等你动手</button>
+  <button class="btn" data-f="High">🔥 High</button>
+  <button class="btn" data-f="Medium">Medium</button>
+  <button class="btn" data-f="Interview">面试中</button>
+  <button class="btn" data-f="Screening">初筛</button>
+  <button class="btn" data-f="Applied">已投</button>
+</div>
+
+<div id="kb" class="kb">
+  {% for col in board %}
+  <div class="kcol {{ 'dim' if not col.primary }}" data-primary="{{ col.primary }}" data-name="{{ col.name }}" data-statuses="{{ col.statuses|join(',') }}">
+    <div class="khd">{{ col.name }} <span class="kcnt">{{ col.rows|length }}</span></div>
+    <div class="kbody">
+      {% for r in col.rows %}
+      {% set is_flag = r.notion_page_id in flags %}
+      {% set is_due = todos.get(r.notion_page_id) %}
+      <div class="kcard {{ 'hi' if r.Priority=='High' }} {{ 'due' if is_due else ('mine' if is_flag) }}" draggable="true" data-pid="{{ r.notion_page_id }}" data-status="{{ r.Status }}">
+        <span class="kflag {{ 'on' if is_flag }}" title="{{ '取消「在你手上」' if is_flag else '标记「在你手上」——球在你这边，突出显示' }}" onclick="event.stopPropagation();flagT('{{ r.notion_page_id }}',{{ '0' if is_flag else '1' }})">{{ '⚑' if is_flag else '⚐' }}</span>
+        <div class="kco">{{ r.Company }}</div>
+        {% if r.get('Position') %}<div class="kpos">{{ r.Position }}</div>{% endif %}
+        <div class="kmeta">
+          {% if is_due %}<span class="pill amber" title="待批提案或到期 follow-up——点卡片进档案页处理">⚑ 待你 {{ todos[r.notion_page_id] }} 件</span>{% elif is_flag %}<span class="pill red" title="你标记的：球在你这边">⚑ 在你手上</span>{% endif %}
+          {% if r.Priority=='High' %}<span class="pill red">High</span>{% elif r.Priority %}<span class="pill {{ {'Medium':'amber','Low':'blue'}[r.Priority] }}">{{ r.Priority }}</span>{% endif %}
+          {% if col.statuses|length > 1 %}<span class="pill gray">{{ r.Status }}</span>{% endif %}
+          {% if r.get('Follow-up Reminder') %}<span class="pill {{ 'red' if r.get('Follow-up Reminder') < today else 'gray' }}">⏰ {{ r.get('Follow-up Reminder')[5:] }}</span>{% endif %}
+        </div>
+        {% if r.get('Next Steps') %}<div class="knext">{{ r.get('Next Steps') }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div id="tbl" class="card" style="padding:4px 8px;overflow-x:auto;display:none">
+<div style="padding:8px 10px 0"><label style="display:inline;margin:0"><input type="checkbox" id="onlyact" checked onchange="filtTable()"> 只看活跃</label></div>
+<table id="ptable">
+<tr><th style="width:26%">公司 / 岗位</th><th class="sort" data-i="1">状态 ⇅</th><th class="sort" data-i="2">优先级 ⇅</th><th>下一步</th><th class="sort" data-i="4" style="width:10%">follow-up ⇅</th></tr>
+{% set closed = ['Rejected','Terminated','Withdrawn','Not Apply'] %}
+{% for r in rows %}
+{% set is_flag = r.notion_page_id in flags %}
+{% set is_due = todos.get(r.notion_page_id) %}
+<tr data-pid="{{ r.notion_page_id }}" data-closed="{{ 1 if r.Status in closed else 0 }}" class="{{ 'due' if is_due else ('mine' if is_flag) }}">
+  <td class="rowlink"><a href="/company/{{ r.notion_page_id }}" title="打开档案"><div class="co">{{ r.Company }}{% if is_due %} <span class="pill amber" title="待批提案或到期 follow-up">⚑ {{ todos[r.notion_page_id] }}</span>{% elif is_flag %} <span class="pill red" title="你标记的：球在你这边">⚑</span>{% endif %}</div><div class="pos">{{ r.get('Position') or '' }}</div></a></td>
+  <td class="ed" data-field="Status" data-type="select" data-opts="Added,Dream,In Consideration,To Apply,Screening Called,Applied,Interview Scheduled,Interview Completed,Terminated,Not Apply,Offer Received,Rejected,Withdrawn"><span class="pill {{ {'Interview Scheduled':'teal','Interview Completed':'teal','Screening Called':'blue','Applied':'green'}.get(r.Status,'gray') }}">{{ r.Status }}</span></td>
+  <td class="ed" data-field="Priority" data-type="select" data-opts=",High,Medium,Low">{% if r.Priority %}<span class="pill {{ {'High':'red','Medium':'amber','Low':'blue'}[r.Priority] }}">{{ r.Priority }}</span>{% else %}—{% endif %}</td>
+  <td class="ed" data-field="Next Steps" data-type="text" style="font-size:12.5px">{{ r.get('Next Steps') or '—' }}</td>
+  <td class="ed num" data-field="Follow-up Reminder" data-type="date">{{ r.get('Follow-up Reminder') or '—' }}</td>
+</tr>
+{% endfor %}
+</table>
+</div>
+
+<div id="closer" class="closer">
+  <div class="note" style="margin:0 0 6px">关闭为：</div>
+  <button class="btn" onclick="closeAs('Rejected')">Rejected</button>
+  <button class="btn" onclick="closeAs('Withdrawn')">Withdrawn</button>
+  <button class="btn" onclick="closeAs('Terminated')">Terminated</button>
+  <button class="btn" onclick="closeAs('Not Apply')">Not Apply</button>
+</div>
+
+<script>
+// ---- 「在你手上」手动旗标（卡片角标；档案页也可切） ----
+async function flagT(pid, on){
+  const out = await post('/api/company/flag',{page_id:pid,on:on},
+                         {ok: on==1 ? '已标记：在你手上' : '已取消标记'});
+  if(out) setTimeout(()=>location.reload(), 300);
+}
+
+// ---- 视图切换（记住选择） ----
+function setView(v){
+  localStorage.setItem('jl-pipe-view', v);
+  document.getElementById('kb').style.display = v==='board' ? '' : 'none';
+  document.getElementById('tbl').style.display = v==='table' ? '' : 'none';
+  document.querySelectorAll('.vt').forEach(b=>b.classList.toggle('pri', b.dataset.v===v));
+}
+setView(localStorage.getItem('jl-pipe-view')||'board');
+
+// ---- 看板拖拽：拖卡片 = 改 Status（直写） ----
+let dragPid=null, dragged=false;
+document.querySelectorAll('.kcard').forEach(c=>{
+  c.addEventListener('dragstart',()=>{dragPid=c.dataset.pid;dragged=true;c.classList.add('dragging');});
+  c.addEventListener('dragend',()=>{c.classList.remove('dragging');setTimeout(()=>dragged=false,80);});
+  c.addEventListener('click',()=>{ if(!dragged) location='/company/'+c.dataset.pid; });
+});
+document.querySelectorAll('.kcol').forEach(col=>{
+  col.addEventListener('dragover',e=>{e.preventDefault();col.classList.add('dropok');});
+  col.addEventListener('dragleave',()=>col.classList.remove('dropok'));
+  col.addEventListener('drop',async e=>{
+    e.preventDefault(); col.classList.remove('dropok');
+    if(!dragPid) return;
+    const card = document.querySelector(`.kcard[data-pid="${dragPid}"]`);
+    if (col.dataset.statuses.split(',').includes(card.dataset.status)) return;   // 同列不动
+    if (col.dataset.primary){
+      const out = await post('/api/row/update',{page_id:dragPid,field:'Status',value:col.dataset.primary},{ok:'已移到「'+col.dataset.name+'」'});
+      if(out) setTimeout(()=>location.reload(),400);
+    } else {
+      const el=document.getElementById('closer');
+      el.style.left=Math.min(e.pageX, window.innerWidth-260)+'px'; el.style.top=e.pageY+'px';
+      el.classList.add('on'); el.dataset.pid=dragPid;
+    }
+  });
+});
+async function closeAs(status){
+  const el=document.getElementById('closer'); el.classList.remove('on');
+  const out = await post('/api/row/update',{page_id:el.dataset.pid,field:'Status',value:status},{ok:'已关闭：'+status});
+  if(out) setTimeout(()=>location.reload(),400);
+}
+document.addEventListener('click',e=>{ const el=document.getElementById('closer');
+  if(el.classList.contains('on') && !el.contains(e.target)) el.classList.remove('on'); }, true);
+
+// ---- 筛选 chips（两个视图同时生效） ----
+document.querySelectorAll('#chips .btn').forEach(b => b.onclick = () => {
+  const f = b.dataset.f;
+  document.querySelectorAll('#chips .btn').forEach(x=>x.classList.toggle('pri', x===b));
+  document.querySelectorAll('#ptable tr[data-pid]').forEach(tr =>
+    tr.style.display = !f || tr.textContent.includes(f) ? '' : 'none');
+  document.querySelectorAll('.kcard').forEach(c =>
+    c.style.display = !f || c.textContent.includes(f) || c.dataset.status.includes(f) ? '' : 'none');
+  filtTable();
+});
+function filtTable(){
+  if(!document.getElementById('onlyact').checked) return;
+  document.querySelectorAll('#ptable tr[data-closed="1"]').forEach(tr=>tr.style.display='none');
+}
+document.getElementById('onlyact').addEventListener('change',()=>{
+  document.querySelectorAll('#ptable tr[data-pid]').forEach(tr=>tr.style.display='');
+  filtTable();
+});
+filtTable();
+
+// ---- 表格原位编辑 ----
+document.querySelectorAll('#ptable .ed').forEach(td => td.addEventListener('click', e => {
+  if (td.querySelector('input,select')) return;
+  e.stopPropagation();
+  const field = td.dataset.field, type = td.dataset.type;
+  const cur = td.textContent.trim() === '—' ? '' : td.textContent.trim();
+  const old = td.innerHTML;
+  let el;
+  if (type === 'select') {
+    el = document.createElement('select');
+    td.dataset.opts.split(',').forEach(o => {
+      const opt = document.createElement('option'); opt.value = o; opt.textContent = o || '（清空）';
+      if (o === cur) opt.selected = true; el.appendChild(opt);
+    });
+  } else {
+    el = document.createElement('input');
+    el.type = type === 'date' ? 'date' : 'text';
+    el.value = cur;
+  }
+  el.className = 'inline-ed';
+  el.style.minWidth = '120px';
+  td.innerHTML = ''; td.appendChild(el); el.focus();
+  const commit = async () => {
+    const v = el.value;
+    if (v === cur) { td.innerHTML = old; return; }
+    const out = await post('/api/row/update',
+      { page_id: td.parentElement.dataset.pid, field, value: v },
+      { ok: field + ' 已写回' });
+    if (out) setTimeout(() => location.reload(), 400); else td.innerHTML = old;
+  };
+  el.addEventListener('keydown', ev => { if (ev.key === 'Enter') el.blur(); if (ev.key === 'Escape') { el.removeEventListener('blur', commit); td.innerHTML = old; } });
+  el.addEventListener('blur', commit);
+}));
+// 列排序
+let asc = {};
+document.querySelectorAll('#ptable th.sort').forEach(th => { th.style.cursor='pointer'; th.onclick = () => {
+  const i = +th.dataset.i; asc[i] = !asc[i];
+  const trs = [...document.querySelectorAll('#ptable tr[data-pid]')];
+  const pOrder = {High:0, Medium:1, Low:2, '—':3};
+  trs.sort((a,b)=>{
+    let x = a.cells[i].textContent.trim(), y = b.cells[i].textContent.trim();
+    if (i===2){ x=pOrder[x]??3; y=pOrder[y]??3; }
+    return (x>y?1:x<y?-1:0) * (asc[i]?1:-1);
+  }).forEach(r=>r.parentElement.appendChild(r));
+};});
+</script>
+{% endblock %}

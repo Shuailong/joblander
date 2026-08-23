@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}新机会 · joblander{% endblock %}
+{% block main %}
+{% macro leadrow(p) %}
+{% set f = (p.fit or {}).get('fit') %}
+{% set flags = [] %}
+{% if p.dedupe.verdict in ('duplicate','group_conflict') %}{% set _ = flags.append('dup') %}{% endif %}
+{% if not f or f <= 2 %}{% set _ = flags.append('lowfit') %}{% endif %}
+<div class="row prop-lead" data-file="{{ p._file }}" data-flags="{{ flags|join(',') }}">
+  <input type="checkbox" class="psel" onchange="selCount()" style="width:auto;margin-top:4px">
+  <span class="pill {{ 'teal' if f and f>=4 else 'amber' if f==3 else 'gray' }}" style="margin-top:2px">{{ f or '—' }}/5</span>
+  <div class="body">
+    <b style="font-weight:600">{{ p.lead.position or '—' }}</b>
+    <span class="pill gray">{{ p.source_hint }}</span>
+    <span class="note" style="margin:0" title="进入待入池的时间">入库 {{ p._created or '—' }}</span>
+    {% if p.dedupe.verdict == 'group_conflict' %}<span class="pill amber">集团冲突：{{ p.dedupe.active_members|join('、') }}</span>{% endif %}
+    {% if p.lead.urls %}<a class="note" href="{{ p.lead.urls[0] }}" target="_blank">JD ↗</a>{% endif %}
+    {% if (p.fit or {}).get('why') %}<div class="meta">{{ p.fit.why }}</div>{% endif %}
+    {% for g in (p.fit or {}).get('req_gaps') or [] %}
+    <div class="meta" style="color:{{ 'var(--red)' if g.verdict=='不符' else 'var(--amber)' }}">{{ '⛔' if g.verdict=='不符' else '❓' }} {{ g.req }} — {{ g.note }}</div>
+    {% endfor %}
+    {% for fl in (p.fit or {}).get('flags') or [] %}<div class="meta">⚠️ {{ fl }}</div>{% endfor %}
+    {% if p.lead.comp_mentions %}<div class="meta">💰 {{ p.lead.comp_mentions | join('；') }}</div>{% endif %}
+    {% if p.lead.market_ref %}<div class="meta">📊 {{ p.lead.market_ref }}</div>{% endif %}
+  </div>
+  <button class="btn pri" onclick="post('/api/proposal/apply',{file:'{{ p._file }}'},{btn:this,ok:'已入池',reload:true})" title="tracker 建行（线索列）+ 建公司档案">入池</button>
+  <button class="btn danger" onclick="post('/api/proposal/reject',{file:'{{ p._file }}'},{btn:this,ok:'已否决',reload:true})">否决</button>
+</div>
+{% endmacro %}
+
+{% macro groupcard(g) %}
+<div class="card" style="margin-bottom:10px;padding:10px 16px">
+  <div style="display:flex;gap:10px;align-items:center;padding:4px 0 2px">
+    <span class="fitbox {{ 'g' if g.best>=4 else 'a' if g.best==3 else 'x' }}">{{ g.best or '—' }}<i>/5</i></span>
+    <b style="font-size:14px">{{ g.company }}</b>
+    {% if g['items']|length > 1 %}<span class="note">{{ g['items']|length }} 个岗位</span>{% endif %}
+  </div>
+  {% for p in g['items'] %}{{ leadrow(p) }}{% endfor %}
+</div>
+{% endmacro %}
+<div class="topbar"><span class="crumb"><b>新机会</b></span><span class="sp"></span>
+  <button class="btn pri" onclick="dlg('dlg-intake')">＋ 贴入</button>
+</div>
+<h1>新机会</h1>
+<div class="sub">夜里 02:30 自动扫（MCF 按偏好 + Gmail 每 30 分钟一轮）→ 评分 → 这里等你晨起决策。LinkedIn 没有 API：用下面的深链自己看，看到好的贴回来。</div>
+
+<div class="scanbar">
+  <span>Gmail 上次扫 <b class="num">{{ gmail_last or '—' }}</b></span>
+  <button class="btn" onclick="post('/api/scan',{days:2},{btn:this})">↻ 扫邮箱</button>
+  <span style="color:var(--line-strong)">｜</span>
+  <span>MCF 上次扫 <b class="num">{% if mcf_last %}{{ mcf_last.ts[:16].replace('T',' ') }}{% else %}—{% endif %}</b></span>
+  <button class="btn" onclick="post('/api/mcf/scan',{days:2},{btn:this})">↻ 扫 MCF</button>
+  <span class="note" style="margin:0">都是后台任务——点完随便去哪，右下角看进度，完成自动刷新</span>
+</div>
+
+<h2>待入池（{{ total }} 岗 · 按公司聚合，已在库公司不出现在这里）</h2>
+{% if good or low %}
+<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+  <button class="btn" onclick="selBy('lowfit')">选低匹配</button>
+  <button class="btn" onclick="selBy('all')">全选</button>
+  <button class="btn" onclick="selBy('')">清除</button>
+  <span class="sp"></span>
+  <button class="btn danger" onclick="batchReject(this)" title="所选全部否决——只记账，可反悔">否决所选（<span id="seln">0</span>）</button>
+</div>
+{% for g in good %}{{ groupcard(g) }}{% endfor %}
+{% if low %}
+<details {{ 'open' if not good }}><summary class="note" style="cursor:pointer">低匹配 / 未评分（{{ low|length }} 家）——大概率不值得看，展开确认后批量否决</summary>
+<div style="margin-top:8px">{% for g in low %}{{ groupcard(g) }}{% endfor %}</div>
+</details>
+{% endif %}
+{% else %}
+<div class="card">暂无待决策线索 ✅ 夜扫和邮箱循环开着，有新的会出现在这里并通知你。</div>
+{% endif %}
+
+<div class="grid2" style="margin-top:26px">
+  <div class="card">
+    <h2 style="margin-top:0;display:flex;align-items:center">搜索偏好（喂给评分器和搜索源）<span class="sp"></span>
+      <button class="btn" id="prefs-edit-btn" onclick="togPrefs(true)" style="text-transform:none;letter-spacing:0">✎ 编辑</button></h2>
+
+    <div id="prefs-view">
+      <div class="kvline"><span>求职意向</span><b style="text-align:right">{{ prefs.get('intent') or '—' }}</b></div>
+      <div class="kvline"><span>关键词</span><span style="text-align:right">{% for k in prefs.get('keywords') or [] %}<span class="pill teal">{{ k }}</span> {% else %}—{% endfor %}</span></div>
+      <div class="kvline"><span>地点</span><span>{% for l in prefs.get('locations') or [] %}<span class="pill blue">{{ l }}</span> {% else %}—{% endfor %}</span></div>
+      <div class="kvline"><span>排除词</span><span>{% for e in prefs.get('exclude') or [] %}<span class="pill red">{{ e }}</span> {% else %}—{% endfor %}</span></div>
+      <div class="kvline" style="align-items:flex-start"><span>补充偏好</span><span style="text-align:right;font-size:12.5px;max-width:75%">{{ prefs.get('notes') or '—' }}</span></div>
+      <div class="kvline"><span>LinkedIn</span>{% if prefs.get('linkedin_profile') %}<a href="{{ prefs.linkedin_profile }}" target="_blank">{{ prefs.linkedin_profile.replace('https://www.','') }} ↗</a>{% else %}—{% endif %}</div>
+      <div class="note">改动即刻喂给评分器与搜索源；存私有 workspace，不进代码库。</div>
+    </div>
+
+    <form id="prefs" style="display:none">
+      <label>求职意向（一句话，评分器主要看这个）</label>
+      <input type="text" name="intent" value="{{ prefs.get('intent','') }}">
+      <label>目标岗位关键词（逗号分隔，MCF/深链按这个搜）</label>
+      <input type="text" name="keywords" value="{{ (prefs.get('keywords') or []) | join(', ') }}">
+      <label>地点（逗号分隔）</label>
+      <input type="text" name="locations" value="{{ (prefs.get('locations') or []) | join(', ') }}">
+      <label>排除词（命中直接丢弃，不进待入池）</label>
+      <input type="text" name="exclude" value="{{ (prefs.get('exclude') or []) | join(', ') }}">
+      <label>补充偏好（自由文本：公司类型、避雷、加分项）</label>
+      <textarea name="notes" style="min-height:70px">{{ prefs.get('notes','') }}</textarea>
+      <label>LinkedIn 个人主页（供起草内推/触达时引用）</label>
+      <input type="text" name="linkedin_profile" value="{{ prefs.get('linkedin_profile','') }}">
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn pri" type="button" onclick="savePrefs(this)">保存偏好</button>
+        <button class="btn" type="button" onclick="togPrefs(false)">取消</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">渠道</h2>
+    <div class="row"><span class="when">自动</span><div class="body"><b>Gmail</b>（含 LinkedIn Job Alert 邮件）
+      <div class="meta">每 30 分钟自动一轮，分类闸过滤非机会 ｜ 手动扫在顶部工具条</div></div></div>
+    <div class="row"><span class="when">自动</span><div class="body"><b>MyCareersFuture</b>
+      <div class="meta">每晚 02:30 按偏好关键词抓新岗{% if mcf_last %} ｜ 上次抓 {{ mcf_last.payload.fetched }} 提 {{ mcf_last.payload.proposed }}{% endif %}</div></div></div>
+    <div class="row"><span class="when">半自动</span><div class="body"><b>LinkedIn Search / Inbox</b>
+      <div class="meta">无 API（不做灰色爬取）。深链按你的关键词拼好近 24h 搜索——看到好的用「＋ 贴入」丢回来：</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+        {% for l in links %}<a class="btn" href="{{ l.url }}" target="_blank" style="font-size:12px">{{ l.label }} ↗</a>{% endfor %}
+        <a class="btn" href="https://www.linkedin.com/messaging/" target="_blank" style="font-size:12px">LinkedIn Inbox ↗</a>
+      </div></div></div>
+    <div class="row"><span class="when">贴入</span><div class="body"><b>WhatsApp / 猎头消息 / 任意 JD</b>
+      <div class="meta">复制原文 →「＋ 贴入」→ 抽取 + 查重 + 评分自动完成</div></div></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:12px">
+  <h2 style="margin-top:0">评分依据 · 弹药库</h2>
+  <div class="note" style="margin:0 0 8px">入池初筛（req_gaps 对照）、公司页「评估匹配」、能力画像读的都是弹药库——在那里改了战绩，下次评估自动生效，无需任何操作。</div>
+  {% if bank.exists %}
+  <div class="row"><span class="when">{{ bank.mtime }}</span>
+    <div class="body"><a href="/arsenal">▤ 战绩素材库（achievement-bank）</a> <span class="note">{{ bank.kb }} KB · 唯一事实来源</span></div></div>
+  {% else %}
+  <div class="sentinel warn">⚠️ 弹药库为空——初筛无履历可对照，req_gaps 全部只能标存疑。去「弹药库」页写第一段战绩。</div>
+  {% endif %}
+  {% for f in profile_files %}
+  <div class="row"><span class="when">{{ f.mtime or '缺失' }}</span>
+    <div class="body">{% if f.exists %}<a href="/files/{{ f.rel }}" target="_blank">📄 {{ f.name }}</a> <span class="note">{{ f.kb }} KB · 补充材料</span>
+      {% else %}<span style="color:var(--red)">⚠️ {{ f.rel }} 不存在——检查 config profile.files</span>{% endif %}</div></div>
+  {% endfor %}
+  {% if bank.exists %}<div class="note">评分器实际吃到 {{ "{:,}".format(digest_chars) }} 字符（上限 12,000，超出截断）。</div>{% endif %}
+</div>
+
+<script>
+function selBy(flag){
+  document.querySelectorAll('.prop-lead').forEach(p=>{
+    const cb = p.querySelector('.psel');
+    if (flag==='') cb.checked = false;
+    else if (flag==='all') cb.checked = true;
+    else cb.checked = (p.dataset.flags||'').split(',').includes(flag) ? true : cb.checked;
+  });
+  selCount();
+}
+function selCount(){
+  const el = document.getElementById('seln');
+  if (el) el.textContent = document.querySelectorAll('.psel:checked').length;
+}
+async function batchReject(btn){
+  const sel = [...document.querySelectorAll('.psel:checked')].map(cb=>cb.closest('.prop-lead').dataset.file);
+  if (!sel.length) { toast('先勾几条'); return; }
+  btn.disabled = true; let done = 0;
+  for (const f of sel){
+    const fd = new FormData(); fd.append('file', f); fd.append('reason', 'batch: low-fit/noise');
+    await fetch('/api/proposal/reject', {method:'POST', body: fd});
+    btn.textContent = `否决中… ${++done}/${sel.length}`;
+  }
+  toast(`已否决 ${done} 条`); setTimeout(()=>location.reload(), 500);
+}
+function togPrefs(edit){
+  document.getElementById('prefs-view').style.display = edit ? 'none' : '';
+  document.getElementById('prefs').style.display = edit ? '' : 'none';
+  document.getElementById('prefs-edit-btn').style.display = edit ? 'none' : '';
+}
+async function savePrefs(btn){
+  const data = {};
+  new FormData(document.getElementById('prefs')).forEach((v,k)=>data[k]=v);
+  const out = await post('/api/sourcing/prefs', data, {btn, ok:'偏好已保存——下次扫描即生效'});
+  if (out) setTimeout(()=>location.reload(), 500);
+}
+</script>
+{% endblock %}

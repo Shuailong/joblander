@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}参谋部 · joblander{% endblock %}
+{% block main %}
+<div class="topbar"><span class="crumb"><b>参谋部</b></span><span class="sp"></span>
+  {% if has_bank %}<a class="btn" href="/arsenal">▤ 弹药库</a>{% endif %}
+  <button class="btn pri" onclick="post('/api/capability/rebuild',{},{btn:this,ok:'画像已重估',reload:true})" title="扫全部 JD + 复盘证据 + 初筛差距，重出能力画像（LLM，约 1 分钟）">↻ 重估能力画像</button>
+</div>
+<h1>参谋部</h1>
+<div class="sub">能力画像（市场要求 vs 当前能力）｜ 模式与问题库 ｜ 复盘存档。画像每周日随周报自动重估。</div>
+
+{% if cap and cap.dimensions %}
+<h2>能力画像 <span class="note" style="text-transform:none;letter-spacing:0">估于 {{ cap.built_at }} ｜ 市场侧：{{ cap.sources.jd_high_n if cap.sources.jd_high_n is defined else '—' }} 家{{ '自定义点名' if cap.sources.jd_mode == 'custom' else ' High 机会' }}的 JD ｜ 自身侧：{{ cap.sources.evidence_n }} 份复盘 + {{ cap.sources.gap_signals_n }} 条初筛差距 + 履历 ｜ <span style="color:var(--ink-2)">▬ 市场要求</span> · <span style="color:var(--accent-ink)">▮ 当前能力</span></span></h2>
+{% if cap.sources.jd_companies %}
+<div class="note" style="margin:-6px 0 4px">JD 语料：{% for c in cap.sources.jd_companies %}{{ c.company }}（{{ c.origin }}）{{ '｜' if not loop.last }}{% endfor %}——「无」的去公司页传 JD 或在 Notion 页面挂附件，重估即吃进。</div>
+{% endif %}
+<details class="scopebox" {{ 'open' if scope.mode == 'custom' and not cap.sources.jd_companies }}>
+  <summary class="note" style="cursor:pointer;margin:0">⚙ JD 策略：<b>{{ 'High 优先级机会（自动跟随作战室）' if scope.mode == 'high' else '自定义 ' ~ (scope.companies | length) ~ ' 家：' ~ (scope.companies | join('、')) }}</b> — 点开调整</summary>
+  <div class="scopeform">
+    <label class="scopeopt"><input type="radio" name="jdmode" value="high" {{ 'checked' if scope.mode == 'high' }} onchange="scopeMode()"> High 优先级机会</label>
+    <label class="scopeopt"><input type="radio" name="jdmode" value="custom" {{ 'checked' if scope.mode == 'custom' }} onchange="scopeMode()"> 自定义（从作战室点名）</label>
+    <div id="scope-picker" class="scopepick" {{ 'hidden' if scope.mode != 'custom' }}>
+      {% for c in pool %}
+      <label class="scopeco"><input type="checkbox" value="{{ c.company }}" {{ 'checked' if c.company in scope.companies }}> {{ c.company }}{% if c.priority == 'High' %} <span class="pill teal" style="font-size:10.5px;padding:0 6px">High</span>{% endif %}</label>
+      {% else %}<span class="note">作战室还没有公司。</span>{% endfor %}
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+      <button class="btn" onclick="saveScope(this)">保存策略</button>
+      <span class="note" style="margin:0">保存后点「↻ 重估能力画像」生效。</span>
+    </div>
+  </div>
+</details>
+<div class="grid2" style="margin-top:10px">
+  <div class="card" style="display:flex;align-items:center;justify-content:center;padding:12px">
+    <svg id="radar" viewBox="0 0 380 330" style="width:100%;max-width:430px;height:auto;overflow:visible;margin:10px 0"></svg>
+  </div>
+  <div class="card">
+    <div style="white-space:pre-wrap;font-size:13.5px;margin-bottom:10px">{{ cap.summary or '' }}</div>
+    {% for s in cap.strengths or [] %}<div class="row"><span class="when">💪</span><div class="body">{{ s }}</div></div>{% endfor %}
+    {% for f in cap.focus or [] %}<div class="row"><span class="when">🎯</span><div class="body"><b>{{ f }}</b></div></div>{% endfor %}
+  </div>
+</div>
+
+<div class="pgrid" style="margin-top:10px">
+  {% for d in cap.dimensions %}
+  <details class="pcard {{ 'gapful' if (d.market or 0) - (d.self or 0) >= 2 }}">
+    <summary>
+      <span class="dimname">{{ d.name }}</span>
+      <span class="dimscore"><i style="color:var(--ink-3)">需 {{ d.market }}</i> · <b>{{ d.self }}/5</b></span>
+      {% if d.override_note is defined and d.override_note is not none %}<span class="pill amber" title="{{ d.override_note }}（LLM 原判 {{ d.self_llm if d.self_llm is defined else d.self }}）">手调</span>{% endif %}
+      {% if (d.market or 0) - (d.self or 0) >= 2 %}<span class="pill red">缺口 {{ d.market - d.self }}</span>{% elif d.self >= d.market %}<span class="pill green">达标</span>{% endif %}
+    </summary>
+    <div class="pbody">
+      {% for s in d.subs or [] %}
+      <div class="subdim"><span class="subname">{{ s.name }}</span>
+        <span class="dots">{% for i in range(5) %}<i class="{{ 'g' if i < (s.self or 0) else 'x' }}"></i>{% endfor %}</span>
+        <span class="meta" style="flex:1">{{ s.note or '' }}</span></div>
+      {% endfor %}
+      {% for ev in d.evidence or [] %}<div class="meta">📎 {{ ev }}</div>{% endfor %}
+      {% if d.gap %}<div class="meta" style="color:var(--amber)">▸ {{ d.gap }}</div>{% endif %}
+      {% for p in d.prep or [] %}<div class="meta" style="color:var(--accent-ink)">→ {{ p }}</div>{% endfor %}
+      {% if d.suggested_self is defined and d.suggested_self %}<div class="meta" style="color:var(--blue)">💡 复盘建议改 {{ d.suggested_self }}/5：{{ d.suggest_why or '' }}（要采纳就在下面改）</div>{% endif %}
+      {% if d.override_note %}<div class="meta">🖊 手调依据：{{ d.override_note }}</div>{% endif %}
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+        <span class="note">校准当前能力：</span>
+        <select id="ov-s-{{ loop.index }}" style="width:auto">{% for v in [1,2,3,4,5] %}<option value="{{ v }}" {{ 'selected' if v == d.self }}>{{ v }}</option>{% endfor %}</select>
+        <input type="text" id="ov-n-{{ loop.index }}" placeholder="依据（如：某场面试暴露了什么）" value="{{ d.override_note or '' }}" style="flex:1">
+        <button class="btn" onclick="post('/api/capability/override',{name:'{{ d.name }}',self_score:document.getElementById('ov-s-{{ loop.index }}').value,note:document.getElementById('ov-n-{{ loop.index }}').value},{btn:this,ok:'已校准——重估也不会被推翻',reload:true})">保存</button>
+      </div>
+    </div>
+  </details>
+  {% endfor %}
+</div>
+{% if cap.unmatched_overrides %}<div class="note">⚠️ 手调过但本轮维度里没匹配上的：{{ cap.unmatched_overrides | join('、') }}（维度名变了，重新校准一次即可）</div>{% endif %}
+{% else %}
+<div class="card">还没有能力画像——点右上「重估能力画像」，从你的 JD 库与复盘里挖一份出来（市场侧默认取 High 优先级机会的 JD，生成后可在本区改为自定义公司清单）。</div>
+{% endif %}
+
+<h2>模式与问题库 <span class="note" style="text-transform:none;letter-spacing:0">复盘批准即记战况；连续 2 miss 自动升 needs_work</span></h2>
+{% for cat, items in groups.items() %}
+<h3 style="font-size:12px;color:var(--ink-3);margin:14px 0 8px;letter-spacing:.06em">{{ cat }}（{{ items|length }}）</h3>
+<div class="pgrid">
+  {% for e in items %}
+  {% set h = health.get(e.id, {}) %}
+  <details class="pcard">
+    <summary>
+      <span class="pill {{ 'red' if h.get('alert') else ('amber' if e.status=='needs_work' else ('green' if e.status=='solid' else 'blue')) }}" style="flex-shrink:0">{{ e.status }}</span>
+      <span class="dimname" title="{{ e.pattern }}">{{ e.pattern }}</span>
+      <span class="dots">{% for o in h.get('recent', []) %}<i class="{{ {'hit':'g','miss':'r','partial':'a'}.get(o,'x') }}"></i>{% endfor %}</span>
+    </summary>
+    <div class="pbody">
+      {% if h.get('alert') %}<div class="meta" style="color:var(--red)">🔴 连续 {{ h.consecutive_miss }} miss——必修</div>{% endif %}
+      <div style="white-space:pre-wrap;font-size:13px">{{ (e.best_answer or '').strip() }}</div>
+      {% if e.get('assets') %}<details style="margin-top:8px"><summary class="note">资产（{{ e.assets|length }} 件）</summary>
+        {% for k, v in e.assets.items() %}<div class="kv">【{{ k }}】
+{{ v }}</div>{% endfor %}</details>{% endif %}
+      {% if e.get('engagements') %}<details style="margin-top:6px"><summary class="note">战况（{{ e.engagements|length }}）</summary>
+        {% for g in e.engagements | reverse %}
+        <div class="row"><span class="when">{{ (g.date|string)[5:] }}</span>
+          <div class="body"><span class="pill {{ {'hit':'green','miss':'red','partial':'amber'}.get(g.outcome,'gray') }}">{{ g.outcome }}</span>
+            <b>{{ g.company_ref or g.company or '' }}</b><div class="meta">{{ g.note or '' }}</div></div></div>
+        {% endfor %}</details>{% endif %}
+    </div>
+  </details>
+  {% endfor %}
+</div>
+{% endfor %}
+
+<h2>薪酬调研 <span class="note" style="text-transform:none;letter-spacing:0">W4 · MCF 实时 band + 统计层零 LLM + 叙事层引用逐岗来源 · 数据超两周建议重跑</span></h2>
+<div class="grid2">
+  <div class="card">
+    <h2 style="margin-top:0">发起调研</h2>
+    <div class="note" style="margin-bottom:8px">默认用「新机会」页侦察偏好里的关键词搜 MCF；可临时覆盖。levels.fyi/Glassdoor 等登录站点把内容贴进材料框。锚点对照只显示相对百分比，报告可安全分享。</div>
+    <label>关键词（逗号分隔，空 = 用侦察偏好）</label>
+    <input id="cp-kw" placeholder="AI Engineer, LLM Engineer, Forward Deployed">
+    <label>补充 URL（一行一个，可空）</label><textarea id="cp-urls" style="min-height:52px"></textarea>
+    <label>贴入材料（可空）</label><textarea id="cp-notes" style="min-height:52px" placeholder="levels.fyi / 群聊里看到的 band 情报原文……"></textarea>
+    <div style="margin-top:8px"><button class="btn pri" onclick="post('/api/comp/research',{keywords:gv('cp-kw'),urls:gv('cp-urls'),notes:gv('cp-notes')},{})">出调研报告（约 1-2 分钟）</button></div>
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">历史报告</h2>
+    {% for c in comp_reports %}<div class="row"><div class="body"><a href="/comp/{{ c }}">{{ c }}</a></div></div>
+    {% else %}<div class="note">还没跑过。左边发起第一份——按你的求职意向抓 MCF 实时薪资，出带日期的结构化报告。</div>{% endfor %}
+  </div>
+</div>
+
+<details style="margin-top:26px"><summary class="note" style="cursor:pointer">复盘存档（周报 {{ weeklies|length }} · 日报 {{ dailies|length }}）——按日期索引</summary>
+<div class="grid2" style="margin-top:8px">
+  <div class="card">
+    <h2 style="margin-top:0">周报</h2>
+    {% for w in weeklies %}<div class="row"><div class="body"><a href="/wsdoc/13-daily/{{ w }}">{{ w }}</a></div></div>
+    {% else %}<div class="note">每周日 20:00 自动生成。</div>{% endfor %}
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">日报</h2>
+    {% for d in dailies %}<div class="row"><div class="body"><a href="/wsdoc/13-daily/{{ d }}">{{ d }}</a></div></div>
+    {% else %}<div class="note">每天 08:15 落档。</div>{% endfor %}
+  </div>
+</div>
+</details>
+
+{% if cap and cap.dimensions %}
+<script defer>addEventListener('DOMContentLoaded',()=>drawRadar(document.getElementById('radar'), {{ cap.dimensions | tojson }}));</script>
+{% endif %}
+<script>
+function scopeMode(){
+  const custom = document.querySelector('input[name=jdmode]:checked').value === 'custom';
+  document.getElementById('scope-picker').hidden = !custom;
+}
+function saveScope(btn){
+  const mode = document.querySelector('input[name=jdmode]:checked').value;
+  const cos = [...document.querySelectorAll('#scope-picker input:checked')].map(i=>i.value);
+  post('/api/capability/scope',{mode:mode,companies:cos.join('|')},
+       {btn:btn,ok:'策略已保存——点「重估能力画像」生效',reload:true});
+}
+</script>
+{% endblock %}

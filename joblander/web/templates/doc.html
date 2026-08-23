@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · joblander{% endblock %}
+{% block main %}
+<div class="topbar"><span class="crumb"><b>{{ title }}</b></span><span class="sp"></span>
+  <button class="btn" onclick="window.print()">打印 / PDF</button></div>
+<article class="mdoc">{{ html | safe }}</article>
+{% if notes_name %}
+<div class="card" style="margin-top:14px;max-width:820px">
+  <h2 style="margin-top:0">🖊 我的手记 <span class="note" style="text-transform:none;letter-spacing:0">你自己的总结与感受——与 AI 生成的部分分开存放，重生成永不覆盖</span></h2>
+  <textarea id="doc-notes" style="min-height:120px">{{ notes }}</textarea>
+  <div style="margin-top:8px"><button class="btn pri" onclick="post('/api/daily/notes',{name:'{{ notes_name }}',text:gv('doc-notes')},{btn:this,ok:'手记已存',reload:true})">保存手记</button></div>
+</div>
+{% endif %}
+{% if rev_eid %}
+<div class="card" style="margin-top:14px;max-width:820px">
+  <h2 style="margin-top:0">🧭 我的复盘 <span class="note" style="text-transform:none;letter-spacing:0">AI 的归 AI，你的判断单独留档{% if rev_updated %} · 上次改 {{ rev_updated }}{% endif %}</span></h2>
+  <textarea id="doc-rev" style="min-height:120px" placeholder="3 行足矣：打得好的 / 失手的 / 下次改">{{ rev_text }}</textarea>
+  <div style="margin-top:8px"><button class="btn pri" onclick="post('/api/company/review',{page_id:'{{ rev_pid }}',entry_id:'{{ rev_eid }}',text:gv('doc-rev')},{btn:this,ok:'复盘已留档',reload:true})">保存复盘</button></div>
+</div>
+{% endif %}
+{% endblock %}
