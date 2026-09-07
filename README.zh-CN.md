@@ -8,7 +8,7 @@
 
 所以我一边打仗一边造了这个系统。它跑完了我整场求职。然后 offer 来了，现在它开源了。
 
-**状态：** v0，真实战场跑完。web 作战室 + 下述全部 Agent 落地，249 个测试 + 盲评脚本背书。
+**状态：** v0，真实战场跑完。web 作战室 + 下述全部 Agent 落地，281 个测试 + 盲评脚本背书。
 
 ![指挥中心](docs/images/command-center.jpg)
 
@@ -159,7 +159,7 @@ python -m evals.resume_eval <公司>     # 招聘方盲评 + 教练分拣
 python -m evals.summary_eval <公司>    # 尽调简介：硬检查 + 五维盲评
 python -m evals.brief_eval <公司>      # 面前 brief 对照用户金标
 python -m evals.user_agent             # LLM 扮用户走一遍运行中的 web UI
-pytest                                 # 249 个测试
+pytest                                 # 281 个测试
 ```
 
 每个 eval 都是**零 LLM 硬检查**（确定性，免费抓格式与纪律违规）配**LLM 盲评**（判断）。金标集本身是私有的——它们来自真实求职数据。

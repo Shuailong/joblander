@@ -44,10 +44,13 @@ def load_sections(cfg) -> dict:
 
 
 def _write(cfg, data: dict) -> None:
+    """弹药库是所有简历的唯一事实源，写坏了没有别处能补回来——
+    原子替换（写中途崩只会留下旧版本，不会留下半截文件）。"""
+    from joblander.company import atomic_write_text
     parts = [data["preamble"].rstrip()] if data["preamble"].strip() else []
     for s in data["sections"]:
         parts.append(f"## {s['title'].strip()}\n\n{s['body'].strip()}")
-    bank_path(cfg).write_text("\n\n".join(parts) + "\n", encoding="utf-8")
+    atomic_write_text(bank_path(cfg), "\n\n".join(parts) + "\n")
 
 
 def _log(cfg, event: str, payload: dict) -> None:

@@ -686,18 +686,19 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                 for s in data["sections"] if not s["internal"]]
         internal_n = sum(1 for s in data["sections"] if s["internal"])
         # 简历版本：通用两版（03-materials 母版）+ 各公司定制版（ResumeCustomiserAgent 产出）
+        # 母版按目录实际内容列，不写死文件名——原先钉死作者本人的两个 PDF 名字，
+        # 别人的弹药库这一栏永远是空的。同名 .pdf 存在就一并挂上。
         generic = []
-        for label, html_name, pdf_name in (
-                ("标准版 · AI Engineer", "resume.html", "Liang_Shuailong_AI_Engineer.pdf"),
-                ("FDE 版", "resume-fde.html", "Liang_Shuailong_FDE.pdf")):
-            hp = cfg.workspace_dir / "03-materials" / html_name
-            pp = cfg.workspace_dir / "03-materials" / pdf_name
-            if hp.exists():
-                generic.append({
-                    "label": label, "html": f"03-materials/{html_name}",
-                    "pdf": f"03-materials/{pdf_name}" if pp.exists() else "",
-                    "mtime": datetime.fromtimestamp(hp.stat().st_mtime, SGT)
-                             .strftime("%Y-%m-%d")})
+        mdir = cfg.workspace_dir / "03-materials"
+        for hp in sorted(mdir.glob("resume*.html")) if mdir.exists() else []:
+            pp = next((p for p in (hp.with_suffix(".pdf"), *mdir.glob(f"{hp.stem}*.pdf"))
+                       if p.exists()), None)
+            label = "标准版" if hp.name == "resume.html" else hp.stem.replace("resume-", "")
+            generic.append({
+                "label": label, "html": f"03-materials/{hp.name}",
+                "pdf": f"03-materials/{pp.name}" if pp else "",
+                "mtime": datetime.fromtimestamp(hp.stat().st_mtime, SGT)
+                         .strftime("%Y-%m-%d")})
         return tpl.TemplateResponse(request, "arsenal.html", ctx(
             "ars", sections=secs, internal_n=internal_n, generic=generic,
             exists=bool(data["sections"] or data["preamble"])))

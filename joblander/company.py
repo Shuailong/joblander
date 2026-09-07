@@ -13,13 +13,37 @@ Notion 正文 `### YYYY-MM-DD` 存量条目，按（日期,标题）去重、本
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
+import tempfile
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 SGT = timezone(timedelta(hours=8))
+
+# 档案是不可再生的资产：时间线、meta 全是「读全量 → 改 → 写全量」。
+# 进程内有三路并发写它（web 请求线程、start_task 后台任务线程、daemon 线程），
+# 交错会丢条目；write_text 直接截断原文件，中途崩就是半截文件。
+_ARCHIVE_LOCK = threading.RLock()
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """同目录临时文件 + os.replace：要么旧内容，要么新内容，不会留下半截。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
 
 KINDS = ("interview", "oa", "call", "email", "apply", "note", "retro", "assessment",
          "intake", "transcript")
@@ -102,12 +126,12 @@ def load_meta(cfg, company: str) -> dict[str, Any]:
         return {}
 
 def save_meta(cfg, company: str, patch: dict[str, Any]) -> dict[str, Any]:
-    meta = load_meta(cfg, company)
-    meta.update({k: v for k, v in patch.items()})
-    meta["updated"] = datetime.now(SGT).isoformat(timespec="seconds")
-    d = company_dir(cfg, company, create=True)
-    (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1),
-                                 encoding="utf-8")
+    with _ARCHIVE_LOCK:                 # 读-改-写：并发下不加锁会互相盖掉字段
+        meta = load_meta(cfg, company)
+        meta.update({k: v for k, v in patch.items()})
+        meta["updated"] = datetime.now(SGT).isoformat(timespec="seconds")
+        d = company_dir(cfg, company, create=True)
+        atomic_write_text(d / "meta.json", json.dumps(meta, ensure_ascii=False, indent=1))
     _log(cfg).append("company.meta_updated", "human_direct",
                      {"company": company, "fields": sorted(patch.keys())})
     return meta
@@ -144,7 +168,7 @@ def local_entries(cfg, company: str) -> list[dict[str, Any]]:
 def _write_all(cfg, company: str, entries: list[dict[str, Any]]) -> None:
     d = company_dir(cfg, company, create=True)
     text = "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries)
-    (d / "timeline.jsonl").write_text(text, encoding="utf-8")
+    atomic_write_text(d / "timeline.jsonl", text)
 
 
 def timeline_add(cfg, company: str, *, kind: str = "note", title: str = "",
@@ -170,9 +194,10 @@ def timeline_add(cfg, company: str, *, kind: str = "note", title: str = "",
     }
     if ref:
         entry["ref"] = ref
-    entries = local_entries(cfg, company)
-    entries.append(entry)
-    _write_all(cfg, company, entries)
+    with _ARCHIVE_LOCK:                 # 读全量→追加→写全量：交错会丢条目
+        entries = local_entries(cfg, company)
+        entries.append(entry)
+        _write_all(cfg, company, entries)
     # 事件带作战日期（payload.date）：录入时间是 ts，仗打的日子是 date——统计一律按 date
     _log(cfg).append("company.timeline_added", f"{author}:{source}",
                      {"company": company, "kind": entry["kind"], "title": entry["title"],
@@ -534,7 +559,15 @@ DATE_IN_NAME = re.compile(r"(\d{4})[-年](\d{1,2})[-月](\d{1,2})")
 
 def bind_orphan_attachments(cfg, company: str) -> list[dict[str, str]]:
     """附件是事件的属性（2026-08-08 他定的模型）：attachments/ 里没挂到任何事件的文件，
-    按文件名里的日期绑回当日事件（优先 interview/call）。绑不上的返回清单（页面提示）。幂等。"""
+    按文件名里的日期绑回当日事件（优先 interview/call）。绑不上的返回清单（页面提示）。幂等。
+
+    公司页每次 GET 都会调它（自愈），所以两个标签页同时打开就是两路并发读-改-写：
+    不串行的话同一个孤儿附件会被各建一条事件。整段进锁。"""
+    with _ARCHIVE_LOCK:
+        return _bind_orphan_attachments(cfg, company)
+
+
+def _bind_orphan_attachments(cfg, company: str) -> list[dict[str, str]]:
     entries = local_entries(cfg, company)
     referenced = {a for e in entries for a in (e.get("attachments") or [])}
     # 人工从事件上移除过的附件不得被自动绑回（否则解绑即死循环）；

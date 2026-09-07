@@ -99,10 +99,33 @@ def resume_state(cfg, company: str) -> dict[str, Any]:
     return load_meta(cfg, company).get("resume") or {"current": "", "versions": [], "feedback": []}
 
 
+def _find_chrome() -> str:
+    """按平台找 Chrome/Chromium/Edge。原先只认 macOS 的绝对路径 + `chromium` 一个名字，
+    Linux 上常见的 google-chrome / chromium-browser 与 Windows 全都落空——PDF 静默不出，
+    用户只拿到 HTML 且没有任何提示。可用 JOBLANDER_CHROME 显式指定。"""
+    import os
+    explicit = os.environ.get("JOBLANDER_CHROME")
+    if explicit and Path(explicit).exists():
+        return explicit
+    for name in ("google-chrome", "google-chrome-stable", "chromium",
+                 "chromium-browser", "chrome", "msedge"):
+        found = shutil.which(name)
+        if found:
+            return found
+    for p in (CHROME,                                            # macOS
+              "/Applications/Chromium.app/Contents/MacOS/Chromium",
+              "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+              r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+              r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"):
+        if Path(p).exists():
+            return p
+    return ""
+
+
 def _to_pdf(html_path: Path) -> Path | None:
-    """Chrome headless 转 PDF（CLAUDE.md 同款命令）；无 Chrome 降级只出 HTML。"""
+    """Chrome headless 转 PDF；找不到浏览器就只出 HTML（不阻塞出版）。"""
     pdf = html_path.with_suffix(".pdf")
-    chrome = CHROME if Path(CHROME).exists() else shutil.which("chromium") or ""
+    chrome = _find_chrome()
     if not chrome:
         return None
     try:

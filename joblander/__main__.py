@@ -231,7 +231,13 @@ def _run(argv: list[str] | None = None) -> int:
         if args.code:
             print(f"token → {calendar_sync.exchange_code(cfg, args.code)}")
         else:
-            print(calendar_sync.auth_url(cfg, write=args.write))
+            # 旧的 cal-auth 走 OOB（urn:ietf:wg:oauth:2.0:oob），Google 2022 年就封了，
+            # 打印出来的 URL 必然 invalid_request。gmail-auth 的 loopback 流一次授权
+            # 已经把日历读写 scope 一起拿了，并写同一份 calendar_token.json。
+            print("✗ cal-auth 的 OOB 授权已被 Google 停用。改跑 `joblander gmail-auth`——"
+                  "同一次授权已包含日历读写权限，token 落 "
+                  ".credentials/calendar_token.json", file=sys.stderr)
+            return 1
 
     elif args.cmd == "cal-events":
         import json as _json

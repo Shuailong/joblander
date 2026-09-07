@@ -8,7 +8,7 @@ I was laid off in 2026. Job hunting turned out to be a distributed-systems probl
 
 So I built the system I wanted, while fighting with it. It ran my entire search. Then I got an offer, and now it's open source.
 
-**Status:** v0, battle-tested through a real job search. Web war room + all agents below are live, backed by 249 tests and blind-review eval scripts.
+**Status:** v0, battle-tested through a real job search. Web war room + all agents below are live, backed by 281 tests and blind-review eval scripts.
 
 ![Command center](docs/images/command-center.jpg)
 
@@ -161,7 +161,7 @@ python -m evals.resume_eval <company>     # recruiter blind review + coach triag
 python -m evals.summary_eval <company>    # due-diligence summary: hard checks + 5-dim review
 python -m evals.brief_eval <company>      # pre-interview brief against user gold standards
 python -m evals.user_agent                # LLM plays the user and walks the running web UI
-pytest                                    # 249 tests
+pytest                                    # 281 tests
 ```
 
 Each eval pairs **zero-LLM hard checks** (deterministic, catch format and discipline violations for free) with **LLM blind review** (judgment). The golden sets themselves are private — they're built from real job-search data.
