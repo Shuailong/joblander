@@ -121,12 +121,37 @@ def _ws_file(cfg, rel: str) -> Path | None:
     return p
 
 
+def _append_local_row(cfg, lead: dict[str, Any], proposal: dict[str, Any]) -> dict[str, Any]:
+    """无 Notion 时把入池线索直接写进本地投影，页面凭这个 id 寻址。"""
+    import secrets
+    proj = cfg.workspace_dir / "09-projections" / "tracker.json"
+    data = ({"rows": []} if not proj.exists()
+            else json.loads(proj.read_text(encoding="utf-8")))
+    row = {"notion_page_id": f"local-{secrets.token_hex(6)}",
+           "Company": lead.get("company") or "", "Position": lead.get("position") or "",
+           "Status": "Added", "Priority": "Low",
+           "Highlight": lead.get("highlight") or "",
+           "Next Steps": lead.get("suggested_next_step") or "",
+           "Source": proposal.get("source_hint") or "intake",
+           "created": datetime.now(SGT).isoformat(timespec="seconds")}
+    if lead.get("urls"):
+        row["Job URL"] = lead["urls"][0]
+    data.setdefault("rows", []).append(row)
+    data["pulled_rows"] = len(data["rows"])
+    proj.parent.mkdir(parents=True, exist_ok=True)
+    proj.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    return row
+
+
 def apply_proposal(cfg, proposal_path: str | Path, yes: bool = False) -> dict[str, Any]:
     from joblander.eventlog import EventLog
     from joblander.notion import NotionClient
 
     pf = _proposal_file(cfg, proposal_path)
     proposal = json.loads(pf.read_text(encoding="utf-8"))
+    if proposal.get("approved") is not None:      # 已批/已拒的不重放：
+        raise ValueError(                          # 否则时间线重复入条、done/ 再套一层 done/
+            f"提案已处理过（approved={proposal['approved']}）：{pf.name}")
     nwrite_cfg = cfg.raw.get("notion") or {}
     # Notion 是可选集成（README/config.example）：没配就不建 client，
     # 此前无条件取 cfg.raw["notion"] 让纯本地用户一批准提案就 KeyError——
@@ -207,6 +232,11 @@ def apply_proposal(cfg, proposal_path: str | Path, yes: bool = False) -> dict[st
                 dry_run=dry)
             if not dry:
                 _append_projection(cfg, result["create"])
+        elif not dry:
+            # 纯本地：Notion 不建行，投影也必须落一行，否则档案建了却没有入口——
+            # 公司页按 notion_page_id 寻址，作战室/新机会都查不到这家，而提案已归档，
+            # 用户连重试的机会都没有。按钮自己的提示写的是「tracker 建行 + 建公司档案」。
+            result["create"] = _append_local_row(cfg, lead, proposal)
         if not dry and lead.get("company"):             # 档案：入池即建档
             from joblander import company as companyfile
             companyfile.timeline_add(

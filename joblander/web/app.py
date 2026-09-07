@@ -238,8 +238,12 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         return from_config(cfg, tier)
 
     def _notion():
-        from joblander.notion import NotionClient
-        return NotionClient(cfg.raw["notion"]["token"])
+        """没配 Notion 返回 None——下游全部接受 None（mine_jd / build_capability）。
+        此前无条件取 cfg.raw["notion"]["token"]，纯本地用户点「生成定制简历」和
+        「重估能力画像」都只拿到 error: 'notion'。同一类 bug 在 applyops 修过，
+        这个调用点漏了。"""
+        from joblander.notion import NotionClient, notion_configured
+        return NotionClient(cfg.raw["notion"]["token"]) if notion_configured(cfg) else None
 
     def _split_pending(pending):
         """提案按属地拆：面后与跟进→公司页；入池→新机会；日记与排期缺口→指挥中心。"""

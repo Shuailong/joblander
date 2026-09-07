@@ -233,3 +233,89 @@ def test_jd_fetch_failure_is_logged_and_named(cfg, monkeypatch):
     assert text == "" and "抓取失败" in origin and "非公网" in origin
     log = (cfg.workspace_dir / "08-events" / "event-log.jsonl").read_text(encoding="utf-8")
     assert "company.jd_fetch_failed" in log
+
+
+# ---------- 端到端实测（真实 LLM）发现的问题 ----------
+
+def test_notion_helper_returns_none_when_unconfigured(tmp_path, monkeypatch):
+    """/api/resume/react（旗舰功能）与 /api/capability/rebuild 都走 _notion()：
+    此前无条件取 cfg.raw['notion']['token']，纯本地用户只拿到 error: 'notion'。"""
+    import joblander.notion as notion_mod
+    from fastapi.testclient import TestClient
+    ws = tmp_path / "ws"
+    (ws / "09-projections").mkdir(parents=True)
+    (ws / "09-projections" / "tracker.json").write_text('{"rows": []}', encoding="utf-8")
+    cfg = Config(raw={"workspace_dir": str(ws)}, path=tmp_path / "c.yaml")
+    monkeypatch.setattr("joblander.web.app.load_config", lambda: cfg)
+    monkeypatch.setattr(notion_mod.NotionClient, "_request", lambda self, *a, **k: {})
+    from joblander.web.app import TASKS, create_app
+    TASKS.clear()
+    app = create_app(with_daemon=False)
+    with TestClient(app, base_url="http://127.0.0.1") as c:
+        assert c.get("/").status_code == 200      # 建得起来即证明闭包内无 eager 取值
+    from joblander.notion import notion_configured
+    assert notion_configured(cfg) is False
+
+
+def test_intake_approve_creates_row_without_notion(tmp_path):
+    """纯本地批准入池：档案建了，投影也必须建行，否则公司页无从寻址、
+    作战室查不到这家，而提案已归档、连重试的机会都没有。"""
+    from joblander.applyops import apply_proposal
+    ws = tmp_path / "ws"
+    for d in ("08-events", "09-projections", "12-intake"):
+        (ws / d).mkdir(parents=True)
+    (ws / "09-projections" / "tracker.json").write_text('{"rows": []}', encoding="utf-8")
+    cfg = Config(raw={"workspace_dir": str(ws)}, path=tmp_path / "c.yaml")
+    prop = ws / "12-intake" / "lead.json"
+    prop.write_text(json.dumps({"kind": "lead.intake", "lead": {
+        "company": "NewCo", "position": "AI Eng", "highlight": "h",
+        "urls": ["https://example.com/jd"]}}, ensure_ascii=False), encoding="utf-8")
+
+    apply_proposal(cfg, prop, yes=True)
+
+    rows = json.loads((ws / "09-projections" / "tracker.json").read_text())["rows"]
+    assert len(rows) == 1 and rows[0]["Company"] == "NewCo"
+    assert rows[0]["notion_page_id"].startswith("local-")   # 页面凭它寻址
+    assert rows[0]["Job URL"] == "https://example.com/jd"
+    assert cf.local_entries(cfg, "NewCo"), "公司档案也该建起来"
+
+
+def test_apply_refuses_already_processed_proposal(tmp_path):
+    """重放已批提案会重复入时间线、done/ 再套 done/。"""
+    from joblander.applyops import apply_proposal
+    ws = tmp_path / "ws"
+    for d in ("08-events", "09-projections", "12-intake"):
+        (ws / d).mkdir(parents=True)
+    (ws / "09-projections" / "tracker.json").write_text('{"rows": []}', encoding="utf-8")
+    cfg = Config(raw={"workspace_dir": str(ws)}, path=tmp_path / "c.yaml")
+    done = ws / "12-intake" / "done"
+    done.mkdir()
+    old = done / "lead.json"
+    old.write_text(json.dumps({"kind": "lead.intake", "approved": True,
+                               "lead": {"company": "NewCo"}}, ensure_ascii=False),
+                   encoding="utf-8")
+
+    with pytest.raises(ValueError, match="已处理过"):
+        apply_proposal(cfg, old, yes=True)
+
+    assert not (done / "done").exists()
+
+
+@pytest.mark.parametrize("section,heading", [
+    ("education", "<h2>Education</h2>"),
+    ("skills", "Technical Skills"),
+    ("summary", "<h2>Summary</h2>"),
+])
+def test_resume_omits_headings_for_empty_sections(section, heading):
+    """空段落照出小标题：简历与 PDF 上留一个光秃秃的 Education（v2 里还夹在中间）。"""
+    from joblander.resume_agent import _render_html
+    content = {"tagline": "AI Engineer", "summary": ["S"],
+               "experience": [{"company": "C", "position": "P", "when": "W",
+                               "note": "", "bullets": ["b"]}],
+               "skills": [{"label": "L", "value": "V"}],
+               "education": [{"degree": "PhD", "institution": "U", "when": "2020", "sub": ""}],
+               "publications": [], "service": ""}
+    prof = {"name": "Alex Doe", "contact": []}
+
+    assert heading in _render_html(content, prof)
+    assert heading not in _render_html(dict(content, **{section: []}), prof)

@@ -148,10 +148,17 @@ def run(cfg, company: str, version: str = "",
     hard = hard_checks(cfg, html) + fmt
     llm = from_config(cfg, "eval")
     resume_txt = html_to_text(html)
+    # 没有 JD 时必须说清楚「本次没有 JD」，否则裁判会自行想象一份 JD，
+    # 再产出「HM 逐项对照 JD」的九条比对，读者会当成这家公司真实要求。
+    jd_block = (f"【本司 JD】\n{jd[:12000]}" if jd else
+                "【本司 JD】（本次没有 JD 原文）\n"
+                "纪律：不得虚构 JD 条目，不得输出任何逐项对照；"
+                "jd_fit 一律给空数组，只按简历自身质量评。")
     recruiter = json.loads(_strip_fences(llm.generate(
-        f"【本司 JD】\n{jd[:12000] or '（无 JD——按简历自身质量与通用 AI Engineer 岗评）'}\n\n"
-        f"【收到的简历（全文文本）】\n{resume_txt[:12000]}",
+        f"{jd_block}\n\n【收到的简历（全文文本）】\n{resume_txt[:12000]}",
         system=RECRUITER_SYSTEM, json_mode=True)))
+    if not jd:                      # 代码侧兜底：模型不听话也不让对照上报告
+        recruiter.setdefault("hm", {})["jd_fit"] = []
 
     bank_p = cfg.workspace_dir / "03-materials" / "achievement-bank.md"
     bank = bank_p.read_text(encoding="utf-8") if bank_p.exists() else ""

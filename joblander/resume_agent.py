@@ -268,6 +268,16 @@ def _render_html(content: dict[str, Any], profile: dict[str, Any]) -> str:
             f'<div class="edu-deg">{_esc(e.get("degree"))} — {_esc(e.get("institution"))}</div>'
             f'<div class="role-when">{_esc(e.get("when"))}</div></div>{sub}</div>')
 
+    # 段落有内容才出小标题——此前 Summary/Experience/Skills/Education 四个标题
+    # 无条件渲染，education 为空时简历（与 PDF）上就留一个光秃秃的「Education」，
+    # v2 里它还夹在 Skills 与 Publications 中间。
+    summary_section = f"<h2>Summary</h2>\n  <div class=\"summary\">{summary_html}</div>" \
+        if summary_html else ""
+    experience_section = f"<h2>Experience</h2>\n  {''.join(roles)}" if roles else ""
+    skills_section = f"<h2>Technical Skills</h2>\n  <div class=\"skills\">{skills_html}</div>" \
+        if skills_html else ""
+    education_section = f"<h2>Education</h2>\n  {''.join(edus)}" if edus else ""
+
     pubs = [p for p in content.get("publications") or [] if str(p).strip()]
     pubs_section = ""
     if pubs:
@@ -291,14 +301,10 @@ def _render_html(content: dict[str, Any], profile: dict[str, Any]) -> str:
     <div class="tagline">{tagline}</div>
     <div class="contact">{contact_html}</div>
   </header>
-  <h2>Summary</h2>
-  <div class="summary">{summary_html}</div>
-  <h2>Experience</h2>
-  {"".join(roles)}
-  <h2>Technical Skills</h2>
-  <div class="skills">{skills_html}</div>
-  <h2>Education</h2>
-  {"".join(edus)}
+  {summary_section}
+  {experience_section}
+  {skills_section}
+  {education_section}
   {pubs_section}
 </div>
 </body>
