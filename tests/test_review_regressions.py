@@ -5,6 +5,7 @@
 """
 
 import json
+import pathlib
 
 import pytest
 import yaml
@@ -156,3 +157,62 @@ def test_calendar_watch_gap_only_tick_does_not_crash(cfg, monkeypatch):
 
     props = list((cfg.workspace_dir / "12-intake").glob("*.json"))
     assert props, "缺口提案该照常落盘"
+
+
+# ---------- Notion「看起来配了其实没配」 ----------
+
+def test_notion_configured_requires_token_and_data_source():
+    """调用方过去只看 token，而 config.example 里 token 是占位符、ds_id 留空——
+    照示例配置的新用户被判成「已配 Notion」，daily / pull / daemon 晨报全崩在 pull_tracker。"""
+    from joblander.notion import notion_configured
+
+    def c(n):
+        return Config(raw={"workspace_dir": "/tmp/x", "notion": n} if n is not None
+                      else {"workspace_dir": "/tmp/x"}, path=pathlib.Path("/tmp/c.yaml"))
+
+    assert notion_configured(c({"token": "real", "tracker_data_source_id": "ds"})) is True
+    assert notion_configured(c({"token": "ntn_xxx", "tracker_data_source_id": ""})) is False
+    assert notion_configured(c({"token": "real"})) is False           # 缺 ds_id
+    assert notion_configured(c({"tracker_data_source_id": "ds"})) is False
+    assert notion_configured(c(None)) is False
+
+
+def test_example_config_is_local_only_by_default():
+    """示例配置默认必须是「没配 Notion」，否则新用户第一条命令就崩。"""
+    from joblander.notion import notion_configured
+    raw = yaml.safe_load(open("config.example.yaml", encoding="utf-8"))
+    cfg = Config(raw=raw, path=pathlib.Path("config.example.yaml"))
+    assert notion_configured(cfg) is False
+
+
+def test_daily_builds_without_notion(tmp_path, monkeypatch):
+    """纯本地晨报要出得来，读现成投影而不是去 pull。"""
+    ws = tmp_path / "ws"
+    for d in ("08-events", "09-projections", "13-daily"):
+        (ws / d).mkdir(parents=True)
+    (ws / "09-projections" / "tracker.json").write_text(json.dumps({"rows": [
+        {"Company": "Acme", "Status": "Applied", "notion_page_id": "p1"}]}), encoding="utf-8")
+    cfg = Config(raw={"workspace_dir": str(ws)}, path=tmp_path / "c.yaml")
+    monkeypatch.setattr("joblander.notion.pull_tracker",
+                        lambda c: (_ for _ in ()).throw(AssertionError("不该去 pull")))
+    from joblander.daily import build_daily
+
+    out, text = build_daily(cfg, notion_client=None)
+
+    # 关键回归是「不再崩」：以前无条件 pull_tracker，纯本地用户拿不到晨报。
+    # 具体列哪些行是报告自己的筛选逻辑，不在本用例范围内。
+    assert out.exists() and "晨报" in text
+
+
+def test_cli_reports_notion_error_as_one_line(monkeypatch, capsys):
+    """`joblander pull` 没配 Notion 时给一行人话，不甩栈。"""
+    from joblander.__main__ import main
+    from joblander.notion import NotionError
+    monkeypatch.setattr("joblander.__main__._run",
+                        lambda argv=None: (_ for _ in ()).throw(
+                            NotionError("config.notion 缺 token / tracker_data_source_id")))
+
+    code = main(["pull"])
+
+    err = capsys.readouterr().err
+    assert code == 1 and err.startswith("✗ ") and "Traceback" not in err

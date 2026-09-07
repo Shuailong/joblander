@@ -234,6 +234,17 @@ def markdown_to_blocks(markdown: str) -> list[dict[str, Any]]:
     return blocks
 
 
+def notion_configured(cfg) -> bool:
+    """Notion 是否真的可用：token 与 tracker_data_source_id 都得有。
+
+    调用方过去只看 token，而 config.example 里 token 是占位符 `ntn_xxx`（真值）、
+    data_source_id 留空——照示例配置的新用户会被判成「已配 Notion」，
+    于是 `joblander daily` / `pull` 与 daemon 晨报统统崩在 pull_tracker 里。"""
+    n = cfg.raw.get("notion") or {}
+    tok = str(n.get("token") or "").strip()
+    return bool(tok) and not tok.startswith("ntn_xxx") and bool(n.get("tracker_data_source_id"))
+
+
 def pull_tracker(cfg) -> list[dict[str, Any]]:
     """全量拉取 → 写投影 <workspace>/09-projections/tracker.json → 记 tracker.pulled 事件。"""
     from joblander.eventlog import EventLog

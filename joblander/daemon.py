@@ -233,7 +233,8 @@ class Daemon:
     def job_notion_diff_pull(self):
         """F2：定时 pull + diff → notion.edited 事件回流。没配 Notion 直接跳过——
         它是可选集成，此前无条件 pull 让纯本地用户每 15 分钟收获一条 job.failed。"""
-        if not (self.cfg.raw.get("notion") or {}).get("token"):
+        from joblander.notion import notion_configured
+        if not notion_configured(self.cfg):
             return
         if not self._due_interval("notion_pull", 15):
             return
@@ -273,8 +274,9 @@ class Daemon:
         from joblander.notion import NotionClient
         # 没配 Notion 就出纯本地晨报（CLI 的 daily 一直是这么做的，daemon 这条漏了改）——
         # 否则纯本地用户每天 08:15 只收到一条 KeyError，永远等不到晨报。
-        ntoken = (self.cfg.raw.get("notion") or {}).get("token")
-        client = NotionClient(ntoken) if ntoken else None
+        from joblander.notion import notion_configured
+        client = (NotionClient(self.cfg.raw["notion"]["token"])
+                  if notion_configured(self.cfg) else None)
         out, text = build_daily(self.cfg, notion_client=client)
         first = next((l for l in text.splitlines() if l.startswith("#")), "晨报")
         notify("晨报出炉", first.lstrip("# "), "http://127.0.0.1:8899/")
@@ -298,8 +300,10 @@ class Daemon:
         build_weekly(self.cfg, llm=self._llm())
         try:                                      # 周度顺手重估能力画像（复盘攒了一周新证据）
             from joblander.capability import build_capability
+            from joblander.notion import notion_configured
             build_capability(self.cfg, self._llm(),
-                             notion_client=NotionClient(self.cfg.raw["notion"]["token"]))
+                             notion_client=(NotionClient(self.cfg.raw["notion"]["token"])
+                                            if notion_configured(self.cfg) else None))
         except Exception:
             pass
         notify("周报出炉", "战果 · 下周的仗 · 复盘提炼 · 能力画像已重估（参谋部）",

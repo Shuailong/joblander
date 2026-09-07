@@ -16,8 +16,9 @@ FIELD_TYPES = {"Status": "status", "Priority": "select", "Highlight": "rich_text
 def notion_write_enabled(cfg) -> bool:
     """Notion 退役开关（UI v2 / ADR-14）：false = 本地档案是唯一写入面，Notion 变只读镜像。
     没配 token 一律视为关闭——Notion 是可选集成，没凭证就谈不上「写得成」。"""
+    from joblander.notion import notion_configured
     n = cfg.raw.get("notion") or {}
-    return bool(n.get("token")) and bool(n.get("write_enabled", True))
+    return notion_configured(cfg) and bool(n.get("write_enabled", True))
 
 
 def _patch_projection(cfg, page_id: str, fields: dict[str, Any]) -> None:

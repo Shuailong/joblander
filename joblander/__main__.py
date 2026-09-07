@@ -18,9 +18,10 @@ def main(argv: list[str] | None = None) -> int:
     （未预期的异常照旧抛出——那是 bug，栈有用）。"""
     from joblander.config import ConfigError
     from joblander.llm import LLMError
+    from joblander.notion import NotionError
     try:
         return _run(argv)
-    except (ConfigError, LLMError, FileNotFoundError) as e:
+    except (ConfigError, LLMError, NotionError, FileNotFoundError, ValueError) as e:
         print(f"✗ {e}", file=sys.stderr)
         return 1
 
@@ -124,7 +125,8 @@ def _run(argv: list[str] | None = None) -> int:
     elif args.cmd == "daily":
         from joblander.daily import build_daily
         from joblander.notion import NotionClient
-        client = NotionClient(cfg.raw["notion"]["token"]) if cfg.raw.get("notion", {}).get("token") else None
+        from joblander.notion import notion_configured
+        client = NotionClient(cfg.raw["notion"]["token"]) if notion_configured(cfg) else None
         out, _ = build_daily(cfg, notion_client=client)
         print(f"晨报 → {out}")
 

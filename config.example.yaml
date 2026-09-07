@@ -82,12 +82,12 @@ search:                           # 尽调员的搜索引擎（首次用尽调�
   #   - {provider: tavily, api_key: tvly-xxx}    # 按 URL 去重、交错合并，抗单引擎波动
   #   - {provider: brave, api_key: BSA-xxx}
 
-notion:                           # 用 Notion 当 tracker 的 source of truth；不配则纯本地档案
-  token: ntn_xxx                  # notion.so/my-integrations，只授权 Tracker 所在页面
-  tracker_data_source_id: ""      # collection://<id>
-  # tracker_database_id: ""       # 新版 Notion API 建行时需要（有 data_source 仍建议一并填）
-  # diary_page_id: ""             # 找工日记页；不填则日记只落本地 13-daily/
-  write_enabled: true             # false = 只读镜像，全部写入只落本地公司档案（18-companies/）
+# notion:                         # 用 Notion 当 tracker + 移动端入口；整段留着注释 = 纯本地
+#   token: ntn_xxx                # notion.so/my-integrations，只授权 Tracker 所在页面
+#   tracker_data_source_id: ""    # collection://<id>——与 token 缺一不可，缺了视为没配
+#   tracker_database_id: ""       # 新版 Notion API 建行时需要
+#   diary_page_id: ""             # 找工日记页；不填则日记只落本地 13-daily/
+#   write_enabled: true           # false = 只读镜像，全部写入只落本地公司档案（18-companies/）
 
 gmail:                            # 邮件自动 sourcing；GCP Console → Credentials → OAuth client (Desktop app)
   client_id: xxx.apps.googleusercontent.com
