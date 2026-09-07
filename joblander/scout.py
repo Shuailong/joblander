@@ -53,8 +53,9 @@ def _followup_proposal(cfg, lead: dict[str, Any], row: dict[str, Any],
     if lead.get("suggested_next_step"):
         lines.append(f"- 建议动作：{lead['suggested_next_step']}")
     if jd_file:            # 公司已在战线：JD 附件直接落档（同公司页手动上传 JD）
-        src = cfg.workspace_dir / jd_file
-        if src.is_file():
+        from joblander.applyops import _ws_file
+        src = _ws_file(cfg, jd_file)   # 越界路径（绝对/..）不碰——下游是 unlink
+        if src is not None:
             from joblander import company as companyfile
             saved = companyfile.save_upload(cfg, row.get("Company") or "",
                                             src.name.split("-", 1)[-1] or src.name,

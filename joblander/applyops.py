@@ -11,8 +11,10 @@ FIELD_TYPES = {"Status": "status", "Priority": "select", "Highlight": "rich_text
 
 
 def notion_write_enabled(cfg) -> bool:
-    """Notion 退役开关（UI v2 / ADR-14）：false = 本地档案是唯一写入面，Notion 变只读镜像。"""
-    return bool(cfg.raw.get("notion", {}).get("write_enabled", True))
+    """Notion 退役开关（UI v2 / ADR-14）：false = 本地档案是唯一写入面，Notion 变只读镜像。
+    没配 token 一律视为关闭——Notion 是可选集成，没凭证就谈不上「写得成」。"""
+    n = cfg.raw.get("notion") or {}
+    return bool(n.get("token")) and bool(n.get("write_enabled", True))
 
 
 def _patch_projection(cfg, page_id: str, fields: dict[str, Any]) -> None:
@@ -71,14 +73,45 @@ def list_pending(cfg) -> list[dict[str, Any]]:
     return out
 
 
+def _proposal_file(cfg, proposal_path: str | Path) -> Path:
+    """提案路径必须落在 workspace 的提案目录内。
+
+    这两个参数直接来自 web 表单（/api/proposal/apply|reject|amend_apply）。
+    不夹紧的话，reject 会把任意 JSON 文件改写成带 approved:false 的内容，
+    apply 还能顺着 jd_file 删掉 workspace 外的文件。"""
+    p = Path(proposal_path).expanduser().resolve()
+    allowed = [(cfg.workspace_dir / d).resolve() for d in ("11-shadow", "12-intake")]
+    if not any(p == a or a in p.parents for a in allowed):
+        raise ValueError(f"提案路径越界：{p}（只允许 11-shadow / 12-intake 下的文件）")
+    if not p.is_file():
+        raise ValueError(f"提案不存在：{p}")
+    return p
+
+
+def _ws_file(cfg, rel: str) -> Path | None:
+    """提案里记的 workspace 相对路径 → 绝对路径；越界或不存在返回 None。
+    `workspace_dir / "/etc/passwd"` 在 pathlib 里等于 `/etc/passwd`——绝对路径与
+    `..` 都能逃出 workspace，而这个值下游是要被 unlink 的。"""
+    if not rel:
+        return None
+    p = (cfg.workspace_dir / rel).resolve()
+    ws = cfg.workspace_dir.resolve()
+    if ws not in p.parents or not p.is_file():
+        return None
+    return p
+
+
 def apply_proposal(cfg, proposal_path: str | Path, yes: bool = False) -> dict[str, Any]:
     from joblander.eventlog import EventLog
     from joblander.notion import NotionClient
 
-    pf = Path(proposal_path)
+    pf = _proposal_file(cfg, proposal_path)
     proposal = json.loads(pf.read_text(encoding="utf-8"))
-    ncfg = cfg.raw["notion"]
-    client = NotionClient(ncfg["token"])
+    nwrite_cfg = cfg.raw.get("notion") or {}
+    # Notion 是可选集成（README/config.example）：没配就不建 client，
+    # 此前无条件取 cfg.raw["notion"] 让纯本地用户一批准提案就 KeyError——
+    # 提案制是整个系统的核心闸门，等于核心功能对他们完全不可用。
+    client = NotionClient(nwrite_cfg["token"]) if nwrite_cfg.get("token") else None
     dry = not yes
     nwrite = notion_write_enabled(cfg)
     result: dict[str, Any] = {"dry_run": dry, "file": pf.name}
@@ -149,7 +182,8 @@ def apply_proposal(cfg, proposal_path: str | Path, yes: bool = False) -> dict[st
             props["Job URL"] = {"type": "url", "value": lead["urls"][0]}
         if nwrite:
             result["create"] = client.create_row(
-                ncfg["tracker_data_source_id"], props, ncfg.get("tracker_database_id"),
+                nwrite_cfg["tracker_data_source_id"], props,
+                nwrite_cfg.get("tracker_database_id"),
                 dry_run=dry)
             if not dry:
                 _append_projection(cfg, result["create"])
@@ -169,8 +203,8 @@ def apply_proposal(cfg, proposal_path: str | Path, yes: bool = False) -> dict[st
                     f"jd-{proposal.get('source_hint') or 'intake'}.txt",
                     lead["jd_excerpt"].encode("utf-8"), kind="jd")
             if proposal.get("jd_file"):                 # 录入时上传的 JD 附件随批准落档
-                src = cfg.workspace_dir / proposal["jd_file"]
-                if src.is_file():
+                src = _ws_file(cfg, proposal["jd_file"])
+                if src is not None:
                     companyfile.save_upload(
                         cfg, lead["company"],
                         src.name.split("-", 1)[-1] or src.name,
@@ -206,7 +240,7 @@ def apply_proposal(cfg, proposal_path: str | Path, yes: bool = False) -> dict[st
 def amend_proposal(cfg, proposal_path: str | Path,
                    new_fields: dict[str, Any]) -> dict[str, Any]:
     """改后批的「改」：更新提案内容（field_diffs / lead 字段），并记录人工修正。"""
-    pf = Path(proposal_path)
+    pf = _proposal_file(cfg, proposal_path)
     proposal = json.loads(pf.read_text(encoding="utf-8"))
     edited = []
     if "field_diffs" in proposal:
@@ -316,7 +350,7 @@ def archive_row(cfg, page_id: str) -> dict[str, Any]:
 def reject_proposal(cfg, proposal_path: str | Path, reason: str = "") -> dict[str, Any]:
     from joblander.eventlog import EventLog
 
-    pf = Path(proposal_path)
+    pf = _proposal_file(cfg, proposal_path)
     proposal = json.loads(pf.read_text(encoding="utf-8"))
     proposal["approved"] = False
     if reason:

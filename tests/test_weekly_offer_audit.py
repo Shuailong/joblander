@@ -155,10 +155,10 @@ def test_calendar_event_proposal_flow(tmp_path, monkeypatch):
     """排期缺口提案：缺时间拒绝执行；改后批 → 建日历事件（确认制）。"""
     import json as _json
     ws = tmp_path / "ws"
-    ws.mkdir()
+    (ws / "11-shadow").mkdir(parents=True)
     cfg = Config(raw={"workspace_dir": str(ws), "notion": {"token": "fake"}},
                  path=tmp_path / "c.yaml")
-    pf = ws / "gap.json"
+    pf = ws / "11-shadow" / "gap.json"   # 提案只认 11-shadow / 12-intake（路径夹紧）
     pf.write_text(_json.dumps({"kind": "calendar.event", "company": "Acme",
                                "title": "面试：Acme", "date": "", "time": "",
                                "duration_min": 60, "approved": None}))

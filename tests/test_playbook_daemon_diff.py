@@ -72,9 +72,9 @@ def test_diff_rows_field_add_remove():
 
 def test_amend_proposal_scribe(tmp_path):
     from joblander.applyops import amend_proposal
-    ws = tmp_path / "ws"; ws.mkdir()
+    ws = tmp_path / "ws"; (ws / "11-shadow").mkdir(parents=True)
     cfg = Config(raw={"workspace_dir": str(ws)}, path=tmp_path / "c.yaml")
-    pf = tmp_path / "p.json"
+    pf = ws / "11-shadow" / "p.json"     # 提案只认 11-shadow / 12-intake（路径夹紧）
     pf.write_text(json.dumps({"field_diffs": {"Status": "Terminated", "Highlight": "x"},
                               "notion_page_id": "1"}), encoding="utf-8")
     r = amend_proposal(cfg, pf, {"Status": "Interview Completed", "Highlight": "x"})

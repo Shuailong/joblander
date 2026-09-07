@@ -27,7 +27,7 @@ def fresh_client(tmp_path, monkeypatch):
                         lambda self, *a, **k: {"results": [], "id": "created"})
     from joblander.web.app import TASKS, create_app
     TASKS.clear()
-    return TestClient(create_app(with_daemon=False)), ws
+    return TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1"), ws
 
 
 def test_core_pages_render_on_empty_workspace(fresh_client):

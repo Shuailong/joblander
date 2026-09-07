@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
@@ -26,6 +27,8 @@ from joblander.eventlog import EventLog
 
 SGT = timezone(timedelta(hours=8))
 HERE = Path(__file__).parent
+# 本机名字白名单：Host 校验（挡 DNS rebinding）与写操作的 Origin 校验共用
+_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 ACTIVE = {"Added", "Dream", "In Consideration", "To Apply", "Screening Called",
           "Applied", "Interview Scheduled", "Interview Completed"}
 
@@ -169,6 +172,34 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             daemon.stop()
 
     app = FastAPI(title="joblander", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def _same_origin_guard(request, call_next):
+        """本地单用户 app 没有登录态，绑 127.0.0.1 只挡住网络访问，挡不住浏览器：
+        用户随便开一个网页，那页就能向 127.0.0.1 提交表单（简单请求无预检），
+        命中任何写接口——包括 /api/drill/run 那条「跑用户代码」的路径。
+
+        两道闸：
+        - Host 必须是本机名字，挡 DNS rebinding（恶意域名解析到 127.0.0.1 后
+          浏览器会带上它自己的 Host，读接口同样要挡，所以这道对所有方法生效）
+        - 写方法（POST/PUT/PATCH/DELETE）的 Origin/Referer 必须是本站。
+          跨站表单提交浏览器一定带 Origin；两个头都没有的是 curl/CLI/测试，放行。
+        """
+        host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]")
+        if host and host not in _LOCAL_HOSTS:
+            return JSONResponse({"error": f"拒绝：Host「{host}」不是本机"}, status_code=421)
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            src = request.headers.get("origin") or request.headers.get("referer") or ""
+            if src:
+                try:
+                    h = urlparse(src).hostname or ""
+                except ValueError:
+                    h = "?"
+                if h not in _LOCAL_HOSTS:
+                    return JSONResponse(
+                        {"error": "拒绝：跨站请求（joblander 只接受本机页面发起的写操作）"},
+                        status_code=403)
+        return await call_next(request)
 
     @app.middleware("http")
     async def _no_cache_html(request, call_next):

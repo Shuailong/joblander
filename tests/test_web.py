@@ -110,7 +110,9 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("JOBLANDER_TASKS_SYNC", "1")   # 后台任务内联执行（同一链路）
     from joblander.web.app import TASKS, create_app
     TASKS.clear()
-    return TestClient(create_app(with_daemon=False))
+    # base_url 走 127.0.0.1：与真实运行同一条路径（同源守卫校验 Host/Origin），
+    # TestClient 默认的 "testserver" 会被守卫按 DNS rebinding 拒掉。
+    return TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1")
 
 
 def test_pages_render(client):
