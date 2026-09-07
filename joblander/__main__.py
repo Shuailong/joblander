@@ -14,6 +14,18 @@ import sys
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI 入口：可预期的配置/凭证问题打成一行人话，不甩栈给用户
+    （未预期的异常照旧抛出——那是 bug，栈有用）。"""
+    from joblander.config import ConfigError
+    from joblander.llm import LLMError
+    try:
+        return _run(argv)
+    except (ConfigError, LLMError, FileNotFoundError) as e:
+        print(f"✗ {e}", file=sys.stderr)
+        return 1
+
+
+def _run(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="joblander")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
