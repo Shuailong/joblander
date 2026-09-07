@@ -92,7 +92,8 @@ def suggest_slots(cfg, llm, invite_text: str, company: str = "",
     raw = llm.generate(
         f"今天是 {now:%Y-%m-%d}（{'周' + '一二三四五六日'[now.weekday()]}）。邀约原文：\n\n{invite_text}",
         system=EXTRACT_SYSTEM, json_mode=True)
-    data = _json.loads(raw)
+    from joblander.scribe import _strip_fences      # 其余 LLM 调用点都剥围栏，这里漏了：
+    data = _json.loads(_strip_fences(raw))          # 模型偶尔带 ```json，裸 loads 直接崩
     slots = data.get("slots") or []
 
     calendar_ok = True

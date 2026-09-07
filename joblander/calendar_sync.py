@@ -38,7 +38,8 @@ def exchange_code(cfg, code: str):
         "code": code.strip(), "grant_type": "authorization_code",
         "redirect_uri": REDIRECT_OOB})
     path = _cred_dir(cfg) / "calendar_token.json"
-    path.write_text(json.dumps(tok), encoding="utf-8")
+    from joblander.gmail_sync import write_token
+    write_token(path, tok)
     return path
 
 
@@ -54,7 +55,8 @@ def _access_token(cfg) -> str:
         "refresh_token": tok["refresh_token"], "grant_type": "refresh_token"})
     tok.update(fresh)
     tok["_expiry"] = time.time() + int(fresh.get("expires_in", 3600))
-    path.write_text(json.dumps(tok), encoding="utf-8")
+    from joblander.gmail_sync import write_token
+    write_token(path, tok)
     return tok["access_token"]
 
 

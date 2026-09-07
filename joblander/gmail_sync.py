@@ -31,7 +31,14 @@ REDIRECT_LOOPBACK = f"http://localhost:{LOOPBACK_PORT}"
 def _cred_dir(cfg) -> Path:
     d = cfg.workspace_dir / ".credentials"
     d.mkdir(parents=True, exist_ok=True)
+    d.chmod(0o700)                      # 里面是长期有效的 OAuth refresh token
     return d
+
+
+def write_token(path: Path, tok: dict) -> None:
+    """token 落盘限本人可读——默认 0644 等于把邮箱与日历的长期凭证摊给同机所有账户。"""
+    path.write_text(json.dumps(tok), encoding="utf-8")
+    path.chmod(0o600)
 
 
 def _post_form(url: str, data: dict) -> dict:
@@ -93,8 +100,8 @@ def exchange_code(cfg, code: str) -> Path:
         "code": code.strip(), "grant_type": "authorization_code",
         "redirect_uri": REDIRECT_LOOPBACK})
     path = _cred_dir(cfg) / "gmail_token.json"
-    path.write_text(json.dumps(tok), encoding="utf-8")
-    (_cred_dir(cfg) / "calendar_token.json").write_text(json.dumps(tok), encoding="utf-8")
+    write_token(path, tok)
+    write_token(_cred_dir(cfg) / "calendar_token.json", tok)
     return path
 
 
@@ -109,7 +116,7 @@ def _access_token(cfg) -> str:
         "refresh_token": tok["refresh_token"], "grant_type": "refresh_token"})
     tok.update(fresh)
     tok["_expiry"] = time.time() + int(fresh.get("expires_in", 3600))
-    path.write_text(json.dumps(tok), encoding="utf-8")
+    write_token(path, tok)
     return tok["access_token"]
 
 
