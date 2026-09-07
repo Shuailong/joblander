@@ -38,7 +38,7 @@ Even if you never run it, a few design decisions here were expensive to learn an
 
 ## Quickstart
 
-Requires Python 3.10+ and an LLM API key (OpenAI or Gemini).
+Requires Python 3.10+ and an LLM API key (OpenAI or Gemini). Verified on 3.11 and 3.14, editable and regular installs.
 
 ```bash
 git clone https://github.com/Shuailong/joblander.git

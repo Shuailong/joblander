@@ -36,7 +36,7 @@
 
 ## 快速开始
 
-需要 Python 3.10+ 和一个 LLM API key（OpenAI 或 Gemini）。
+需要 Python 3.10+ 和一个 LLM API key（OpenAI 或 Gemini）。3.11 与 3.14、editable 与普通安装均已实测。
 
 ```bash
 git clone https://github.com/Shuailong/joblander.git
