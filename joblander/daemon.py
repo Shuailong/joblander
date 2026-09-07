@@ -304,8 +304,10 @@ class Daemon:
             build_capability(self.cfg, self._llm(),
                              notion_client=(NotionClient(self.cfg.raw["notion"]["token"])
                                             if notion_configured(self.cfg) else None))
-        except Exception:
-            pass
+        except Exception as e:
+            # 整段吞掉的话，能力画像可以连续数周没重估而无人知晓
+            self._log().append("job.failed", "daemon",
+                               {"job": "weekly_capability", "error": str(e)[:300]})
         notify("周报出炉", "战果 · 下周的仗 · 复盘提炼 · 能力画像已重估（参谋部）",
                "http://127.0.0.1:8899/playbook")
 

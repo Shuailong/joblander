@@ -216,3 +216,20 @@ def test_cli_reports_notion_error_as_one_line(monkeypatch, capsys):
 
     err = capsys.readouterr().err
     assert code == 1 and err.startswith("✗ ") and "Traceback" not in err
+
+
+# ---------- 失败不再静默 ----------
+
+def test_jd_fetch_failure_is_logged_and_named(cfg, monkeypatch):
+    """抓取失败此前被整段吞掉，用户只看到「缺 JD 原文」，不知道是网络挂了、
+    被反爬拦了、还是链接被 SSRF 守卫拒了。"""
+    monkeypatch.setattr("joblander.scout.resolve_intake_text",
+                        lambda c, t, k: (_ for _ in ()).throw(
+                            ValueError("拒绝抓取非公网地址：10.0.0.5")))
+    row = {"Company": "Acme", "Job URL": "http://10.0.0.5/jd"}
+
+    text, origin = cf.mine_jd(cfg, row)
+
+    assert text == "" and "抓取失败" in origin and "非公网" in origin
+    log = (cfg.workspace_dir / "08-events" / "event-log.jsonl").read_text(encoding="utf-8")
+    assert "company.jd_fetch_failed" in log

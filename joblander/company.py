@@ -850,8 +850,13 @@ def mine_jd(cfg, row: dict[str, Any], notion_client=None) -> tuple[str, str]:
                 save_upload(cfg, company, "jd-fetched.md",
                             snap.encode("utf-8"), kind="jd")
                 return raw, "链接抓取"
-        except Exception:
-            pass
+        except Exception as e:
+            # 静默吞掉的话，用户只看到「缺 JD 原文」，永远不知道是网络挂了、
+            # 被反爬拦了、还是链接被安全检查拒了（SSRF 守卫会抛 ValueError）。
+            _log(cfg).append("company.jd_fetch_failed", "joblander.company",
+                             {"company": company, "url": str(row.get("Job URL"))[:200],
+                              "error": str(e)[:200]})
+            return "", f"链接抓取失败：{str(e)[:60]}"
     return "", "无"
 
 
