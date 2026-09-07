@@ -112,6 +112,15 @@ def start_task(kind: str, label: str, fn) -> str:
         except Exception as e:
             TASKS[tid]["error"] = str(e)
             TASKS[tid]["status"] = "error"
+            # TASKS 是内存注册表，失败条目 120 秒后就从 /api/tasks 消失、重启即清空。
+            # 不落盘的话，一次失败的生成除了当时那个红字提示，事后再无任何痕迹可查。
+            try:                       # start_task 是模块级函数，失败路径上现取 cfg
+                from joblander.config import load_config as _lc
+                EventLog(_lc().workspace_dir / "08-events" / "event-log.jsonl").append(
+                    "task.failed", "web", {"kind": kind, "label": label,
+                                           "error": str(e)[:300]})
+            except Exception:
+                pass
         TASKS[tid]["ended"] = time.time()
 
     if os.environ.get("JOBLANDER_TASKS_SYNC"):    # 测试/脚本：内联执行同一条链路

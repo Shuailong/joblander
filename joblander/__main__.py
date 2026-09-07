@@ -168,7 +168,20 @@ def _run(argv: list[str] | None = None) -> int:
         from joblander.researcher import diligence
         materials = [{"label": f, "text": open(f, encoding="utf-8", errors="replace").read()}
                      for f in args.file]
+        # 与作战室的「尽调」按钮走同一套上下文：岗位/阶段/战况 + 已落档 JD。
+        # 此前 CLI 两样都不传，同一家公司从命令行跑出来的档案明显更薄（jd_used: false）。
+        from joblander import company as _cf
+        from joblander.prep import _load_projection, find_row
+        try:
+            _row = find_row(_load_projection(cfg), args.company) or {}
+        except Exception:
+            _row = {}
+        _ctx = "；".join(filter(None, [
+            f"目标岗位：{_row.get('Position')}" if _row.get("Position") else "",
+            f"阶段：{_row.get('Status')}" if _row.get("Status") else "",
+            f"战况：{_row.get('Highlight')}" if _row.get("Highlight") else ""]))
         d = diligence(cfg, llm_from_config(cfg), args.company,
+                      context=_ctx, jd_text=_cf.jd_text(cfg, args.company),
                       seed_urls=args.url, seed_materials=materials)
         seeded = d.get("seeded") or {}
         fed = len(seeded.get("urls", [])) + len(seeded.get("materials", []))

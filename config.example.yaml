@@ -101,7 +101,11 @@ profile:                          # （可选）补充的本人材料，workspac
 # ---------- workspace 里需要你自己准备的文件 ----------
 #
 # 必需（缺了对应功能会明确报错）：
-#   03-materials/achievement-bank.md  战绩弹药库——简历定制的唯一事实来源，
+#   03-materials/achievement-bank.md  战绩弹药库——简历定制的唯一事实来源。
+#                                     段落用 `## 段名`，条目用 `### A1. 一句话`：
+#                                     这个编号被教练归档、brief 引用与 brief_eval 的
+#                                     「幻觉弹药编号」检查三处依赖——没有编号，
+#                                     那项检查会静默失效（永远判通过）。
 #                                     文末放【⚠️ 素材使用注意】红线段
 #   03-materials/profile.json         姓名与联系方式，简历版式固定渲染这段
 #                                     {"name": "...", "contact": [{"text","href"}]}
