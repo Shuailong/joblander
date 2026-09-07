@@ -1,2 +1,0 @@
-[console_scripts]
-joblander = joblander.__main__:main

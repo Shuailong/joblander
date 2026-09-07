@@ -42,10 +42,18 @@ class Config:
 
 
 def load_config(path: str | Path | None = None) -> Config:
-    p = Path(path or os.environ.get("JOBLANDER_CONFIG") or REPO_ROOT / "config.yaml")
+    explicit = path or os.environ.get("JOBLANDER_CONFIG")
+    if explicit:
+        p = Path(explicit)
+    else:
+        # 当前目录优先于 REPO_ROOT：非 editable 安装时 REPO_ROOT 落在 site-packages，
+        # 用户在自己 clone 目录里建的 config.yaml 会被无视（装完 onboard 就崩）。
+        candidates = [Path.cwd() / "config.yaml", REPO_ROOT / "config.yaml"]
+        p = next((c for c in candidates if c.exists()), candidates[0])
     if not p.exists():
         raise ConfigError(
-            f"找不到配置文件：{p}（复制 config.example.yaml 为 config.yaml 后填入真实值）"
+            f"找不到配置文件：{p}（复制 config.example.yaml 为 config.yaml 后填入真实值；"
+            f"也可用 JOBLANDER_CONFIG 环境变量指定路径）"
         )
     with open(p, encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
