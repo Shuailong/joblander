@@ -126,7 +126,13 @@ def dedupe(rows: list[dict[str, Any]], company: str | None,
                     "url": r.get("url") or r.get("notion_page_id")}
     terminal = {"Terminated", "Not Apply", "Rejected", "Withdrawn"}
     for g in groups:
-        members = [m.casefold() for m in g.get("members", [])]
+        # 容忍纯列表写法（["A","B"]）——config.example 曾按那个形状记录，
+        # 照着填的人每次录入都会 AttributeError 500。列表即成员，无组名无说明。
+        if isinstance(g, (list, tuple)):
+            g = {"members": list(g)}
+        elif not isinstance(g, dict):
+            continue
+        members = [str(m).casefold() for m in g.get("members") or []]
         if any(q in m or m in q for m in members):
             active = [r.get("Company") for r in rows
                       if (r.get("Status") not in terminal)

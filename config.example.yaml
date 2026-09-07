@@ -63,7 +63,9 @@ policy:
   reference_conversions:          # （可选）搬迁机会的参考换算线，信息参考非一票否决
     berlin: {tc: 200000, currency: EUR, sgd_equiv: 280000}
   group_exclusivity:              # （可选）同集团互斥：投了 A 就不该再投 B，去重时按组判定
-    - ["集团公司A", "集团公司B"]
+    - group: 示例集团
+      members: ["集团公司A", "集团公司B"]
+      rule: 同集团只推进一条战线，避免内部撞车
 
 # ---------- 可选集成（不配则该功能静默跳过） ----------
 

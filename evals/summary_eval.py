@@ -88,8 +88,8 @@ def run(company: str) -> str:
     from joblander.scribe import _strip_fences
 
     cfg = load_config()
-    slug = company.split("（")[0].strip().replace(" ", "-").replace("/", "-")[:40]
-    dp = cfg.workspace_dir / "14-dossiers" / f"{slug}.json"
+    from joblander.company import dossier_path
+    dp = dossier_path(cfg, company)
     dossier = json.loads(dp.read_text(encoding="utf-8"))
 
     hard = hard_checks(dossier)

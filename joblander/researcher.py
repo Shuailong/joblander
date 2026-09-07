@@ -233,8 +233,8 @@ def diligence(cfg, llm, company: str, context: str = "", jd_text: str = "",
         return hits
 
     prev: dict[str, Any] = {}
-    prev_path = (cfg.workspace_dir / "14-dossiers" /
-                 (company.split("（")[0].strip().replace(" ", "-").replace("/", "-")[:40] + ".json"))
+    from joblander.company import dossier_path
+    prev_path = dossier_path(cfg, company)
     if prev_path.exists():
         try:
             prev = json.loads(prev_path.read_text(encoding="utf-8"))
@@ -358,10 +358,8 @@ def diligence(cfg, llm, company: str, context: str = "", jd_text: str = "",
             "materials": [p["title"] for p in pages if p.get("tier") == "fed"],
             "failed_urls": seed_fail}
 
-    out_dir = cfg.workspace_dir / "14-dossiers"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    slug = company.split("（")[0].strip().replace(" ", "-").replace("/", "-")[:40]
-    out = out_dir / f"{slug}.json"
+    out = dossier_path(cfg, company, for_write=True)   # 写一律用规范 slug
+    out.parent.mkdir(parents=True, exist_ok=True)
     if prev:
         new_claims = {f.get("claim", "") for f in dossier.get("facts") or []}
         carried = [{**f, "carried_from": prev.get("fetched_at", "")}

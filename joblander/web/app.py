@@ -452,7 +452,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         slug = companyfile.slugify(name)
         research = None
         research_summary_html = ""
-        rp = cfg.workspace_dir / "14-dossiers" / f"{slug}.json"
+        rp = companyfile.dossier_path(cfg, name)
         if rp.exists():
             try:
                 research = json.loads(rp.read_text(encoding="utf-8"))
@@ -558,7 +558,10 @@ def create_app(with_daemon: bool = True) -> FastAPI:
 
         jobs = []
         for key, label, limit in [("calendar_watch", "日历哨兵（今日场次 + T-24h/T-2h 弹药）", 70),
-                                  ("notion_diff_pull", "Notion 回流 diff", 40),
+                                  # daemon 写的是 last.notion_pull（首页「同步 Notion」也读它）；
+                                  # 这里原先查 last.notion_diff_pull——一个谁都不写的 key，
+                                  # 于是这行健康度在配置完好的情况下也永远显示「未跑」。
+                                  ("notion_pull", "Notion 回流 diff", 40),
                                   ("gmail_scan", "Gmail 扫描（含 Job Alert）", 70)]:
             last = state.get(f"last.{key}") or ""
             jobs.append({"label": label, "last": last[:16].replace("T", " ") or "未跑",

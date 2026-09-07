@@ -91,17 +91,27 @@ class Daemon:
     # ---------- jobs ----------
 
     def job_transcript_watch(self):
-        """转写收件箱：06-communites 新文件 → 自动 W8 影子 → 通知。"""
+        """转写收件箱新文件 → 自动 W8 影子 → 通知。
+
+        目录名：文档（DESIGN §614 / MIGRATION）与 onboard 脚手架都用 06-transcripts，
+        但这里长期硬编码成 06-communites（作者早期的拼写），于是新用户把转写扔进
+        文档写的目录，看守的却是另一个永远不存在的目录——W8 自动链路对除作者以外
+        的所有人从未启动过。两个都认：先看规范目录，回落到历史目录（作者的存量在那）。
+        """
         from joblander.prep import _load_projection, find_row
         from joblander.scribe import shadow_run
 
-        inbox = self.cfg.workspace_dir / "06-communites"
-        if not inbox.exists():
+        ws = self.cfg.workspace_dir
+        inbox = next((d for d in (ws / "06-transcripts", ws / "06-communites")
+                      if d.is_dir()), None)
+        if inbox is None:
             return
-        seen: list[str] = self.state.setdefault("transcripts_seen", [])
-        if not seen:                     # 首启：存量全部标已见，只处理增量
+        # 首启只标存量、不处理——但「空收件箱」也得算已初始化。原来用 `if not seen`
+        # 判断，空列表同样为假，于是此后掉进来的第一份转写会被标已见后直接跳过。
+        if "transcripts_seen" not in self.state:
             self.state["transcripts_seen"] = [f.name for f in inbox.iterdir() if f.is_file()]
             return
+        seen: list[str] = self.state["transcripts_seen"]
         rows = _load_projection(self.cfg)
         names = sorted({(r.get("Company") or "") for r in rows}, key=len, reverse=True)
         for f in sorted(inbox.iterdir()):
@@ -172,6 +182,11 @@ class Daemon:
                                  round_type=guess_round(ev["title"]))
             notify(f"弹药就绪（{stage}）", f"{row['Company']} · {ev['start'][11:16]} 开打",
                    "http://127.0.0.1:8899/briefs/" + out.name)
+            # 这条事件原先误缩进在下面的 `if newgaps:` 里，引用的 row/stage/out 只在本循环
+            # 绑定：有排期缺口但本 tick 没有 T-24h/T-2h 场次时（常态）直接 UnboundLocalError，
+            # 被 tick() 记成 job.failed 污染 /system 的失败计数，而事件本身从未落过。
+            self._log().append("daemon.auto_brief", "daemon",
+                               {"company": row["Company"], "stage": stage, "out": str(out)})
 
         # tracker ↔ 日历同步：错位 → 提案（写日历永远等他在 UI 上确认详情）
         from joblander.coordinator import schedule_gaps
@@ -214,11 +229,12 @@ class Daemon:
         if newgaps:
             notify("排期缺口", f"{newgaps} 处 tracker↔日历错位待处理",
                    "http://127.0.0.1:8899/")
-            self._log().append("daemon.auto_brief", "daemon",
-                               {"company": row["Company"], "stage": stage, "out": str(out)})
 
     def job_notion_diff_pull(self):
-        """F2：定时 pull + diff → notion.edited 事件回流。"""
+        """F2：定时 pull + diff → notion.edited 事件回流。没配 Notion 直接跳过——
+        它是可选集成，此前无条件 pull 让纯本地用户每 15 分钟收获一条 job.failed。"""
+        if not (self.cfg.raw.get("notion") or {}).get("token"):
+            return
         if not self._due_interval("notion_pull", 15):
             return
         from joblander.notion import pull_tracker_with_diff
@@ -255,7 +271,10 @@ class Daemon:
         from joblander.daily import build_daily
         from joblander.notify import notify
         from joblander.notion import NotionClient
-        client = NotionClient(self.cfg.raw["notion"]["token"])
+        # 没配 Notion 就出纯本地晨报（CLI 的 daily 一直是这么做的，daemon 这条漏了改）——
+        # 否则纯本地用户每天 08:15 只收到一条 KeyError，永远等不到晨报。
+        ntoken = (self.cfg.raw.get("notion") or {}).get("token")
+        client = NotionClient(ntoken) if ntoken else None
         out, text = build_daily(self.cfg, notion_client=client)
         first = next((l for l in text.splitlines() if l.startswith("#")), "晨报")
         notify("晨报出炉", first.lstrip("# "), "http://127.0.0.1:8899/")

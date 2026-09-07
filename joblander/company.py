@@ -48,6 +48,27 @@ def _log(cfg):
     return EventLog(cfg.workspace_dir / "08-events" / "event-log.jsonl")
 
 
+def _legacy_dossier_slug(company: str) -> str:
+    """researcher 早期的写法：只切全角括号、截 40。"""
+    return (company or "").split("（")[0].strip().replace(" ", "-").replace("/", "-")[:40]
+
+
+def dossier_path(cfg, company: str, *, for_write: bool = False) -> Path:
+    """尽调档案路径。唯一入口——此前 researcher 用一套 slug 写、company/web 用
+    slugify 读，两者对半角括号和长度的处理不同：凡公司名带半角括号（新加坡法人名的
+    常态，也正是 MCF 返回的形式，如「PAYCORP (SINGAPORE) PTE. LTD.」）或长度 41-60，
+    尽调写完就再也读不到——公司页看不见调研报告，assess 还会静默地在零尽调证据下
+    出评估，而 README 宣传的正是「JD + 尽调档案 + 薪酬信号」的证据链。
+
+    写一律用规范 slug；读时规范名不存在而历史名存在则回落（存量档案不作废）。"""
+    d = cfg.workspace_dir / "14-dossiers"
+    canonical = d / f"{slugify(company)}.json"
+    if for_write or canonical.exists():
+        return canonical
+    legacy = d / f"{_legacy_dossier_slug(company)}.json"
+    return legacy if legacy.exists() else canonical
+
+
 def rename_company(cfg, old_name: str, new_name: str) -> None:
     """公司改名：本地档案（18-companies 目录 + 尽调档案）跟着搬家，保持时间线/附件/
     简历版本连续——这些全挂在 company_dir 下，目录一搬全带走。目标 slug 已有档案
@@ -883,7 +904,7 @@ def assess(cfg, llm, row: dict[str, Any]) -> dict[str, Any]:
         signals.append(f"候选人对外报价锚点（总包，SGD/年）：{anchor:,}")
     evidence_lines: list[str] = []
     evidence_dated = ""
-    dossier_p = cfg.workspace_dir / "14-dossiers" / f"{slugify(company)}.json"
+    dossier_p = dossier_path(cfg, company)
     if dossier_p.exists():
         try:
             d = json.loads(dossier_p.read_text(encoding="utf-8"))

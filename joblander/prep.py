@@ -192,8 +192,8 @@ _RICH_KINDS = ("interview", "oa", "retro", "call", "assessment")
 
 
 def _dossier(cfg, company: str) -> dict[str, Any]:
-    slug = company.split("（")[0].strip().replace(" ", "-").replace("/", "-")[:40]
-    p = cfg.workspace_dir / "14-dossiers" / f"{slug}.json"
+    from joblander.company import dossier_path
+    p = dossier_path(cfg, company)
     try:
         return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
     except Exception:
