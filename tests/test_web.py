@@ -576,8 +576,10 @@ def test_intake_approve_flow(client, tmp_path):
     pf = str(tmp_path / "ws" / "12-intake" / "p1.json")
     r = client.post("/api/proposal/apply", data={"file": pf})
     assert r.status_code == 200
-    data = json.loads((tmp_path / "ws" / "12-intake" / "p1.json").read_text())
-    assert data["approved"] is True
+    # 批过的提案移进 done/ 归档（顶层 glob 不再扫到，成本不随使用累积）
+    done = tmp_path / "ws" / "12-intake" / "done" / "p1.json"
+    assert json.loads(done.read_text())["approved"] is True
+    assert not (tmp_path / "ws" / "12-intake" / "p1.json").exists()
     assert "NewCo" not in client.get("/sourcing").text       # 待入池清空
     tl = (tmp_path / "ws" / "18-companies" / "NewCo" / "timeline.jsonl").read_text()
     assert '"intake"' in tl                                  # 入池即建档
@@ -590,7 +592,9 @@ def test_reject_flow(client, tmp_path):
     pf.write_text(json.dumps({"kind": "lead.intake", "lead": {"company": "Z"},
                               "dedupe": {"verdict": "new"}, "approved": None}))
     client.post("/api/proposal/reject", data={"file": str(pf), "reason": "noise"})
-    assert json.loads(pf.read_text())["approved"] is False
+    done = json.loads((pf.parent / "done" / pf.name).read_text())   # 拒过的也归档
+    assert done["approved"] is False and done["reject_reason"] == "noise"
+    assert not pf.exists()
 
 
 def test_brief_generation(client, tmp_path, monkeypatch):
@@ -697,7 +701,8 @@ def test_scribe_proposal_apply_end_to_end(client, tmp_path):
     co = client.get("/company/aaa111").text
     assert "send thanks note" in co                     # 字段 diff 落进投影行
     assert "band 未披露" in co                          # 时间线可见
-    assert json.loads(pf.read_text(encoding="utf-8"))["approved"] is True  # 提案归档离队
+    done = pf.parent / "done" / pf.name                 # 提案归档离队
+    assert json.loads(done.read_text(encoding="utf-8"))["approved"] is True
 
 
 def test_company_research_endpoint(client, tmp_path, monkeypatch):

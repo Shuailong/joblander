@@ -175,4 +175,4 @@ def test_calendar_event_proposal_flow(tmp_path, monkeypatch):
     result = apply_proposal(cfg, pf, yes=True)
     assert result["calendar"]["id"] == "evt1"
     assert created["start"] == "2026-08-12T14:00:00+08:00" and created["confirmed"]
-    assert _json.loads(pf.read_text())["approved"] is True
+    assert _json.loads((pf.parent / "done" / pf.name).read_text())["approved"] is True

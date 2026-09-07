@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+SGT = timezone(timedelta(hours=8))
 
 FIELD_TYPES = {"Status": "status", "Priority": "select", "Highlight": "rich_text",
                "Next Steps": "rich_text", "Follow-up Reminder": "date"}
@@ -71,6 +74,22 @@ def list_pending(cfg) -> list[dict[str, Any]]:
                 ).strftime("%m-%d %H:%M")
                 out.append(data)
     return out
+
+
+def _retire_proposal(pf: Path) -> Path:
+    """批过/拒过的提案移进 done/ 归档。
+
+    此前处理完的文件原地不动，而 list_pending 每次页面渲染都要把两个目录里的
+    每个 JSON 打开、解析、再因为 approved 非 None 丢掉——首页一次渲染调三遍。
+    提案从不清理，于是这个成本随使用时间线性增长且永不回落。移进子目录后
+    顶层 glob 直接看不到它们，文件本身留着可审计。"""
+    done = pf.parent / "done"
+    done.mkdir(exist_ok=True)
+    dst = done / pf.name
+    if dst.exists():                       # 同名（重复批准）不覆盖历史
+        dst = done / f"{pf.stem}-{datetime.now(SGT).strftime('%H%M%S')}{pf.suffix}"
+    pf.rename(dst)
+    return dst
 
 
 def _proposal_file(cfg, proposal_path: str | Path) -> Path:
@@ -234,6 +253,7 @@ def apply_proposal(cfg, proposal_path: str | Path, yes: bool = False) -> dict[st
         pf.write_text(json.dumps(proposal, ensure_ascii=False, indent=1), encoding="utf-8")
         EventLog(cfg.workspace_dir / "08-events" / "event-log.jsonl").append(
             "proposal.applied", "human_approved", {"file": pf.name})
+        _retire_proposal(pf)
     return result
 
 
@@ -358,4 +378,5 @@ def reject_proposal(cfg, proposal_path: str | Path, reason: str = "") -> dict[st
     pf.write_text(json.dumps(proposal, ensure_ascii=False, indent=1), encoding="utf-8")
     EventLog(cfg.workspace_dir / "08-events" / "event-log.jsonl").append(
         "proposal.rejected", "human", {"file": pf.name, "reason": reason})
+    _retire_proposal(pf)
     return {"rejected": pf.name}

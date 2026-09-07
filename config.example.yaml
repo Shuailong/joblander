@@ -47,6 +47,11 @@ sentinel:
       required_nearby: ["base", "bonus", "equity", "拆解"]
       forbidden_nearby: ["到手", "cash-in-hand"]
 
+  # （可选）判断层清单：规则拦不住的交给 LLM 逐条判 ok/attention（/system 页可见）
+  # judgment_checks:
+  #   - 叙事时机：离职原因是否在对方问起前主动展开
+  #   - 跨材料一致性：这份产物的数字与既往对外说法是否一致
+
 # Analyst 的决策参数（策略即代码：判断可解释、可回归）。示例为占位数字。
 policy:
   quote_tc_sgd: 250000            # 对外报价锚点（年度总包）——必填，Analyst 硬依赖
@@ -80,6 +85,8 @@ search:                           # 尽调员的搜索引擎（首次用尽调�
 notion:                           # 用 Notion 当 tracker 的 source of truth；不配则纯本地档案
   token: ntn_xxx                  # notion.so/my-integrations，只授权 Tracker 所在页面
   tracker_data_source_id: ""      # collection://<id>
+  # tracker_database_id: ""       # 新版 Notion API 建行时需要（有 data_source 仍建议一并填）
+  # diary_page_id: ""             # 找工日记页；不填则日记只落本地 13-daily/
   write_enabled: true             # false = 只读镜像，全部写入只落本地公司档案（18-companies/）
 
 gmail:                            # 邮件自动 sourcing；GCP Console → Credentials → OAuth client (Desktop app)
@@ -87,5 +94,21 @@ gmail:                            # 邮件自动 sourcing；GCP Console → Cred
   client_secret: xxx
   # scope 只给 gmail.readonly；跑 `python -m joblander gmail-auth` 走一次授权
 
-# 主动侦察的搜索偏好不在本文件——存 workspace 的 02-targets/sourcing-prefs.yaml，
-# web 作战室「新机会」页可直接编辑（intent/keywords/locations/exclude/notes）
+profile:                          # （可选）补充的本人材料，workspace 相对路径。
+  files: []                       # 侦察打分与参谋部画像会读它们补充上下文
+                                  # 例：[03-materials/narrative.md]
+
+# ---------- workspace 里需要你自己准备的文件 ----------
+#
+# 必需（缺了对应功能会明确报错）：
+#   03-materials/achievement-bank.md  战绩弹药库——简历定制的唯一事实来源，
+#                                     文末放【⚠️ 素材使用注意】红线段
+#   03-materials/profile.json         姓名与联系方式，简历版式固定渲染这段
+#                                     {"name": "...", "contact": [{"text","href"}]}
+#   03-materials/resume*.html         简历母版（可多份，弹药库页会列出来）
+#
+# 可选：
+#   03-materials/playbook.yaml        问题模式 → 最佳回答 → 历次战况
+#   04-pipeline/referral-map.md       人脉地图，内推匹配（W14）读它；没有就跳过
+#   02-targets/sourcing-prefs.yaml    主动侦察偏好，「新机会」页可直接编辑
+#                                     （intent/keywords/locations/exclude/notes）
