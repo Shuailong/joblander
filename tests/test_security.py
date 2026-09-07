@@ -137,3 +137,63 @@ def test_approve_works_without_notion_configured(app_client):
     assert "skipped" in str(out.get("notion", ""))
     from joblander.company import local_entries
     assert local_entries(cfg, "Acme"), "本地档案该建起来"
+
+
+# ---------- SSRF ----------
+
+@pytest.mark.parametrize("url", [
+    "http://127.0.0.1:8899/system",
+    "http://localhost/admin",
+    "http://169.254.169.254/latest/meta-data/",     # 云元数据端点
+    "http://10.0.0.5/internal",
+    "http://192.168.1.1/",
+    "file:///etc/passwd",
+    "gopher://x/",
+])
+def test_fetch_url_refuses_non_public_targets(url):
+    """抓取目标不完全受用户控制：Job URL 可能来自 LLM 对招聘邮件的抽取，
+    尽调抓的是搜索引擎给的链接。内网/回环/元数据端点一律拒。"""
+    from joblander.researcher import _check_public_url
+    with pytest.raises(ValueError):
+        _check_public_url(url)
+
+
+def test_fetch_url_allows_public_http():
+    from joblander.researcher import _check_public_url
+    _check_public_url("https://example.com/jobs/1")     # 不抛即通过
+
+
+# ---------- 简历里的 prompt 注入 ----------
+
+def test_resume_render_neutralises_injected_html():
+    """JD 与尽调摘要都来自抓取，注入可以让模型把标签写进简历正文；
+    产物又由 /files 在浏览器里打开。白名单之外一律转义。"""
+    from joblander.resume_agent import _render_html
+    content = {
+        "tagline": "AI Engineer",
+        "summary": ['正常 <strong>数字</strong> 与 <img src=x onerror="alert(1)">'],
+        "experience": [{"company": "ExCo", "position": "Eng", "when": "2020",
+                        "note": "", "bullets": ["<script>steal()</script> 战绩"]}],
+        "skills": [], "education": [], "publications": [], "service": "",
+    }
+    html = _render_html(content, {"name": "Alex Doe", "contact": []})
+
+    assert "<strong>数字</strong>" in html            # 白名单标签保留
+    # 关键是「没有真标签」，不是「没有这个词」——转义后的字面文本无害且显眼
+    assert "<img" not in html and "<script" not in html
+    assert 'onerror="' not in html                     # 不存在真属性
+    assert "&lt;img" in html and "&lt;script&gt;" in html
+
+
+def test_html_files_served_sandboxed(app_client, tmp_path):
+    """附件/简历 HTML 以同源 text/html 渲染 = 同源脚本执行。CSP sandbox 剥夺脚本与同源。"""
+    client, cfg, ws = app_client
+    d = ws / "18-companies" / "Acme" / "attachments"
+    d.mkdir(parents=True)
+    (d / "evil.html").write_text("<script>fetch('/api/company/flag')</script>", encoding="utf-8")
+
+    r = client.get("/files/18-companies/Acme/attachments/evil.html")
+
+    assert r.status_code == 200
+    assert "sandbox" in r.headers.get("content-security-policy", "")
+    assert r.headers.get("x-content-type-options") == "nosniff"

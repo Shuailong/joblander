@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import html as html_mod
 import json
+import re
 import shutil
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -149,6 +150,31 @@ def _esc(v: Any) -> str:
     return html_mod.escape(str(v or ""), quote=False)
 
 
+_RICH_OK = re.compile(
+    r"&lt;(/?)(strong|em|b|i)&gt;"                                  # 允许的纯标签
+    r"|&lt;a href=&quot;(https?://[^&\"<>\s]+)&quot;&gt;"           # 允许的外链
+    r"|&lt;/a&gt;")
+
+
+def _rich(v: Any) -> str:
+    """允许 LLM 在正文里用一小组内联标签，其余一律转义。
+
+    这些字段（bullets/summary/note/sub/publications）的输入含抓来的 JD 与尽调摘要，
+    prompt 注入可以让模型把 `<img src=x onerror=...>` 写进简历；产物又由 /files
+    在浏览器里打开。先整体转义、再把白名单标签放回来——注入进来的东西只会以
+    字面文本出现在简历上（显眼、可发现），而不是被执行。"""
+    s = html_mod.escape(str(v or ""), quote=True)
+
+    def _back(m: re.Match) -> str:
+        if m.group(2):
+            return f"<{m.group(1)}{m.group(2)}>"
+        if m.group(3):
+            return f'<a href="{m.group(3)}">'
+        return "</a>"
+
+    return _RICH_OK.sub(_back, s)
+
+
 def _contact_html(contact: list[dict]) -> str:
     parts = []
     for c in contact or []:
@@ -214,12 +240,14 @@ def _render_html(content: dict[str, Any], profile: dict[str, Any]) -> str:
     name = _esc(profile.get("name"))
     tagline = _esc(content.get("tagline"))
     contact_html = _contact_html(profile.get("contact") or [])
-    summary_html = "".join(f"<p>{p}</p>" for p in (content.get("summary") or []) if str(p).strip())
+    summary_html = "".join(f"<p>{_rich(p)}</p>"
+                           for p in (content.get("summary") or []) if str(p).strip())
 
     roles = []
     for r in content.get("experience") or []:
-        note = f'<div class="role-note">{r.get("note")}</div>' if str(r.get("note") or "").strip() else ""
-        bullets = "".join(f"<li>{b}</li>" for b in r.get("bullets") or [] if str(b).strip())
+        note = (f'<div class="role-note">{_rich(r.get("note"))}</div>'
+                if str(r.get("note") or "").strip() else "")
+        bullets = "".join(f"<li>{_rich(b)}</li>" for b in r.get("bullets") or [] if str(b).strip())
         roles.append(
             f'<div class="role"><div class="role-head">'
             f'<div class="role-title"><span class="co">{_esc(r.get("company"))}</span> '
@@ -233,7 +261,8 @@ def _render_html(content: dict[str, Any], profile: dict[str, Any]) -> str:
 
     edus = []
     for e in content.get("education") or []:
-        sub = f'<div class="edu-sub">{e.get("sub")}</div>' if str(e.get("sub") or "").strip() else ""
+        sub = (f'<div class="edu-sub">{_rich(e.get("sub"))}</div>'
+               if str(e.get("sub") or "").strip() else "")
         edus.append(
             f'<div class="edu"><div class="edu-head">'
             f'<div class="edu-deg">{_esc(e.get("degree"))} — {_esc(e.get("institution"))}</div>'
@@ -242,7 +271,7 @@ def _render_html(content: dict[str, Any], profile: dict[str, Any]) -> str:
     pubs = [p for p in content.get("publications") or [] if str(p).strip()]
     pubs_section = ""
     if pubs:
-        pubs_li = "".join(f"<li>{p}</li>" for p in pubs)
+        pubs_li = "".join(f"<li>{_rich(p)}</li>" for p in pubs)
         service = str(content.get("service") or "").strip()
         service_html = f'<div class="service">{_esc(service)}</div>' if service else ""
         pubs_section = (f'<h2>Selected Publications &amp; Service</h2>'

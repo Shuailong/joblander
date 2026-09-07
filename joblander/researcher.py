@@ -21,9 +21,40 @@ from typing import Any
 
 SGT = timezone(timedelta(hours=8))
 
+_BLOCKED_HOSTS = {"localhost", "metadata.google.internal"}
+
+
+def _check_public_url(url: str) -> None:
+    """只许 http(s) 且指向公网地址。
+
+    抓取目标不完全受用户控制：mine_jd 吃的 Job URL 可能来自 LLM 对招聘邮件的抽取，
+    尽调抓的是搜索引擎给的链接。不设限的话，一条构造过的链接就能让本地服务去
+    拉内网地址或云元数据端点（169.254.169.254），抓回来的正文还会落成 JD 文件
+    并进 LLM prompt。"""
+    import ipaddress
+    import socket
+
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ("http", "https"):
+        raise ValueError(f"只支持 http(s) 链接：{parts.scheme or url[:40]}")
+    host = (parts.hostname or "").lower()
+    if not host or host in _BLOCKED_HOSTS or host.endswith(".local"):
+        raise ValueError(f"拒绝抓取非公网地址：{host or url[:40]}")
+    try:
+        infos = socket.getaddrinfo(host, parts.port or (443 if parts.scheme == "https" else 80))
+    except OSError as e:
+        raise ValueError(f"域名解析失败：{host}") from e
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast):
+            raise ValueError(f"拒绝抓取非公网地址：{host} → {ip}")
+
+
 def fetch_url(url: str, timeout: int = 20) -> str:
     """公开页面抓取 → 保留块结构的 markdown 风格文本（登录态站点走浏览器人工贴入）。
     v0 曾把全部空白折叠成一整行——LLM 无所谓，人没法读（2026-08-11 JD 快照报障）。"""
+    _check_public_url(url)
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",

@@ -838,8 +838,16 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                 or p.suffix.lower() not in companyfile.SAFE_SUFFIX:
             return HTMLResponse("not found", status_code=404)
         # 音频给显式 MIME：mimetypes 对 .m4a 判不稳，octet-stream 会变下载而非播放
-        return FileResponse(
-            p, media_type=companyfile.AUDIO_MIME.get(p.suffix.lower()))
+        suffix = p.suffix.lower()
+        media = companyfile.AUDIO_MIME.get(suffix)
+        headers = {"X-Content-Type-Options": "nosniff"}
+        if suffix in (".html", ".htm", ".svg"):
+            # 这些文件可能是外部来的（附件上传、Notion 附件自动下载），或含被注入的
+            # LLM 输出（定制简历），以 text/html 同源渲染 = 同源脚本执行。
+            # CSP sandbox：照常渲染给人看，但剥夺脚本与同源身份——预览不受影响。
+            headers["Content-Security-Policy"] = "sandbox; default-src 'none'; " \
+                                                 "img-src data:; style-src 'unsafe-inline'"
+        return FileResponse(p, media_type=media, headers=headers)
 
     # ---------- API（写操作 = 人在 UI 上的审批动作） ----------
 
