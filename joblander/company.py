@@ -810,6 +810,11 @@ def _looks_like_jd(text: str) -> bool:
     return bool(JD_SIGNAL.search(text or ""))
 
 
+# 播种文件名清洗：保留字母数字下划线、点、中文与全/半角括号，其余打成 _。
+# 提到模块级不只是省一次编译——反斜杠不能出现在 f-string 表达式里（3.12 前是语法错误）。
+_SEED_UNSAFE = re.compile(r"[^\w.一-鿿（）()-]")
+
+
 def _seed_from_targets(cfg, company: str) -> int:
     """私档 JD 库（02-targets/jd/）→ 公司档案 jd/：文件名含公司名 token 即播种。
     2026-08-08 发现：他的真 JD 都攒在这个目录里，挖掘器此前只字未读。"""
@@ -834,7 +839,7 @@ def _seed_from_targets(cfg, company: str) -> int:
         fn = f.name.casefold()
         if not any(tk in fn for tk in tokens):
             continue
-        name = f"targets-{re.sub(r'[^\w.一-鿿（）()-]', '_', f.name)[:70]}"
+        name = f"targets-{_SEED_UNSAFE.sub('_', f.name)[:70]}"
         if name in existing:
             continue
         save_upload(cfg, company, name, f.read_bytes(), kind="jd")
