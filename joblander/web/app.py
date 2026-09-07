@@ -185,8 +185,13 @@ def create_app(with_daemon: bool = True) -> FastAPI:
     tpl.env.globals["v"] = datetime.now(SGT).strftime("%m%d%H%M%S")
 
     def _rows():
+        """战线投影；还没有就是空战线，不是错误——Notion 是可选集成（README），
+        纯本地用户永远不会跑 pull，此前首页/作战室/Playbook 直接 500 打不开。"""
         from joblander.prep import _load_projection
-        return _load_projection(cfg)
+        try:
+            return _load_projection(cfg)
+        except FileNotFoundError:
+            return []
 
     def _row_by_pid(page_id: str):
         for r in _rows():

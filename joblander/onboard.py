@@ -60,9 +60,17 @@ def onboard(cfg) -> str:
     if not tpl.exists():
         tpl.write_text(PROFILE_TEMPLATE, encoding="utf-8")
         created.append("03-materials/profile-index.md（模板）")
+    # 空战线投影：Notion 可选，纯本地用户永远不跑 pull——没有这个文件
+    # 作战室与 daily/weekly 都会拿「投影不存在」当错误报。
+    proj = ws / "09-projections" / "tracker.json"
+    if not proj.exists():
+        proj.parent.mkdir(parents=True, exist_ok=True)
+        proj.write_text('{"rows": []}\n', encoding="utf-8")
+        created.append("09-projections/tracker.json（空战线）")
 
     lines += ["", f"配置：{ok} 就绪 / {missing} 待办"]
     if created:
         lines += ["脚手架已建：" + "、".join(created)]
-    lines += ["", "下一步：`python -m joblander pull`（有 Notion）或直接 `intake` 第一条线索"]
+    lines += ["", "下一步：`joblander web` 开作战室；有 Notion 先 `joblander pull` 拉战线，"
+                  "没有就直接在「新机会」页录第一条线索"]
     return "\n".join(lines)
