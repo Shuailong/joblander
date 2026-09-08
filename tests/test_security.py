@@ -197,3 +197,52 @@ def test_html_files_served_sandboxed(app_client, tmp_path):
     assert r.status_code == 200
     assert "sandbox" in r.headers.get("content-security-policy", "")
     assert r.headers.get("x-content-type-options") == "nosniff"
+
+
+@pytest.mark.parametrize("src,expect_in,expect_not_in", [
+    # 带 query 的外链：转义后 URL 含 &amp;，早期字符类整条漏掉——
+    # 开标签留在转义态、闭标签却还原，产出孤立 </a> 且链接失效
+    ('见 <a href="https://x.com/a?b=1&c=2">论文</a>',
+     '<a href="https://x.com/a?b=1&amp;c=2">论文</a>', "&lt;a href"),
+    ('<a href="javascript:alert(1)">x</a>', "&lt;a href", '<a href="javascript'),
+    ('<a href="ftp://h/f">x</a>', "&lt;a href", "<a href=\"ftp"),
+    ("孤立 </a> 结尾", "&lt;/a&gt;", "</a>"),          # 没开过就不许闭
+    ("R&D 成本 -42%", "R&amp;D", "<"),
+])
+def test_rich_link_handling(src, expect_in, expect_not_in):
+    from joblander.resume_agent import _rich
+    out = _rich(src)
+    assert expect_in in out, out
+    assert expect_not_in not in out, out
+
+
+def test_rich_keeps_multiple_links_balanced():
+    from joblander.resume_agent import _rich
+    out = _rich('<a href="https://a.com">A</a> 与 <a href="https://b.com?q=1&r=2">B</a>')
+    assert out.count("<a href=") == 2 and out.count("</a>") == 2
+
+
+def test_rendered_resume_is_parseable_html():
+    """渲染产物必须是能解析的 HTML，且不含可执行标签。"""
+    from html.parser import HTMLParser
+    from joblander.resume_agent import _render_html
+
+    class P(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.tags = []
+
+        def handle_starttag(self, t, a):
+            self.tags.append(t)
+
+    content = {"tagline": "AI Eng", "summary": ["R&D 与 <strong>数字</strong>，5 < 10"],
+               "experience": [{"company": "A&B Co", "position": "Eng", "when": "2020",
+                               "note": "", "bullets": [
+                                   '<img src=x onerror=1> 与 '
+                                   '<a href="https://x.com?a=1&b=2">链接</a>']}],
+               "skills": [{"label": "L", "value": "Python, C++"}],
+               "education": [], "publications": [], "service": ""}
+    p = P()
+    p.feed(_render_html(content, {"name": "Alex & Co", "contact": [{"text": "a@b.com"}]}))
+    assert "img" not in p.tags and "script" not in p.tags
+    assert "a" in p.tags and "strong" in p.tags        # 合法内容没被误伤

@@ -150,10 +150,10 @@ def _esc(v: Any) -> str:
     return html_mod.escape(str(v or ""), quote=False)
 
 
-_RICH_OK = re.compile(
-    r"&lt;(/?)(strong|em|b|i)&gt;"                                  # 允许的纯标签
-    r"|&lt;a href=&quot;(https?://[^&\"<>\s]+)&quot;&gt;"           # 允许的外链
-    r"|&lt;/a&gt;")
+_RICH_TOKEN = re.compile(
+    r"&lt;(?P<close>/?)(?P<tag>strong|em|b|i)&gt;"      # 允许的纯标签
+    r"|&lt;a href=&quot;(?P<href>.*?)&quot;&gt;"        # 链接开标签（URL 事后校验）
+    r"|(?P<enda>&lt;/a&gt;)")
 
 
 def _rich(v: Any) -> str:
@@ -162,17 +162,30 @@ def _rich(v: Any) -> str:
     这些字段（bullets/summary/note/sub/publications）的输入含抓来的 JD 与尽调摘要，
     prompt 注入可以让模型把 `<img src=x onerror=...>` 写进简历；产物又由 /files
     在浏览器里打开。先整体转义、再把白名单标签放回来——注入进来的东西只会以
-    字面文本出现在简历上（显眼、可发现），而不是被执行。"""
+    字面文本出现在简历上（显眼、可发现），而不是被执行。
+
+    链接的 URL 先解转义再校验协议：带 query 的外链（?a=1&b=2）转义后含 &amp;，
+    早期用字符类匹配会整条漏掉——开标签留在转义态、闭标签却被还原，产出一个
+    没有开头的孤立 </a>，链接同时失效。闭标签因此改为只在真开过时才还原。"""
     s = html_mod.escape(str(v or ""), quote=True)
+    depth = 0
 
     def _back(m: re.Match) -> str:
-        if m.group(2):
-            return f"<{m.group(1)}{m.group(2)}>"
-        if m.group(3):
-            return f'<a href="{m.group(3)}">'
-        return "</a>"
+        nonlocal depth
+        if m.group("tag"):
+            return f"<{m.group('close')}{m.group('tag')}>"
+        if m.group("href") is not None:
+            url = html_mod.unescape(m.group("href"))
+            if url.lower().startswith(("http://", "https://")) and '"' not in url:
+                depth += 1
+                return f'<a href="{html_mod.escape(url, quote=True)}">'
+            return m.group(0)               # 非 http(s)（含 javascript:）保持转义
+        if depth > 0:                       # 只闭合真开过的，不留孤立 </a>
+            depth -= 1
+            return "</a>"
+        return m.group(0)
 
-    return _RICH_OK.sub(_back, s)
+    return _RICH_TOKEN.sub(_back, s)
 
 
 def _contact_html(contact: list[dict]) -> str:

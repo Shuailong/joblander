@@ -90,6 +90,7 @@ def run(company: str) -> str:
     cfg = load_config()
     from joblander.company import dossier_path
     dp = dossier_path(cfg, company)
+    slug = dp.stem                    # 报告文件名用它——档案路径已是规范 slug
     dossier = json.loads(dp.read_text(encoding="utf-8"))
 
     hard = hard_checks(dossier)
