@@ -130,6 +130,30 @@ def start_task(kind: str, label: str, fn) -> str:
     return tid
 
 
+_LOG_STATS: dict = {}
+
+
+def _log_stats(log) -> tuple[int, dict[str, int]]:
+    """事件类型全时段分布 —— /system 每次渲染都要，而日志只增不减，
+    重复全扫的成本随使用时间线性增长。按（文件大小, mtime）做指纹缓存：
+    追加会改变大小，指纹自然失效，语义与每次重算完全一致。"""
+    try:
+        st = log.path.stat()
+    except OSError:
+        return 0, {}
+    key = (st.st_size, st.st_mtime_ns)
+    if _LOG_STATS.get("key") == key:
+        return _LOG_STATS["n"], _LOG_STATS["kinds"]
+    n = 0
+    kinds: dict[str, int] = {}
+    for e in log.events():
+        n += 1
+        k = e.get("kind", "?")
+        kinds[k] = kinds.get(k, 0) + 1
+    _LOG_STATS.update(key=key, n=n, kinds=kinds)
+    return n, kinds
+
+
 def recent_tasks() -> list[dict]:
     import time
     now = time.time()
@@ -412,8 +436,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                 state = json.loads(sp.read_text(encoding="utf-8"))
             except Exception:
                 state = {}
-        mcf_last = next((e for e in reversed(list(_log().events()))
-                         if e["kind"] == "sourcing.mcf_run"), None)
+        mcf_last = _log().last("sourcing.mcf_run")   # 倒序早停，不再读整份日志
         bankp = cfg.workspace_dir / "03-materials" / "achievement-bank.md"
         bank = {"exists": bankp.exists(),
                 "kb": round(bankp.stat().st_size / 1024) if bankp.exists() else 0,
@@ -543,13 +566,12 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         log = _log()
         now = datetime.now(SGT)
         cutoff24 = (now - timedelta(hours=24)).isoformat()
-        kinds: dict[str, int] = {}
-        n = 0
-        fails24 = 0
-        for e in log.events():
-            n += 1
-            kinds[e["kind"]] = kinds.get(e["kind"], 0) + 1
-            if e["kind"] == "job.failed" and e["ts"] >= cutoff24:
+        n, kinds = _log_stats(log)          # 全时段分布：按文件指纹缓存，日志没变不重算
+        fails24 = 0                         # 24h 窗口：倒着读，读到越界就停
+        for e in log.iter_reversed():
+            if e.get("ts", "") < cutoff24:
+                break
+            if e.get("kind") == "job.failed":
                 fails24 += 1
         rules = cfg.sentinel_rules
         checks = cfg.raw.get("sentinel", {}).get("judgment_checks", [])
