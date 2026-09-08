@@ -13,7 +13,7 @@ from typing import Any
 
 import yaml
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 TERMINAL = {"Terminated", "Not Apply", "Rejected", "Withdrawn"}
 ACTIVE = {"Added", "Dream", "In Consideration", "To Apply", "Screening Called",
           "Applied", "Interview Scheduled", "Interview Completed"}

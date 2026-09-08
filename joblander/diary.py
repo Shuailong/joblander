@@ -11,7 +11,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 # 战线事件：他与外界真实交手的记录。assessment/评估类是系统的数据更新，不算。
 BATTLE_KINDS = {"interview", "call", "email", "note", "transcript", "intake",

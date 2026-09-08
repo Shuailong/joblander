@@ -16,7 +16,7 @@ import json
 import re
 from datetime import datetime, timedelta, timezone
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 REQUIRED_SECTIONS = ("这家公司是谁", "为什么现在招这个岗", "工程与技术侧", "对你意味着什么")
 BANNED_PHRASES = (r"适合对.{0,14}感兴趣", r"提供了?.{0,10}(良好的?)?(机会|平台)")

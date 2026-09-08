@@ -11,7 +11,7 @@ from pathlib import Path
 
 from joblander.sentinel import Audience, Sentinel
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 DEFAULT_GLOBS = ["03-materials/*.md", "03-materials/*.html", "01-profile/*.md"]
 
 

@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 REPORT_SYSTEM = """你是求职作战系统的薪酬调研分析师。输入：候选人画像摘要、目标方向的市场岗位清单
 （含月薪区间，来自 MyCareersFuture 实时数据）、分组统计、可选补充材料。

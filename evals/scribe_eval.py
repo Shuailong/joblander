@@ -10,7 +10,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 JUDGE = """你是评测官。对照【参考答案】（人工手写复盘，事实基准）给【系统提案】打分。
 评分口径：只按「转写内可得信息」评——参考答案里明显来自外部知识的内容（跨公司换算、打平线等）不计入召回分母。

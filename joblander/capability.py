@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 CAPABILITY_SYSTEM = """你是求职能力画像分析师。输入五部分：①目标公司 JD 语料 ②本人履历与战绩库 ③面试/通话复盘 ④初筛发现的硬性差距清单 ⑤用户手工校准（若有）。
 输出严格 JSON（中文）：

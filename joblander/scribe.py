@@ -14,7 +14,7 @@ from typing import Any
 
 from joblander.sentinel import Audience, Sentinel
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 SCRIBE_SYSTEM = """你是求职作战系统的书记官（Scribe）。输入一场求职通话/面试的转写或纪要，以及该公司在 tracker 的当前行、跨面试问题模式清单（Playbook）。
 

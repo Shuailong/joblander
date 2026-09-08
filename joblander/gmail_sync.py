@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 SCOPE_CAL_RO = "https://www.googleapis.com/auth/calendar.readonly"
 SCOPE_CAL_RW = "https://www.googleapis.com/auth/calendar.events"

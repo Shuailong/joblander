@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 FIELD_TYPES = {"Status": "status", "Priority": "select", "Highlight": "rich_text",
                "Next Steps": "rich_text", "Follow-up Reminder": "date"}
@@ -71,7 +71,7 @@ def list_pending(cfg) -> list[dict[str, Any]]:
                 data["_dir"] = d
                 from datetime import datetime, timedelta, timezone
                 data["_created"] = datetime.fromtimestamp(
-                    f.stat().st_mtime, timezone(timedelta(hours=8))
+                    f.stat().st_mtime, SGT
                 ).strftime("%m-%d %H:%M")
                 out.append(data)
     return out
@@ -206,7 +206,7 @@ def apply_proposal(cfg, proposal_path: str | Path, yes: bool = False) -> dict[st
 
             from joblander.daily import DIARY_HEADER, daily_path, upsert_section
             date = proposal.get("date") or datetime.now(
-                timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+                SGT).strftime("%Y-%m-%d")
             out = upsert_section(daily_path(cfg, date), DIARY_HEADER,
                                  proposal["body_entry"], title=f"# 日报 · {date}")
             result["diary"] = str(out)

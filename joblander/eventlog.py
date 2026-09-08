@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 
 class EventLog:

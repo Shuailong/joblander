@@ -12,7 +12,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 SCOUT_SYSTEM = """你是求职作战系统的侦察兵（Scout）。输入一段来信原文（WhatsApp、LinkedIn InMail、邮件均可）。
 

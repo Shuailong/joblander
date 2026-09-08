@@ -8,7 +8,7 @@ I was laid off in 2026. Job hunting turned out to be a distributed-systems probl
 
 So I built the system I wanted, while fighting with it. It ran my entire search. Then I got an offer, and now it's open source.
 
-**Status:** v0, battle-tested through a real job search. Web war room + all agents below are live, backed by 281 tests and blind-review eval scripts.
+**Status:** v0, battle-tested through a real job search. Web war room + all agents below are live, backed by 319 tests and blind-review eval scripts.
 
 ![Command center](docs/images/command-center.jpg)
 
@@ -161,7 +161,7 @@ python -m evals.resume_eval <company>     # recruiter blind review + coach triag
 python -m evals.summary_eval <company>    # due-diligence summary: hard checks + 5-dim review
 python -m evals.brief_eval <company>      # pre-interview brief against user gold standards
 python -m evals.user_agent                # LLM plays the user and walks the running web UI
-pytest                                    # 281 tests
+pytest                                    # 319 tests
 ```
 
 Each eval pairs **zero-LLM hard checks** (deterministic, catch format and discipline violations for free) with **LLM blind review** (judgment). The golden sets themselves are private — they're built from real job-search data.
@@ -173,7 +173,7 @@ Each eval pairs **zero-LLM hard checks** (deterministic, catch format and discip
 - **Not a job-application bot.** It never applies on your behalf, never sends a message, never posts anything. Every outward action is a draft that you send. That's a deliberate design constraint (ADR-10), not a missing feature.
 - **Not multi-tenant.** Single user, local-first, your own API keys. There's no hosted version and no account system.
 - **Not a framework.** Orchestration is hand-written on purpose (ADR-6) — at this scale the framework would have black-boxed the most instructive part.
-- **Not tuned for you yet.** The policy numbers are Singapore/SGD-shaped, the prompts are Chinese, and the Sentinel rules are empty until you write your own.
+- **Not tuned for you yet.** The policy numbers are Singapore/SGD-shaped, the prompts are Chinese, and the Sentinel rules are empty until you write your own. Set `JOBLANDER_TZ` to your own timezone — it defaults to UTC+8.
 
 ---
 

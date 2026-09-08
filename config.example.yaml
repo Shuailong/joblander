@@ -2,7 +2,16 @@
 # 原则：所有个人数据、账号凭证、薪资阈值、红线词表只存在于 config.yaml 与 workspace，
 # 引擎仓库里只有占位符（DESIGN §13 公私边界）。
 #
-# 查找顺序：显式路径 > $JOBLANDER_CONFIG > 仓库根 config.yaml
+# 查找顺序：显式路径 > $JOBLANDER_CONFIG > 当前目录 config.yaml > 仓库根 config.yaml
+#
+# 环境变量：
+#   OPENAI_API_KEY / GEMINI_API_KEY   LLM 凭证（不进 config）
+#   SEARCH_API_KEY                    搜索凭证（也可写进下面的 search 段）
+#   JOBLANDER_TZ                      本地时区，决定「今天」的边界、日报/周报
+#                                     文件名与 daemon 的作业时刻。支持 IANA 名
+#                                     （Europe/Berlin）或固定偏移（-05:00）。
+#                                     不设 = UTC+8（作者在新加坡）
+#   JOBLANDER_CHROME                  Chrome/Chromium 可执行文件（简历转 PDF）
 # 配好后跑 `python -m joblander onboard` 做一次完备性体检。
 
 # ---------- 必填 ----------

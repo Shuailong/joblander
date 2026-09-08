@@ -18,7 +18,7 @@ import json
 import re
 from datetime import datetime, timedelta, timezone
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 MAX_CHARS = 4500
 MAX_QA = 5

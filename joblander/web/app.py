@@ -25,7 +25,7 @@ from joblander.applyops import apply_proposal, list_pending, reject_proposal
 from joblander.config import load_config
 from joblander.eventlog import EventLog
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 HERE = Path(__file__).parent
 # 本机名字白名单：Host 校验（挡 DNS rebinding）与写操作的 Origin 校验共用
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}

@@ -20,7 +20,7 @@ from typing import Any
 
 import yaml
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 PREFS_REL = "02-targets/sourcing-prefs.yaml"
 MCF_API = "https://api.mycareersfuture.gov.sg/v2/search"
 MCF_JOB_URL = "https://www.mycareersfuture.gov.sg/job/{uuid}"

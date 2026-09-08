@@ -12,6 +12,7 @@ import json
 import urllib.error
 import urllib.request
 from typing import Any, Iterator
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 API_BASE = "https://api.notion.com/v1"
 NOTION_VERSION = "2025-09-03"          # data_sources 端点
@@ -313,7 +314,7 @@ def pull_tracker_with_diff(cfg) -> list[dict[str, Any]]:
     if changes:
         log = EventLog(cfg.workspace_dir / "08-events" / "event-log.jsonl")
         from datetime import datetime, timedelta, timezone
-        cutoff = (datetime.now(timezone(timedelta(hours=8))) - timedelta(minutes=6)).isoformat()
+        cutoff = (datetime.now(SGT) - timedelta(minutes=6)).isoformat()
         recent_own = {(e["payload"].get("page_id"), e["payload"].get("field"))
                       for e in log.events()
                       if e["ts"] >= cutoff and e["kind"] in ("row.edited",)}

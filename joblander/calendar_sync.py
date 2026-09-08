@@ -15,7 +15,7 @@ from typing import Any
 
 from joblander.gmail_sync import TOKEN_URL, _cred_dir, _post_form
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 SCOPE_RO = "https://www.googleapis.com/auth/calendar.readonly"
 SCOPE_RW = "https://www.googleapis.com/auth/calendar.events"
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"

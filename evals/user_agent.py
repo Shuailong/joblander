@@ -13,7 +13,7 @@ import re
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 PERSONA = """你是评审员，扮演这个产品的真实用户：一名被裁后高强度求职的资深工程师。
 画像：日均 1–3 场面试/通话；注意力是最稀缺资源（设计目标：日常喂养 <15 分钟/天）；

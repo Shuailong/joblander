@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from typing import Any
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 
 class _Text(HTMLParser):

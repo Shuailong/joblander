@@ -9,7 +9,7 @@ from typing import Any
 
 from joblander.analyst import offer_snapshot
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 
 def compare_offers(policy: dict[str, Any], offers: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 # 档案是不可再生的资产：时间线、meta 全是「读全量 → 改 → 写全量」。
 # 进程内有三路并发写它（web 请求线程、start_task 后台任务线程、daemon 线程），

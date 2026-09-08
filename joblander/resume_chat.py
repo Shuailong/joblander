@@ -20,7 +20,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-SGT = timezone(timedelta(hours=8))
+from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 CHAT_SYSTEM = """你是候选人的简历教练兼弹药官。对话目标：把用户丢进来的任何信息接住、
 归类、归档，为下一版定制简历补充弹药。
