@@ -175,6 +175,14 @@ pytest                                 # 319 个测试
 
 ---
 
+## 支持
+
+这个项目是免费的，也会一直免费——Apache-2.0，没有托管版，不卖任何东西。如果它帮上了忙，最好的感谢是把它转给下一个正在找工作的人。
+
+如果你更想请一杯咖啡：[**☕ Buy me a coffee**](https://buymeacoffee.com/lucasliang)
+
+---
+
 ## License
 
 [Apache-2.0](LICENSE) —— 项目官网见 [ailayoff.me](https://ailayoff.me)。

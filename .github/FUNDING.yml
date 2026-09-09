@@ -1,0 +1,7 @@
+# GitHub 读这个文件，在 repo 顶部渲染一个原生 "Sponsor" 按钮——
+# 不占 README 版面，而且那是访客真正会看的位置。
+buy_me_a_coffee: lucasliang
+
+# GitHub Sponsors 抽成 0%（BMC 约 5% + 支付通道费）。
+# 开通后取消下面这行注释，两个入口会并排出现。
+# github: [Shuailong]
