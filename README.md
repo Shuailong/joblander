@@ -8,7 +8,7 @@ I was laid off in 2026. Job hunting turned out to be a distributed-systems probl
 
 So I built the system I wanted, while fighting with it. It ran my entire search. Then I got an offer, and now it's open source.
 
-**Status:** v0, battle-tested through a real job search. Web war room + all agents below are live, backed by 319 tests and blind-review eval scripts.
+**Status:** v0, battle-tested through a real job search. Web war room + all agents below are live, backed by 326 tests and blind-review eval scripts.
 
 ![Command center](docs/images/command-center.jpg)
 
@@ -87,17 +87,39 @@ joblander daemon                  # background jobs (calendar sync, reminders, s
 
 ## What it looks like
 
+*Every screenshot below uses a fictional demo dataset — the companies, people, and numbers are invented.*
+
+![New opportunities](docs/images/sourcing.jpg)
+
+**New opportunities.** Overnight scans (job board + inbox) land here scored 1–5 against your achievement bank, grouped by company, with the specific requirement gaps spelled out — "Terraform production experience — your record shows use, not ownership." Nothing enters the pipeline until you approve it.
+
 ![War room board](docs/images/war-room-board.jpg)
 
 The **war room** — every opportunity on one board, dragged between stages, edited in place. Amber marks system-computed to-dos (unapproved proposals, due follow-ups); red marks the ones you flagged yourself as "ball's in my court."
 
 ![Company page](docs/images/company-page.jpg)
 
-Each company gets a **dossier page**: stage flow, the one thing to do next, JD lifecycle, match assessment, and the full battle history.
+Each company gets a **dossier page**: stage flow, the one thing to do next, JD lifecycle, and a match radar whose axes are derived from *that specific JD* rather than a fixed template. The amber block is a proposal waiting for approval — you can edit the fields before it's written anywhere.
 
 ![Timeline](docs/images/timeline.jpg)
 
 The **timeline** is the company-level source of truth, and every entry is stamped `AI` or `人工` (human). You can always tell what the system claimed versus what you observed — which matters a lot when you're about to repeat something in an interview.
+
+![Staff HQ](docs/images/playbook.jpg)
+
+**Staff HQ.** The capability radar plots what the market asks for against what your retros actually prove, rebuilt weekly from the JDs you're chasing — a dimension with no retro evidence scores low on purpose, and the gap becomes a concrete task. Below it, the pattern bank: every question you've faced, its best answer, and whether the last three attempts hit or missed. Two consecutive misses auto-escalate to `needs_work`.
+
+![Arsenal](docs/images/arsenal.jpg)
+
+The **arsenal** is the single source of every number that reaches a resume, an interview, or a brief. Append-only, edited section by section. The last section is a rules block — internal codenames to translate, figures that must not be rounded up — which feeds generation but never appears in this list.
+
+![Offer comparison](docs/images/offers.jpg)
+
+**Offer comparison** — quote at face value, compare at a discount. Here the offer with the *highest* headline package drops to last once unlisted options are discounted to zero, which is the entire point: the discount tiers are parameters in your private config, so the ranking is explainable and regression-testable.
+
+![Drill ground](docs/images/drill.jpg)
+
+The **drill ground** — one random problem, tests run locally, no LLM involved. Keeping the coding muscle warm is part of the search, so it lives in the same place as everything else.
 
 ---
 
@@ -161,7 +183,7 @@ python -m evals.resume_eval <company>     # recruiter blind review + coach triag
 python -m evals.summary_eval <company>    # due-diligence summary: hard checks + 5-dim review
 python -m evals.brief_eval <company>      # pre-interview brief against user gold standards
 python -m evals.user_agent                # LLM plays the user and walks the running web UI
-pytest                                    # 319 tests
+pytest                                    # 326 tests
 ```
 
 Each eval pairs **zero-LLM hard checks** (deterministic, catch format and discipline violations for free) with **LLM blind review** (judgment). The golden sets themselves are private — they're built from real job-search data.
