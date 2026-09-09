@@ -181,7 +181,7 @@ Each eval pairs **zero-LLM hard checks** (deterministic, catch format and discip
 
 JobLander is free and stays free — Apache-2.0, no hosted tier, nothing to upsell. If it helped you land something, the best thanks is passing it on to the next person who's searching.
 
-If you'd rather buy the coffee: [**☕ Buy me a coffee**](https://buymeacoffee.com/lucasliang)
+If you'd rather chip in: [**❤️ GitHub Sponsors**](https://github.com/sponsors/Shuailong) · [**☕ Buy me a coffee**](https://buymeacoffee.com/lucasliang)
 
 ---
 
