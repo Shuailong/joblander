@@ -183,12 +183,16 @@ ENGLISH_OUTPUT = """
 
 【OUTPUT LANGUAGE — overrides any language instruction above】
 The user reads English. Write every human-readable string in natural, professional English:
-summaries, explanations, reasons, drafts, notes, headings, bullet points, markdown documents, resumes.
-Keep EXACTLY as specified above (do not translate):
+summaries, explanations, reasons, flags, notes, drafts, headings, bullet points, markdown documents, resumes.
+The instructions above are written in Chinese and contain Chinese example phrases (e.g. 中介代招,
+『简历约 6 年，JD 要 8 年』) — those are illustrations: write their English equivalent, never copy the Chinese.
+Keep EXACTLY as specified (do not translate) only:
 - JSON keys and structure;
-- any enumerated / fixed values the instructions define for a field (for example 不符, 存疑, 缺, 死角, 达标,
-  category or type labels, status names) — copy them character for character;
+- values that the instructions define as a closed set of allowed options for a field, written like
+  "verdict": "不符|存疑" or 达标/缺/死角 — copy the chosen option character for character;
 - facts: names, companies, titles, numbers, dates, URLs, quoted source text."""
+
+ENGLISH_PROMPT_TAIL = "\n\n(Answer in English, following the OUTPUT LANGUAGE rule in the system prompt.)"
 
 
 class OutputLanguage:
@@ -200,7 +204,7 @@ class OutputLanguage:
 
     def generate(self, prompt: str, system: str | None = None, json_mode: bool = False,
                  effort: str | None = None) -> str:
-        return self.inner.generate(prompt, system=(system or "") + self.suffix,
+        return self.inner.generate(prompt + ENGLISH_PROMPT_TAIL, system=(system or "") + self.suffix,
                                    json_mode=json_mode, effort=effort)
 
 

@@ -72,12 +72,14 @@ def test_english_output_wraps_every_agent(tmp_path, monkeypatch):
     seen = {}
     monkeypatch.setattr(L, "_from_config", lambda cfg, tier="pro": type("C", (), {
         "generate": lambda self, prompt, system=None, json_mode=False, effort=None:
-            seen.update(system=system) or "ok"})())
+            seen.update(system=system, prompt=prompt) or "ok"})())
     L.from_config(Config(raw={"ui_lang": "en"}, path=None)).generate("p", system="你是评估官")
     assert seen["system"].startswith("你是评估官") and "OUTPUT LANGUAGE" in seen["system"]
-    assert "不符" in seen["system"]                       # 点名固定取值不许翻
+    assert "不符|存疑" in seen["system"]                  # 封闭取值点名不许翻
+    assert "中介代招" in seen["system"]                   # 中文示例点名要改写成英文（实测曾被照抄）
+    assert seen["prompt"].startswith("p") and "Answer in English" in seen["prompt"]
     L.from_config(Config(raw={}, path=None)).generate("p", system="你是评估官")
-    assert seen["system"] == "你是评估官"
+    assert seen["system"] == "你是评估官" and seen["prompt"] == "p"
 
 
 def test_first_page_view_persists_language(client):
