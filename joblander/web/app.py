@@ -313,8 +313,60 @@ def create_app(with_daemon: bool = True) -> FastAPI:
 
     # ---------- 页面 ----------
 
+    @app.get("/setup", response_class=HTMLResponse)
+    def setup_page(request: Request):
+        import re as _re
+        from joblander import wizard
+        pol = cfg.raw.get("policy") or {}
+        rule = next((r for r in cfg.sentinel_rules if r.get("id") == "wizard-redlines"), None)
+        redlines = [_re.sub(r"\\(.)", r"\1", p) for p in (rule or {}).get("patterns", [])]
+        return tpl.TemplateResponse(request, "setup.html", ctx(
+            "setup", st=wizard.status(cfg), quote=pol.get("quote_input") or {},
+            currencies=list(wizard.DEFAULT_FX), redlines="\n".join(redlines)))
+
+    @app.post("/api/setup/resume")
+    async def api_setup_resume(file: UploadFile = File(...)):
+        """旧简历 → 弹药库初稿。抽文本同步做（立刻能报「扫描版」之类的错），LLM 拆分走后台任务。"""
+        import re as _re
+        import tempfile
+        from joblander import wizard
+        suffix = Path(file.filename or "").suffix.lower()
+        if suffix not in {".pdf", ".docx", ".md", ".txt", ".html"}:
+            return JSONResponse({"error": "支持 PDF / Word / Markdown / 纯文本简历"}, status_code=400)
+        d = cfg.workspace_dir / "03-materials"
+        d.mkdir(parents=True, exist_ok=True)
+        safe = _re.sub(r"[^\w.\-一-鿿（）()]", "_", Path(file.filename).name)
+        dst = d / f"original-{safe}"
+        dst.write_bytes(await file.read())
+        text = companyfile._file_text(dst)
+        if len(text.strip()) < 200:
+            return JSONResponse({"error": "读不出简历文字——可能是扫描版，换一份能选中文字的版本"},
+                                status_code=400)
+        tid = start_task("setup", "从简历生成弹药库",
+                         lambda: wizard.bootstrap_from_resume(cfg, _llm("pro"), text))
+        return {"ok": True, "task": tid, "label": "从简历生成弹药库"}
+
+    @app.post("/api/setup/basics")
+    def api_setup_basics(target_tc: float = Form(...), currency: str = Form("SGD"),
+                         redlines: str = Form("")):
+        from joblander import wizard
+        try:
+            wizard.save_basics(cfg, target_tc, currency, redlines.splitlines())
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        return {"ok": True}
+
+    @app.post("/api/setup/skip")
+    def api_setup_skip():
+        from joblander import wizard
+        wizard.skip(cfg)
+        return {"ok": True}
+
     @app.get("/", response_class=HTMLResponse)
     def dashboard(request: Request):
+        from joblander import wizard
+        if wizard.needs_setup(cfg):          # 新用户先过向导；跳过过一次就不再拦
+            return RedirectResponse("/setup", status_code=303)
         rows = _rows()
         today = datetime.now(SGT).strftime("%Y-%m-%d")
         active = [r for r in rows if r.get("Status") in ACTIVE]

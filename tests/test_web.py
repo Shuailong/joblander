@@ -104,6 +104,8 @@ def client(tmp_path, monkeypatch):
                                 "patterns": ["ProjectX"], "why": "internal"}]},
     }, path=tmp_path / "c.yaml")
 
+    from joblander import wizard
+    wizard.skip(cfg)        # 老用户形态：向导不拦首页（向导自身见 test_wizard.py）
     monkeypatch.setattr("joblander.web.app.load_config", lambda: cfg)
     monkeypatch.setattr(notion_mod.NotionClient, "_request",
                         lambda self, *a, **k: {"results": [], "id": "created"})
