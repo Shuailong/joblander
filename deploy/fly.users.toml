@@ -1,0 +1,7 @@
+# 用户 machine 所在的 app。这里只用来构建/推送镜像（fly deploy --build-only）；
+# machine 本身由网关按人经 Machines API 创建，不走 fly deploy。
+app = "joblander-users"
+primary_region = "sin"
+
+[build]
+  dockerfile = "../Dockerfile"

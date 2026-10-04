@@ -10,6 +10,7 @@ UI v2 铁律（对着 Lucas 2026-08-07 的反馈定的）：
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -240,6 +241,20 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                     return JSONResponse(
                         {"error": "拒绝：跨站请求（joblander 只接受本机页面发起的写操作）"},
                         status_code=403)
+        return await call_next(request)
+
+    gateway_token = os.environ.get("JOBLANDER_GATEWAY_TOKEN", "")
+
+    @app.middleware("http")
+    async def _gateway_only(request, call_next):
+        """云端版：每个用户的 machine 都在同一张 Fly 私网里，彼此直连可达；而练兵场能跑
+        任意代码——不设防的话，A 写一行 urllib 就能读走 B 的简历与薪资。
+        网关给每台 machine 配一个专属口令、转发时带上；口令不对一律拒。本地版不设此变量，无影响。"""
+        if gateway_token:
+            import hmac
+            got = request.headers.get("x-joblander-gateway") or ""
+            if not hmac.compare_digest(got.encode(), gateway_token.encode()):
+                return JSONResponse({"error": "拒绝：只接受网关转发的请求"}, status_code=403)
         return await call_next(request)
 
     @app.middleware("http")

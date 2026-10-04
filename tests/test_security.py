@@ -268,3 +268,19 @@ def test_rendered_resume_is_parseable_html():
     p.feed(_render_html(content, {"name": "Alex & Co", "contact": [{"text": "a@b.com"}]}))
     assert "img" not in p.tags and "script" not in p.tags
     assert "a" in p.tags and "strong" in p.tags        # 合法内容没被误伤
+
+
+def test_gateway_token_required_when_configured(tmp_path, monkeypatch):
+    """云端版：同一私网的其他用户 machine 直连 → 没口令，拒；网关带对口令 → 放行。"""
+    ws = tmp_path / "ws"
+    (ws / "09-projections").mkdir(parents=True)
+    (ws / "09-projections" / "tracker.json").write_text('{"rows": []}', encoding="utf-8")
+    cfg = Config(raw={"workspace_dir": str(ws), "sentinel": {"rules": []}},
+                 path=tmp_path / "c.yaml")
+    monkeypatch.setattr("joblander.web.app.load_config", lambda: cfg)
+    monkeypatch.setenv("JOBLANDER_GATEWAY_TOKEN", "s3cret")
+    from joblander.web.app import create_app
+    client = TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1")
+    assert client.get("/pipeline").status_code == 403
+    assert client.get("/pipeline", headers={"X-Joblander-Gateway": "wrong"}).status_code == 403
+    assert client.get("/pipeline", headers={"X-Joblander-Gateway": "s3cret"}).status_code == 200

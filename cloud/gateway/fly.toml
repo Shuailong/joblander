@@ -1,0 +1,28 @@
+# 网关：登录 + 开 machine + 转发 + 计量。单台常开，状态在 /data/gw.sqlite。
+app = "joblander-gw"
+primary_region = "sin"
+
+[build]
+
+[env]
+  PUBLIC_HOST = "app.ailayoff.me"
+  USER_APP = "joblander-users"
+  FLY_REGION = "sin"
+  FREE_CREDIT_USD = "2"
+  GW_DB = "/data/gw.sqlite"
+
+[[mounts]]
+  source = "gw_data"
+  destination = "/data"
+
+# 只暴露 8080；8081 计量端口不在这里 = 公网不可达，只走私网
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
