@@ -11,11 +11,15 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from typing import Any
 
 from joblander.config import update_config
 
 SKIP_MARK = ("08-events", "setup-skipped")
+# 生成走后台任务、按钮可连点：不加锁的话几个任务同时过「已有弹药库」检查，
+# 各花一次钱、后完成的覆盖先完成的（云端实测：20 秒内跑了 3 次）
+_BOOTSTRAP_LOCK = threading.Lock()
 
 # Analyst 硬依赖 fx；向导给一张默认表（→ SGD），用户日后可在 config 里改
 DEFAULT_FX = {"SGD": 1.0, "USD": 1.34, "EUR": 1.45, "GBP": 1.70, "RMB": 0.186,
@@ -104,14 +108,31 @@ def render_bank(sections: list[dict]) -> str:
 
 def bootstrap_from_resume(cfg, llm, resume_text: str) -> dict[str, Any]:
     """旧简历文本 → 弹药库 + profile.json。已有弹药库不覆盖（那是用户核对过的心血）。"""
+    text = (resume_text or "").strip()
+    if len(text) < 200:
+        raise ValueError("简历文字太少——可能是扫描版 PDF，换一份能选中文字的版本")
+    if not _BOOTSTRAP_LOCK.acquire(blocking=False):
+        raise ValueError("弹药库正在生成中——稍等一分钟，不用重复点")
+    try:
+        return _bootstrap(cfg, llm, text)
+    finally:
+        _BOOTSTRAP_LOCK.release()
+
+
+def bank_has_content(cfg) -> bool:
+    return bank_path(cfg).exists() and bool(bank_path(cfg).read_text(encoding="utf-8").strip())
+
+
+def generating() -> bool:
+    return _BOOTSTRAP_LOCK.locked()
+
+
+def _bootstrap(cfg, llm, text: str) -> dict[str, Any]:
     from joblander.company import atomic_write_text
     from joblander.eventlog import EventLog
     from joblander.scribe import _strip_fences
 
-    text = (resume_text or "").strip()
-    if len(text) < 200:
-        raise ValueError("简历文字太少——可能是扫描版 PDF，换一份能选中文字的版本")
-    if bank_path(cfg).exists() and bank_path(cfg).read_text(encoding="utf-8").strip():
+    if bank_has_content(cfg):
         raise ValueError("弹药库已经有内容了——去弹药库页直接编辑，向导不覆盖")
     try:
         raw = json.loads(_strip_fences(llm.generate(

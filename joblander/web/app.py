@@ -345,6 +345,12 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         import re as _re
         import tempfile
         from joblander import wizard
+        if wizard.generating():                  # 拒在花钱之前：已有一单在跑
+            return JSONResponse({"error": "弹药库正在生成中——稍等一分钟，不用重复点"},
+                                status_code=409)
+        if wizard.bank_has_content(cfg):
+            return JSONResponse({"error": "弹药库已经有内容了——去弹药库页直接编辑"},
+                                status_code=409)
         suffix = Path(file.filename or "").suffix.lower()
         if suffix not in {".pdf", ".docx", ".md", ".txt", ".html"}:
             return JSONResponse({"error": "支持 PDF / Word / Markdown / 纯文本简历"}, status_code=400)

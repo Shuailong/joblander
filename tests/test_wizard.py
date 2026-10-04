@@ -124,3 +124,23 @@ def test_skip_stops_redirect(cfg, monkeypatch):
     client = TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1")
     assert client.post("/api/setup/skip").status_code == 200
     assert client.get("/", follow_redirects=False).status_code == 200
+
+
+def test_concurrent_bootstrap_spends_once(cfg, monkeypatch):
+    """按钮连点：第二单在花钱之前就被拒（云端实测出过 20 秒内连跑 3 次、后者覆盖前者）。"""
+    llm = MockLLM([LLM_OUT])
+    assert wizard._BOOTSTRAP_LOCK.acquire(blocking=False)      # 模拟第一单还在跑
+    try:
+        with pytest.raises(ValueError, match="正在生成中"):
+            wizard.bootstrap_from_resume(cfg, llm, RESUME)
+        monkeypatch.setattr("joblander.web.app.load_config", lambda: cfg)
+        from joblander.web.app import create_app
+        client = TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1")
+        r = client.post("/api/setup/resume",
+                        files={"file": ("cv.txt", RESUME.encode(), "text/plain")})
+        assert r.status_code == 409
+    finally:
+        wizard._BOOTSTRAP_LOCK.release()
+    assert llm.calls == []
+    wizard.bootstrap_from_resume(cfg, llm, RESUME)              # 锁释放后照常
+    assert len(llm.calls) == 1
