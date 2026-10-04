@@ -20,6 +20,7 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 
+from gw import pages
 from gw.flyapi import Fly
 from gw.store import Store, User
 
@@ -75,24 +76,16 @@ def read_session(secret: str, cookie: str | None, now: float | None = None) -> s
 
 
 def _page(title: str, body: str, refresh: int = 0) -> HTMLResponse:
-    meta = f'<meta http-equiv="refresh" content="{refresh}">' if refresh else ""
-    return HTMLResponse(f"""<!doctype html><html lang="zh"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">{meta}<title>{title}</title>
-<style>
-:root{{--bg:#F7F7F5;--surface:#fff;--ink:#26251E;--ink-2:#6F6D64;--accent:#0E6E62;--line:#E8E6E1}}
-@media (prefers-color-scheme: dark){{:root{{--bg:#191A18;--surface:#20221F;--ink:#E9E8E3;--ink-2:#A5A49B;--accent:#3FA294;--line:#31332E}}}}
-body{{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,"PingFang SC","Noto Sans SC",sans-serif}}
-.box{{max-width:440px;margin:12vh auto;padding:28px 24px;background:var(--surface);border:1px solid var(--line);border-radius:12px}}
-h1{{font-size:20px;margin:0 0 8px}} p{{color:var(--ink-2);margin:0 0 16px}}
-a.btn{{display:inline-block;background:var(--accent);color:#fff;padding:8px 16px;border-radius:8px;text-decoration:none;font-weight:600}}
-table{{width:100%;border-collapse:collapse;font-size:13px}} td{{padding:4px 0;border-bottom:1px solid var(--line)}}
-@media (max-width:480px){{.box{{margin:16px;}}}}
-</style></head><body><div class="box">{body}</div></body></html>""")
+    return pages.simple(title, body, refresh)
 
 
 def create_web_app(settings: Settings, store: Store, fly: Fly,
                    upstream: httpx.AsyncClient | None = None) -> FastAPI:
     app = FastAPI(title="joblander-gateway", docs_url=None, redoc_url=None, openapi_url=None)
+    from pathlib import Path
+
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/_gw/static", StaticFiles(directory=Path(__file__).parent / "static"), name="gwstatic")
     http = upstream or httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10))
     google = httpx.AsyncClient(timeout=20)
     provisioning: dict[str, asyncio.Task] = {}
@@ -179,6 +172,19 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         resp.delete_cookie(SESSION_COOKIE)
         return resp
 
+    @app.get("/_gw/status")
+    async def status(request: Request):
+        """等待页轮询：真实开通进度（0 分配存储 → 1 启动 → 2 热身 → 3 就绪）。"""
+        email = current(request)
+        user = store.get(email) if email else None
+        if user is None:
+            return Response(status_code=401)
+        if user.status in ("new", "failed") and email not in provisioning:
+            kick_provision(user)
+        stage = (3 if user.status == "ready" else 2 if user.machine_id
+                 else 1 if user.volume_id else 0)
+        return {"status": user.status, "stage": stage}
+
     @app.get("/_gw/balance")
     async def balance(request: Request):
         """侧栏额度显示：浏览器同源直接问网关，不经用户 machine。"""
@@ -213,18 +219,16 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         if not email:
             if request.method != "GET" or path.startswith("api/"):
                 return Response(status_code=401)
-            return _page("joblander", "<h1>joblander</h1><p>求职作战系统的云端版。"
-                         "登录后会为你开一个独立的空间，数据只在你自己的空间里。</p>"
-                         '<a class="btn" href="/auth/login">用 Google 登录</a>')
+            return pages.landing()
         user = store.get(email)
         if user is None:                                        # 会话在、人被删了
             return RedirectResponse("/auth/logout", status_code=302)
         if user.status != "ready":
             if user.status in ("new", "failed") and email not in provisioning:
                 kick_provision(user)
-            msg = ("上次准备失败了，正在重试。" if user.status == "failed"
-                   else "第一次登录，正在为你准备独立空间，大约一分钟。")
-            return _page("准备中", f"<h1>马上就好</h1><p>{msg}页面会自动刷新。</p>", refresh=5)
+            if request.method != "GET" or path.startswith("api/"):
+                return Response(status_code=503)
+            return pages.waiting(first_time=not user.machine_id)
 
         url = f"http://{fly.address(user.machine_id)}:8899/{path}"
         headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP}

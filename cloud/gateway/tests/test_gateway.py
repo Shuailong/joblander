@@ -133,6 +133,7 @@ def _client(store, fly, upstream, email=None):
 def test_anonymous_sees_login_and_api_gets_401(store):
     c = _client(store, _fly([]), _upstream([]))
     assert "用 Google 登录" in c.get("/").text
+    assert c.get("/_gw/static/command-center.jpg").status_code == 200
     assert c.post("/api/drill/run").status_code == 401
 
 
@@ -141,7 +142,7 @@ def test_first_visit_provisions_then_proxies_with_token(store):
     calls, seen = [], []
     c = _client(store, _fly(calls), _upstream(seen), "a@x.com")
     r = c.get("/")
-    assert "准备" in r.text
+    assert "准备独立空间" in r.text and "/_gw/status" in r.text
     import time
     for _ in range(50):
         if store.get("a@x.com").status == "ready":
@@ -149,6 +150,7 @@ def test_first_visit_provisions_then_proxies_with_token(store):
         time.sleep(0.02)
     u = store.get("a@x.com")
     assert u.status == "ready" and u.machine_id == "m_1" and u.volume_id == "vol_1"
+    assert c.get("/_gw/status").json() == {"status": "ready", "stage": 3}
     machine = next(b for m, p, b in calls if p.endswith("/machines"))
     env = machine["config"]["env"]
     assert env["JOBLANDER_GATEWAY_TOKEN"] == u.gateway_token
