@@ -291,3 +291,24 @@ def test_cli_reset_runs(store, tmp_path, monkeypatch):
     runpy.run_module("gw.cli", run_name="__main__")
     assert store.get("a@x.com").machine_id is None
     assert {m for m, *_ in calls} == {"DELETE"}
+
+
+def test_landing_language_choice_reaches_engine_once(store):
+    store.create("a@x.com", 2.0)
+    store.set_status("a@x.com", "ready", machine_id="m_1")
+    seen = []
+    c = _client(store, _fly([]), _upstream(seen), "a@x.com")
+    r = c.get("/_gw/lang?to=en", follow_redirects=False)
+    assert "jl_lang_set=en" in str(r.headers.get_list("set-cookie"))
+    c.get("/", headers={"X-Joblander-Set-Lang": "zh"})          # 客户端自带的同名头被丢弃
+    assert seen[-1].headers["x-joblander-set-lang"] == "en"
+    assert "jl_lang_set" not in c.cookies                         # 送达后即清掉
+    c.get("/")
+    assert "x-joblander-set-lang" not in seen[-1].headers
+
+
+def test_reset_form_parses_in_real_dependency_set():
+    """/_gw/reset 用表单：python-multipart 必须在网关依赖里（线上曾因缺它 500）。"""
+    from pathlib import Path
+    req = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text()
+    assert "python-multipart" in req

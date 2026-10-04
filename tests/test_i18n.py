@@ -117,3 +117,11 @@ def test_reset_zone_only_in_cloud(client, monkeypatch):
                     headers={"X-Joblander-Gateway": "t"})
     html = c2.get("/settings", headers={"Accept-Language": "en"}).text
     assert "/_gw/reset" in html and "Danger zone" in html
+
+
+def test_gateway_set_lang_overrides_saved_language(client):
+    c, cfg = client
+    from joblander.config import update_config
+    update_config(cfg, {"ui_lang": "zh"})
+    html = c.get("/settings", headers={"X-Joblander-Set-Lang": "en"}).text
+    assert cfg.raw["ui_lang"] == "en" and '<html lang="en">' in html

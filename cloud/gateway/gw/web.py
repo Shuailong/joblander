@@ -32,7 +32,7 @@ GOOGLE_USERINFO = "https://openidconnect.googleapis.com/v1/userinfo"
 # 逐跳头不转发；cookie 是网关自己的登录态，不给用户 machine
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te",
        "trailer", "transfer-encoding", "upgrade", "host", "cookie", "content-length",
-       "x-joblander-gateway"}
+       "x-joblander-gateway", "x-joblander-set-lang"}
 
 
 @dataclass
@@ -106,8 +106,11 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
     @app.get("/_gw/lang")
     async def switch_lang(to: str = "zh"):
         """未登录首页的中 / 英切换；登录后界面语言在引擎的设置页里改。"""
+        lg = "en" if to == "en" else "zh"
         resp = RedirectResponse("/", status_code=302)
-        resp.set_cookie("jl_lang", "en" if to == "en" else "zh", max_age=365 * 86400, samesite="lax")
+        resp.set_cookie("jl_lang", lg, max_age=365 * 86400, samesite="lax")
+        # 主动切换 = 明确选择：登录后的第一个请求把它写进引擎配置，盖过之前自动检测记下的语言
+        resp.set_cookie("jl_lang_set", lg, max_age=86400, samesite="lax")
         return resp
 
     async def provision(email: str, meter_key: str) -> None:
@@ -292,6 +295,9 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         if request.cookies.get("jl_lang") in ("zh", "en"):   # 首页选过的语言带进引擎（设置里改的仍优先）
             headers["accept-language"] = request.cookies["jl_lang"]
         headers["x-joblander-gateway"] = user.gateway_token
+        chosen = request.cookies.get("jl_lang_set")
+        if chosen in ("zh", "en"):
+            headers["x-joblander-set-lang"] = chosen
         req = http.build_request(request.method, url, params=request.query_params,
                                  headers=headers, content=request.stream())
         try:
@@ -309,7 +315,10 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             finally:
                 await resp.aclose()
 
-        return StreamingResponse(body(), status_code=resp.status_code, headers=out_headers)
+        out = StreamingResponse(body(), status_code=resp.status_code, headers=out_headers)
+        if chosen in ("zh", "en") and resp.status_code < 400:
+            out.delete_cookie("jl_lang_set")                    # 已送达引擎，只生效一次
+        return out
 
     return app
 

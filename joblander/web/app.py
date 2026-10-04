@@ -269,6 +269,10 @@ def create_app(with_daemon: bool = True) -> FastAPI:
     async def _ui_lang(request, call_next):
         """界面语言：设置里选过的优先，否则跟浏览器。contextvar 随请求走，模板与报错都读它。"""
         from joblander.web import i18n
+        chosen = request.headers.get("x-joblander-set-lang")    # 网关转来的「首页主动切换」
+        if chosen in i18n.LANGS and chosen != cfg.raw.get("ui_lang"):
+            from joblander.config import update_config
+            update_config(cfg, {"ui_lang": chosen})
         lang = i18n.pick_lang(cfg.raw.get("ui_lang"), request.headers.get("accept-language"))
         i18n.set_lang(lang)
         # 第一次打开页面就把语言记进配置：后台任务、夜扫、AI 输出都没有浏览器请求可看，
