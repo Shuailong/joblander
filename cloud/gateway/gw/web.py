@@ -75,8 +75,8 @@ def read_session(secret: str, cookie: str | None, now: float | None = None) -> s
     return email
 
 
-def _page(title: str, body: str, refresh: int = 0) -> HTMLResponse:
-    return pages.simple(title, body, refresh)
+def _page(title: str, body: str, refresh: int = 0, lang: str = "zh") -> HTMLResponse:
+    return pages.simple(title, body, refresh, lang=lang)
 
 
 def create_web_app(settings: Settings, store: Store, fly: Fly,
@@ -93,6 +93,22 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
 
     def current(request: Request) -> str | None:
         return read_session(settings.session_secret, request.cookies.get(SESSION_COOKIE))
+
+    def lang(request: Request) -> str:
+        return pages.lang_of(request.cookies.get("jl_lang"), request.headers.get("accept-language"))
+
+    def failed(request: Request, key: str, retry: bool = True) -> HTMLResponse:
+        lg = lang(request)
+        t = pages.msg("login_failed", lg)
+        btn = f'<a class="btn" href="/auth/login">{pages.msg("relogin", lg)}</a>' if retry else ""
+        return _page(t, f"<h1>{t}</h1><p>{pages.msg(key, lg)}</p>{btn}", lang=lg)
+
+    @app.get("/_gw/lang")
+    async def switch_lang(to: str = "zh"):
+        """未登录首页的中 / 英切换；登录后界面语言在引擎的设置页里改。"""
+        resp = RedirectResponse("/", status_code=302)
+        resp.set_cookie("jl_lang", "en" if to == "en" else "zh", max_age=365 * 86400, samesite="lax")
+        return resp
 
     async def provision(email: str, meter_key: str) -> None:
         """开卷 + 开 machine。失败记在 users.error，用户刷新页面可重试。"""
@@ -141,23 +157,23 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
     @app.get("/auth/callback")
     async def callback(request: Request, code: str = "", state: str = ""):
         if not state or not hmac.compare_digest(state, request.cookies.get("jl_state") or ""):
-            return _page("登录失败", "<h1>登录失败</h1><p>登录状态过期，请重试。</p>"
-                         '<a class="btn" href="/auth/login">重新登录</a>')
+            return failed(request, "state_expired")
         tok = await google.post(GOOGLE_TOKEN, data={
             "code": code, "client_id": settings.google_client_id,
             "client_secret": settings.google_client_secret, "redirect_uri": redirect_uri,
             "grant_type": "authorization_code"})
         if tok.status_code != 200:
-            return _page("登录失败", "<h1>登录失败</h1><p>Google 没有确认这次登录，请重试。</p>"
-                         '<a class="btn" href="/auth/login">重新登录</a>')
+            return failed(request, "google_refused")
         info = (await google.get(GOOGLE_USERINFO, headers={
             "Authorization": f"Bearer {tok.json()['access_token']}"})).json()
         email = (info.get("email") or "").lower()
         if not email or not info.get("email_verified"):
-            return _page("登录失败", "<h1>登录失败</h1><p>这个 Google 账号的邮箱未验证。</p>")
+            return failed(request, "unverified", retry=False)
         if email not in settings.admins and not store.is_invited(email) and not store.get(email):
-            return _page("还在内测", f"<h1>还在内测</h1><p>{html.escape(email)} 还不在邀请名单里。"
-                         "找把你拉进来的朋友加一下，再回来登录。</p>")
+            lg = lang(request)
+            t = pages.msg("beta", lg)
+            return _page(t, f"<h1>{t}</h1><p>{pages.msg('not_invited', lg, email=html.escape(email))}</p>",
+                         lang=lg)
         if not store.get(email):
             store.create(email, settings.free_credit_usd)
         resp = RedirectResponse("/", status_code=302)
@@ -205,11 +221,15 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             f"<tr><td>{time.strftime('%m-%d %H:%M', time.localtime(u['at']))}</td>"
             f"<td>{html.escape(u['model'])}</td><td style='text-align:right'>${u['cost_usd']:.4f}</td></tr>"
             for u in store.recent_usage(user.email))
-        return _page("账户", f"<h1>账户</h1><p>{html.escape(user.email)}</p>"
-                     f"<p>AI 额度余额：<b>${max(user.balance_usd, 0):.2f}</b>"
-                     f"（累计 ${user.credit_usd:.2f}，已用 ${user.spent_usd:.2f}）</p>"
-                     f"<table>{rows or '<tr><td>还没有用量</td></tr>'}</table>"
-                     '<p style="margin-top:16px"><a href="/">← 返回</a> · <a href="/auth/logout">退出登录</a></p>')
+        lg = lang(request)
+        t = pages.msg("account", lg)
+        bal = pages.msg("balance", lg, bal=f"{max(user.balance_usd, 0):.2f}",
+                        credit=f"{user.credit_usd:.2f}", spent=f"{user.spent_usd:.2f}")
+        empty = f"<tr><td>{pages.msg('no_usage', lg)}</td></tr>"
+        return _page(t, f"<h1>{t}</h1><p>{html.escape(user.email)}</p><p>{bal}</p>"
+                     f"<table>{rows or empty}</table>"
+                     f'<p style="margin-top:16px"><a href="/">{pages.msg("back", lg)}</a> · '
+                     f'<a href="/auth/logout">{pages.msg("logout", lg)}</a></p>', lang=lg)
 
     # ---------- 其余一切：转发到这个人自己的 machine ----------
 
@@ -219,7 +239,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         if not email:
             if request.method != "GET" or path.startswith("api/"):
                 return Response(status_code=401)
-            return pages.landing()
+            return pages.landing(lang(request))
         user = store.get(email)
         if user is None:                                        # 会话在、人被删了
             return RedirectResponse("/auth/logout", status_code=302)
@@ -228,19 +248,21 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
                 kick_provision(user)
             if request.method != "GET" or path.startswith("api/"):
                 return Response(status_code=503)
-            return pages.waiting(first_time=not user.machine_id)
+            return pages.waiting(first_time=not user.machine_id, lang=lang(request))
 
         url = f"http://{fly.address(user.machine_id)}:8899/{path}"
         headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP}
         headers["host"] = settings.public_host
+        if request.cookies.get("jl_lang") in ("zh", "en"):   # 首页选过的语言带进引擎（设置里改的仍优先）
+            headers["accept-language"] = request.cookies["jl_lang"]
         headers["x-joblander-gateway"] = user.gateway_token
         req = http.build_request(request.method, url, params=request.query_params,
                                  headers=headers, content=request.stream())
         try:
             resp = await http.send(req, stream=True)
         except httpx.HTTPError:
-            return _page("暂时连不上", "<h1>你的空间暂时没响应</h1>"
-                         "<p>可能正在重启，几秒后自动重试。</p>", refresh=5)
+            lg = lang(request)
+            return _page(pages.msg("unreachable_t", lg), pages.msg("unreachable", lg), refresh=5, lang=lg)
         out_headers = {k: v for k, v in resp.headers.items()
                        if k.lower() not in HOP and k.lower() != "content-encoding"}
 

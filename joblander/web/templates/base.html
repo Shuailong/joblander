@@ -1,11 +1,12 @@
 <!doctype html>
-<html lang="zh">
+<html lang="{{ lang }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block title %}joblander{% endblock %}</title>
 <link rel="stylesheet" href="/static/app.css?v={{ v }}">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛬</text></svg>">
+{% if lang == 'en' %}<script>window.I18N = {{ i18n_js|tojson }};</script>{% endif %}
 <script src="/static/app.js?v={{ v }}" defer></script>
 </head>
 <body>
@@ -13,21 +14,21 @@
   <aside class="side">
     <div class="brand"><span class="glyph">▸▸▸</span><b>joblander</b></div>
     <div class="nav">
-      <a href="/" class="{{ 'on' if nav=='dash' }}"><span class="ico">◈</span>指挥中心{% if pending_n %}<span class="cnt hot" title="{{ pending_n }} 单更新提案等你批（公司页/指挥中心）">{{ pending_n }}</span>{% endif %}</a>
-      <a href="/sourcing" class="{{ 'on' if nav=='src' }}"><span class="ico">◎</span>新机会{% if leads_n %}<span class="cnt hot" title="{{ leads_n }} 条新线索待决策">{{ leads_n }}</span>{% endif %}</a>
-      <a href="/pipeline" class="{{ 'on' if nav=='pipe' }}"><span class="ico">▦</span>作战室</a>
-      <a href="/playbook" class="{{ 'on' if nav=='pb' }}"><span class="ico">♟</span>参谋部</a>
-      {% if features.drill %}<a href="/drill" class="{{ 'on' if nav=='drill' }}"><span class="ico">⚔</span>练兵场</a>{% endif %}
-      <a href="/arsenal" class="{{ 'on' if nav=='ars' }}"><span class="ico">▤</span>弹药库</a>
+      <a href="/" class="{{ 'on' if nav=='dash' }}"><span class="ico">◈</span>{{ _('指挥中心') }}{% if pending_n %}<span class="cnt hot" title="{{ _('{n} 单更新提案等你批（公司页/指挥中心）', n=pending_n) }}">{{ pending_n }}</span>{% endif %}</a>
+      <a href="/sourcing" class="{{ 'on' if nav=='src' }}"><span class="ico">◎</span>{{ _('新机会') }}{% if leads_n %}<span class="cnt hot" title="{{ _('{n} 条新线索待决策', n=leads_n) }}">{{ leads_n }}</span>{% endif %}</a>
+      <a href="/pipeline" class="{{ 'on' if nav=='pipe' }}"><span class="ico">▦</span>{{ _('作战室') }}</a>
+      <a href="/playbook" class="{{ 'on' if nav=='pb' }}"><span class="ico">♟</span>{{ _('参谋部') }}</a>
+      {% if features.drill %}<a href="/drill" class="{{ 'on' if nav=='drill' }}"><span class="ico">⚔</span>{{ _('练兵场') }}</a>{% endif %}
+      <a href="/arsenal" class="{{ 'on' if nav=='ars' }}"><span class="ico">▤</span>{{ _('弹药库') }}</a>
     </div>
-    <div class="navgrp">系统</div>
+    <div class="navgrp">{{ _('系统') }}</div>
     <div class="nav">
-      <a href="/settings" class="{{ 'on' if nav=='set' }}"><span class="ico">⚙</span>设置</a>
+      <a href="/settings" class="{{ 'on' if nav=='set' }}"><span class="ico">⚙</span>{{ _('设置') }}</a>
     </div>
     <div class="foot">
-      {% if cloud %}<div id="quota"><a href="/_gw/account">AI 额度…</a></div>
-      <div style="margin-top:4px"><a href="/auth/logout">退出登录</a></div>
-      {% else %}<div><span class="dot"></span>引擎在线（本机）</div>{% endif %}
+      {% if cloud %}<div id="quota"><a href="/_gw/account">{{ _('AI 额度…') }}</a></div>
+      <div style="margin-top:4px"><a href="/auth/logout">{{ _('退出登录') }}</a></div>
+      {% else %}<div><span class="dot"></span>{{ _('引擎在线（本机）') }}</div>{% endif %}
     </div>
   </aside>
   <main class="main">
@@ -37,19 +38,19 @@
 
 <div id="tasktray" aria-live="polite"></div>
 
-<button id="backtop" title="回到顶部" aria-label="回到顶部"><span class="chute-ic">🪂</span></button>
+<button id="backtop" title="{{ _('回到顶部') }}" aria-label="{{ _('回到顶部') }}"><span class="chute-ic">🪂</span></button>
 
 <dialog id="dlg-intake">
-  <h3>＋ 新机会</h3>
-  <div class="note" style="margin:0 0 8px">贴 WhatsApp / InMail / 邮件 / JD 原文，或直接贴 JD 链接（LinkedIn / MCF / 官网，自动解析页面），也可以只传一个 JD 附件——抽取、查重后进审批，批准才建行。</div>
-  <textarea id="gi-text" placeholder="原文或 JD 链接粘贴到这里（有附件时可空）"></textarea>
-  <label>JD 附件（可空：PDF/文本——正文进抽取，文件随批准落公司档案）</label>
+  <h3>＋ {{ _('新机会') }}</h3>
+  <div class="note" style="margin:0 0 8px">{{ _('贴 WhatsApp / InMail / 邮件 / JD 原文，或直接贴 JD 链接（LinkedIn / MCF / 官网，自动解析页面），也可以只传一个 JD 附件——抽取、查重后进审批，批准才建行。') }}</div>
+  <textarea id="gi-text" placeholder="{{ _('原文或 JD 链接粘贴到这里（有附件时可空）') }}"></textarea>
+  <label>{{ _('JD 附件（可空：PDF/文本——正文进抽取，文件随批准落公司档案）') }}</label>
   <input type="file" id="gi-file" accept=".pdf,.txt,.md,.html,.docx">
-  <label>来源</label>
+  <label>{{ _('来源') }}</label>
   <select id="gi-src"><option>whatsapp</option><option>linkedin</option><option>email</option><option>paste</option></select>
   <div class="dlg-ft">
-    <button class="btn" onclick="this.closest('dialog').close()">取消</button>
-    <button class="btn pri" onclick="const f=document.getElementById('gi-file');const d={text:gv('gi-text'),source:gv('gi-src')};if(f.files.length)d.file=f.files[0];post('/api/intake',d,{btn:this,ok:'已入待入池',then:()=>location='/sourcing'})">抽取 → 待入池</button>
+    <button class="btn" onclick="this.closest('dialog').close()">{{ _('取消') }}</button>
+    <button class="btn pri" onclick="const f=document.getElementById('gi-file');const d={text:gv('gi-text'),source:gv('gi-src')};if(f.files.length)d.file=f.files[0];post('/api/intake',d,{btn:this,ok:{{ _('已入待入池')|jsq }},then:()=>location='/sourcing'})">{{ _('抽取 → 待入池') }}</button>
   </div>
 </dialog>
 
@@ -59,12 +60,12 @@
 fetch('/_gw/balance').then(r => r.ok ? r.json() : null).then(b => {
   if (!b) return;
   const q = document.getElementById('quota');
-  q.innerHTML = `<a href="/_gw/account">AI 额度 $${b.balance_usd.toFixed(2)}</a>`;
+  q.innerHTML = `<a href="/_gw/account">${ {{ _('AI 额度')|jsq }} } $${b.balance_usd.toFixed(2)}</a>`;
   if (b.balance_usd <= 0.05) {
     const bar = document.createElement('div');
     bar.className = 'sentinel warn';
     bar.style.margin = '0 0 12px';
-    bar.innerHTML = 'AI 额度已用完——生成类功能暂停。<a href="/_gw/account">查看用量</a>，或找邀请你的朋友加额度。';
+    bar.innerHTML = {{ _('AI 额度已用完——生成类功能暂停。<a href="/_gw/account">查看用量</a>，或找邀请你的朋友加额度。')|jsq }};
     document.querySelector('.main').prepend(bar);
   }
 }).catch(() => {});

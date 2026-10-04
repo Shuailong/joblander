@@ -27,6 +27,7 @@ from joblander.config import load_config
 from joblander.eventlog import EventLog
 
 from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
+from joblander.web.i18n import _ as _t      # 报错文案按界面语言（模板里的 _ 另行注入）
 HERE = Path(__file__).parent
 # 本机名字白名单：Host 校验（挡 DNS rebinding）与写操作的 Origin 校验共用。
 # 云端版由登录网关转发，经 JOBLANDER_ALLOWED_HOSTS（逗号分隔）补上对外域名。
@@ -109,7 +110,9 @@ def start_task(kind: str, label: str, fn) -> str:
     import threading
     import time
     import uuid
+    from joblander.web.i18n import _
     tid = uuid.uuid4().hex[:8]
+    label = _(label)                       # 请求上下文里定语言：托盘与提示都显示这一份
     TASKS[tid] = {"id": tid, "kind": kind, "label": label, "status": "running",
                   "started": time.time(), "result": None, "error": ""}
 
@@ -164,12 +167,15 @@ def _log_stats(log) -> tuple[int, dict[str, int]]:
 
 def recent_tasks() -> list[dict]:
     import time
+
+    from joblander.web.i18n import _
     now = time.time()
     out = []
     for t in TASKS.values():
         if t["status"] == "running" or now - t.get("ended", now) < 120:
-            out.append({k: t[k] for k in ("id", "kind", "label", "status", "error")}
-                       | {"secs": int(now - t["started"])})
+            # 任务线程里拿不到请求语言：报错在返回给浏览器时再按当前界面语言翻
+            out.append({k: t[k] for k in ("id", "kind", "label", "status")}
+                       | {"error": _(t["error"]) if t["error"] else "", "secs": int(now - t["started"])})
     return sorted(out, key=lambda t: -t["secs"])
 
 
@@ -192,7 +198,9 @@ def greeting(now: datetime) -> str:
     slot = ("dawn" if 5 <= h < 8 else "morning" if 8 <= h < 12
             else "noon" if 12 <= h < 14 else "afternoon" if 14 <= h < 18
             else "evening" if 18 <= h < 23 else "night")
-    return random.choice(GREETINGS[slot])
+    from joblander.web.i18n import get_lang
+    from joblander.web.i18n_en import GREETINGS_EN
+    return random.choice((GREETINGS_EN if get_lang() == "en" else GREETINGS)[slot])
 
 
 def create_app(with_daemon: bool = True) -> FastAPI:
@@ -258,6 +266,14 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         return await call_next(request)
 
     @app.middleware("http")
+    async def _ui_lang(request, call_next):
+        """界面语言：设置里选过的优先，否则跟浏览器。contextvar 随请求走，模板与报错都读它。"""
+        from joblander.web import i18n
+        i18n.set_lang(i18n.pick_lang(cfg.raw.get("ui_lang"),
+                                     request.headers.get("accept-language")))
+        return await call_next(request)
+
+    @app.middleware("http")
     async def _no_cache_html(request, call_next):
         resp = await call_next(request)
         if (resp.headers.get("content-type") or "").startswith("text/html"):
@@ -268,6 +284,9 @@ def create_app(with_daemon: bool = True) -> FastAPI:
     tpl = Jinja2Templates(directory=HERE / "templates")
     tpl.env.filters["md"] = md_to_html
     tpl.env.filters["atticon"] = companyfile.attachment_icon
+    from joblander.web import i18n
+    tpl.env.globals["_"] = i18n._
+    tpl.env.filters["jsq"] = i18n.jsq
     # 静态资源版本号（进程启动时间戳）：改了 css/js 重启即生效，不吃浏览器缓存的旧文件
     tpl.env.globals["v"] = datetime.now(SGT).strftime("%m%d%H%M%S")
 
@@ -325,6 +344,9 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             pass
         kw.setdefault("notion_pulled", np)
         from joblander import wizard
+        from joblander.web import i18n
+        kw.setdefault("lang", i18n.get_lang())
+        kw.setdefault("i18n_js", i18n.JS_STRINGS if kw["lang"] == "en" else {})
         kw.setdefault("features", wizard.features(cfg))
         kw.setdefault("cloud", bool(os.environ.get("JOBLANDER_GATEWAY_TOKEN")))
         cred = cfg.workspace_dir / ".credentials"
@@ -353,6 +375,15 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             features=wizard.features(cfg), advanced=bool(advanced),
             **(_system_ctx() if advanced else {})))
 
+    @app.post("/api/settings/lang")
+    def api_settings_lang(lang: str = Form(...)):
+        from joblander.config import update_config
+        from joblander.web import i18n
+        if lang not in i18n.LANGS:
+            return JSONResponse({"error": "unsupported language"}, status_code=400)
+        update_config(cfg, {"ui_lang": lang})
+        return {"ok": True}
+
     @app.post("/api/settings/features")
     def api_settings_features(name: str = Form(...), on: str = Form(...)):
         from joblander import wizard
@@ -369,14 +400,14 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         import tempfile
         from joblander import wizard
         if wizard.generating():                  # 拒在花钱之前：已有一单在跑
-            return JSONResponse({"error": "弹药库正在生成中——稍等一分钟，不用重复点"},
+            return JSONResponse({"error": _t("弹药库正在生成中——稍等一分钟，不用重复点")},
                                 status_code=409)
         if wizard.bank_has_content(cfg):
-            return JSONResponse({"error": "弹药库已经有内容了——去弹药库页直接编辑"},
+            return JSONResponse({"error": _t("弹药库已经有内容了——去弹药库页直接编辑")},
                                 status_code=409)
         suffix = Path(file.filename or "").suffix.lower()
         if suffix not in {".pdf", ".docx", ".md", ".txt", ".html"}:
-            return JSONResponse({"error": "支持 PDF / Word / Markdown / 纯文本简历"}, status_code=400)
+            return JSONResponse({"error": _t("支持 PDF / Word / Markdown / 纯文本简历")}, status_code=400)
         d = cfg.workspace_dir / "03-materials"
         d.mkdir(parents=True, exist_ok=True)
         safe = _re.sub(r"[^\w.\-一-鿿（）()]", "_", Path(file.filename).name)
@@ -384,7 +415,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         dst.write_bytes(await file.read())
         text = companyfile._file_text(dst)
         if len(text.strip()) < 200:
-            return JSONResponse({"error": "读不出简历文字——可能是扫描版，换一份能选中文字的版本"},
+            return JSONResponse({"error": _t("读不出简历文字——可能是扫描版，换一份能选中文字的版本")},
                                 status_code=400)
         def run():
             out = wizard.bootstrap_from_resume(cfg, _llm("pro"), text)
@@ -394,7 +425,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                            lambda: source_all(cfg, _llm("flash"), days=7, first_run=True))
             return out
         tid = start_task("setup", "从简历生成弹药库", run)
-        return {"ok": True, "task": tid, "label": "从简历生成弹药库"}
+        return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
 
     @app.post("/api/setup/basics")
     def api_setup_basics(target_tc: float = Form(...), currency: str = Form("SGD"),
@@ -403,7 +434,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         try:
             wizard.save_basics(cfg, target_tc, currency, redlines.splitlines())
         except ValueError as e:
-            return JSONResponse({"error": str(e)}, status_code=400)
+            return JSONResponse({"error": _t(str(e))}, status_code=400)
         return {"ok": True}
 
     @app.post("/api/setup/skip")
@@ -457,14 +488,16 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             t = str(e.get("title") or "").casefold()
             return any(c in t for c in co_names)
 
-        day_label = ["今天", "明天", "后天"]
+        from joblander.web.i18n import _
+        day_label = [_("今天"), _("明天"), _("后天")]
         cal_days = []
         for i in range(4):
             d = (now + timedelta(days=i)).strftime("%Y-%m-%d")
             evs = sorted([e for e in cal_events if str(e.get("start", ""))[:10] == d
                           and _battle_ev(e)], key=lambda e: e.get("start", ""))
             if i == 0 or evs:
-                wd = "周" + "一二三四五六日"[datetime.fromisoformat(d).weekday()]
+                wd = _(["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+                       [datetime.fromisoformat(d).weekday()])
                 cal_days.append({"date": d, "label": day_label[i] if i < 3 else wd,
                                  "wd": wd, "events": evs, "is_today": i == 0})
         # 今日日记：素材（战线事件）→ 草稿提案（可编辑）→ 定稿在日报 → 手记随时写
@@ -901,7 +934,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
     def api_drill_run(id: str = Form(...), code: str = Form(...)):
         from joblander import wizard
         if not wizard.features(cfg)["drill"]:     # 关着就不跑任何代码——不只是藏入口
-            return JSONResponse({"error": "练兵场未开启（设置 → 功能）"}, status_code=403)
+            return JSONResponse({"error": _t("练兵场未开启（设置 → 功能）")}, status_code=403)
         from joblander.drill import run_drill
         out = run_drill(id, code)
         if not out.get("ok"):
@@ -932,7 +965,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         from joblander.capability import build_capability
         tid = start_task("capability", "重估能力画像",
                          lambda: build_capability(cfg, _llm(), notion_client=_notion()))
-        return {"ok": True, "task": tid, "label": "重估能力画像"}
+        return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
 
     WSDOC_PREFIXES = ("03-materials/", "13-daily/", "15-offers/")
 
@@ -1025,17 +1058,17 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         """立即搜：MCF + LinkedIn（开着的话）同一条查重/评分/入池管线。"""
         from joblander.sourcing import load_prefs, source_all
         if not load_prefs(cfg).get("keywords"):
-            return JSONResponse({"error": "先在下方「搜索偏好」填目标岗位关键词"}, status_code=400)
+            return JSONResponse({"error": _t("先在下方「搜索偏好」填目标岗位关键词")}, status_code=400)
         tid = start_task("sourcing", "搜新机会",
                          lambda: source_all(cfg, _llm("flash"), days=days))
-        return {"ok": True, "task": tid, "label": "搜新机会"}
+        return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
 
     @app.post("/api/mcf/scan")
     def api_mcf_scan(days: int = Form(2)):
         from joblander.sourcing import source_mcf
         tid = start_task("mcf", "扫 MyCareersFuture",
                          lambda: {"proposals": len(source_mcf(cfg, _llm("flash"), days=days))})
-        return {"ok": True, "task": tid, "label": "扫 MyCareersFuture"}
+        return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
 
     @app.post("/api/scan")
     def api_scan(days: int = Form(2)):
@@ -1047,7 +1080,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                           datetime.now(SGT).isoformat(timespec="seconds")})
             return {"proposals": len(outs)}
         tid = start_task("scan", "扫描邮箱", run)
-        return {"ok": True, "task": tid, "label": "扫描邮箱"}
+        return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
 
     @app.post("/api/calendar/refresh")
     def api_calendar_refresh():
@@ -1126,7 +1159,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                                 status_code=400)
         tid = start_task("diary", "起草今日日记",
                          lambda: build_diary_draft(cfg, _llm("flash")))
-        return {"ok": True, "task": tid, "label": "起草今日日记"}
+        return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
 
     @app.post("/api/brief")
     def api_brief(company: str = Form(...), note: str = Form(""),
@@ -1141,7 +1174,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             return {"path": out.name}
         label = f"生成 brief · {company}" + (f" · {round_type}" if round_type else "")
         tid = start_task("brief", label, run)
-        return {"ok": True, "task": tid, "label": label}
+        return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
 
     @app.post("/api/intake")
     async def api_intake(text: str = Form(""), source: str = Form("paste"),

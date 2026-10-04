@@ -1,72 +1,78 @@
 {% extends "base.html" %}
-{% block title %}设置 · joblander{% endblock %}
+{% block title %}{{ _('设置') }} · joblander{% endblock %}
 {% block main %}
-<div class="topbar"><span class="crumb"><b>设置</b></span><span class="sp"></span>
-  {% if not st.done and not st.skipped %}<button class="btn" onclick="post('/api/setup/skip',{},{ok:'已跳过，随时回这里补',then:()=>location='/'})">先跳过，随便看看</button>{% endif %}
-  {% if st.done %}<a class="btn pri" href="/">进入指挥中心 →</a>{% endif %}
+<div class="topbar"><span class="crumb"><b>{{ _('设置') }}</b></span><span class="sp"></span>
+  {% if not st.done and not st.skipped %}<button class="btn" onclick="post('/api/setup/skip',{},{ok:{{ _('已跳过，随时回这里补')|jsq }},then:()=>location='/'})">{{ _('先跳过，随便看看') }}</button>{% endif %}
+  {% if st.done %}<a class="btn pri" href="/">{{ _('进入指挥中心 →') }}</a>{% endif %}
 </div>
 {% if not st.done %}
-<h1>三步把 joblander 喂到能用</h1>
-<div class="sub">做完前两步就能生成定制简历、面试 brief 和 Offer 对比。所有内容只存在你自己的空间里。</div>
+<h1>{{ _('三步把 joblander 喂到能用') }}</h1>
+<div class="sub">{{ _('做完前两步就能生成定制简历、面试 brief 和 Offer 对比。所有内容只存在你自己的空间里。') }}</div>
 {% else %}
-<h1>设置</h1>
-<div class="sub">你的材料、目标与红线，以及可选功能。</div>
+<h1>{{ _('设置') }}</h1>
+<div class="sub">{{ _('你的材料、目标与红线，以及可选功能。') }}</div>
 {% endif %}
 
-<h2 id="start">开始设置</h2>
+<h2 id="start">{{ _('开始设置') }}</h2>
 <div class="card setup-step" style="margin-bottom:14px">
-  <h2>{{ '✅' if st.bank and st.profile else '①' }} 上传一份旧简历</h2>
+  <h2>{{ '✅' if st.bank and st.profile else '①' }} {{ _('上传一份旧简历') }}</h2>
   {% if st.bank %}
-    <p>弹药库已生成。它是之后所有简历和 brief 的<b>唯一事实来源</b>——去逐段核对，补上简历里装不下的细节，写得越实，定制出来越好。</p>
-    <a class="btn" href="/arsenal">打开弹药库核对 →</a>
-    {% if not st.profile %}<div class="sentinel warn" style="margin-top:8px">没能从简历里认出姓名和联系方式——定制简历的抬头需要它，请在 workspace 的 03-materials/profile.json 补上。</div>{% endif %}
+    <p>{{ _('弹药库已生成。它是之后所有简历和 brief 的<b>唯一事实来源</b>——去逐段核对，补上简历里装不下的细节，写得越实，定制出来越好。')|safe }}</p>
+    <a class="btn" href="/arsenal">{{ _('打开弹药库核对 →') }}</a>
+    {% if not st.profile %}<div class="sentinel warn" style="margin-top:8px">{{ _('没能从简历里认出姓名和联系方式——定制简历的抬头需要它，请在 workspace 的 03-materials/profile.json 补上。') }}</div>{% endif %}
   {% else %}
-    <p>系统会把简历拆成按公司/项目分段的「战绩弹药库」：只搬运简历里写了的事实，不补写、不美化。大约需要一分钟。</p>
+    <p>{{ _('系统会把简历拆成按公司/项目分段的「战绩弹药库」：只搬运简历里写了的事实，不补写、不美化。大约需要一分钟。') }}</p>
     <input type="file" id="su-file" accept=".pdf,.docx,.md,.txt,.html">
-    <div style="margin-top:8px"><button class="btn pri" onclick="const f=document.getElementById('su-file');if(!f.files.length){toast('先选一个简历文件');return}post('/api/setup/resume',{file:f.files[0]},{btn:this})">上传并生成弹药库</button></div>
-    <div class="note">扫描版 PDF 读不出文字；用 Word 或能选中文字的 PDF。</div>
+    <div style="margin-top:8px"><button class="btn pri" onclick="const f=document.getElementById('su-file');if(!f.files.length){toast({{ _('先选一个简历文件')|jsq }});return}post('/api/setup/resume',{file:f.files[0]},{btn:this})">{{ _('上传并生成弹药库') }}</button></div>
+    <div class="note">{{ _('扫描版 PDF 读不出文字；用 Word 或能选中文字的 PDF。') }}</div>
   {% endif %}
 </div>
 
 <div class="card setup-step" style="margin-bottom:14px">
-  <h2>{{ '✅' if st.policy else '②' }} 目标薪资与红线</h2>
-  <label>目标年度总包（base + bonus + equity）</label>
+  <h2>{{ '✅' if st.policy else '②' }} {{ _('目标薪资与红线') }}</h2>
+  <label>{{ _('目标年度总包（base + bonus + equity）') }}</label>
   <div style="display:flex;gap:8px">
-    <input id="su-tc" type="number" min="0" step="1000" value="{{ quote.amount or '' }}" placeholder="例如 250000" style="max-width:200px">
+    <input id="su-tc" type="number" min="0" step="1000" value="{{ quote.amount or '' }}" placeholder="{{ _('例如 250000') }}" style="max-width:200px">
     <select id="su-cur" style="max-width:110px">
       {% for c in currencies %}<option {{ 'selected' if c == (quote.currency or 'SGD') }}>{{ c }}</option>{% endfor %}
     </select>
   </div>
-  <div class="note">对外报价的锚点。Offer 对比按它算差距，屏幕上只显示百分比。</div>
-  <label style="margin-top:12px;display:block">红线词（可空，一行一个）</label>
-  <textarea id="su-red" rows="4" placeholder="不能出现在对外材料里的词：内部项目代号、绩效评级、现薪数字……">{{ redlines }}</textarea>
-  <div class="note">任何生成的简历、消息草稿里出现这些词都会被拦下。</div>
-  <div style="margin-top:8px"><button class="btn pri" onclick="post('/api/setup/basics',{target_tc:gv('su-tc'),currency:gv('su-cur'),redlines:gv('su-red')},{btn:this,ok:'已保存',reload:true})">保存</button></div>
+  <div class="note">{{ _('对外报价的锚点。Offer 对比按它算差距，屏幕上只显示百分比。') }}</div>
+  <label style="margin-top:12px;display:block">{{ _('红线词（可空，一行一个）') }}</label>
+  <textarea id="su-red" rows="4" placeholder="{{ _('不能出现在对外材料里的词：内部项目代号、绩效评级、现薪数字……') }}">{{ redlines }}</textarea>
+  <div class="note">{{ _('任何生成的简历、消息草稿里出现这些词都会被拦下。') }}</div>
+  <div style="margin-top:8px"><button class="btn pri" onclick="post('/api/setup/basics',{target_tc:gv('su-tc'),currency:gv('su-cur'),redlines:gv('su-red')},{btn:this,ok:{{ _('已保存')|jsq }},reload:true})">{{ _('保存') }}</button></div>
 </div>
 
 <div class="card setup-step" style="margin-bottom:14px">
-  <h2>{{ '✅' if st.prefs and not st.prefs_guessed else '③' }} 告诉系统你在找什么</h2>
+  <h2>{{ '✅' if st.prefs and not st.prefs_guessed else '③' }} {{ _('告诉系统你在找什么') }}</h2>
   {% if st.prefs_guessed %}
-  <p>已根据你的简历猜了一组目标岗位和城市，并替你跑了第一轮搜索。去「新机会」核对一下——改准了，之后每晚的搜索和打分都会更准。</p>
-  <a class="btn" href="/sourcing">看首轮结果、核对偏好 →</a>
+  <p>{{ _('已根据你的简历猜了一组目标岗位和城市，并替你跑了第一轮搜索。去「新机会」核对一下——改准了，之后每晚的搜索和打分都会更准。') }}</p>
+  <a class="btn" href="/sourcing">{{ _('看首轮结果、核对偏好 →') }}</a>
   {% elif st.prefs %}
-  <p>目标岗位、城市、关键词和排除项——每晚的搜索和打分按这个来。</p>
-  <a class="btn" href="/sourcing">修改求职偏好 →</a>
+  <p>{{ _('目标岗位、城市、关键词和排除项——每晚的搜索和打分按这个来。') }}</p>
+  <a class="btn" href="/sourcing">{{ _('修改求职偏好 →') }}</a>
   {% else %}
-  <p>上传简历后系统会先猜一组目标岗位并替你搜一轮；也可以直接去填。</p>
-  <a class="btn" href="/sourcing">去设置求职偏好 →</a>
+  <p>{{ _('上传简历后系统会先猜一组目标岗位并替你搜一轮；也可以直接去填。') }}</p>
+  <a class="btn" href="/sourcing">{{ _('去设置求职偏好 →') }}</a>
   {% endif %}
 </div>
 
 
-<h2 id="features">功能</h2>
+<h2 id="features">{{ _('功能') }}</h2>
 <div class="card setup-step" style="margin-bottom:14px">
-  <div class="row"><div class="body"><b>LinkedIn 职位自动搜索</b>
-    <div class="meta">按求职偏好每晚搜一次 LinkedIn 公开职位（免登录接口），和 MCF 一起打分入池。接口随时可能被 LinkedIn 调整或限流。</div></div>
-    <label class="switch"><input type="checkbox" {{ 'checked' if features.linkedin }} onchange="post('/api/settings/features',{name:'linkedin',on:this.checked?1:0},{ok:this.checked?'已开启':'已关闭'})"><span></span></label></div>
-  <div class="row"><div class="body"><b>练兵场</b>
-    <div class="meta">算法题练习，可在线运行代码——偏软件工程岗位。开启后侧栏出现入口。</div></div>
-    <label class="switch"><input type="checkbox" {{ 'checked' if features.drill }} onchange="post('/api/settings/features',{name:'drill',on:this.checked?1:0},{ok:this.checked?'已开启':'已关闭',reload:true})"><span></span></label></div>
+  <div class="row"><div class="body"><b>{{ 'Language' if lang == 'en' else '界面语言 · Language' }}</b>
+    <div class="meta">{{ _('只影响界面文字；AI 生成的内容暂时仍是中文。') }}</div></div>
+    <select style="width:auto;margin-left:12px" onchange="post('/api/settings/lang',{lang:this.value},{ok:'✓',reload:true})">
+      <option value="zh" {{ 'selected' if lang == 'zh' }}>中文</option>
+      <option value="en" {{ 'selected' if lang == 'en' }}>English</option>
+    </select></div>
+  <div class="row"><div class="body"><b>{{ _('LinkedIn 职位自动搜索') }}</b>
+    <div class="meta">{{ _('按求职偏好每晚搜一次 LinkedIn 公开职位（免登录接口），和 MCF 一起打分入池。接口随时可能被 LinkedIn 调整或限流。') }}</div></div>
+    <label class="switch"><input type="checkbox" {{ 'checked' if features.linkedin }} onchange="post('/api/settings/features',{name:'linkedin',on:this.checked?1:0},{ok:this.checked?{{ _('已开启')|jsq }}:{{ _('已关闭')|jsq }}})"><span></span></label></div>
+  <div class="row"><div class="body"><b>{{ _('练兵场') }}</b>
+    <div class="meta">{{ _('算法题练习，可在线运行代码——偏软件工程岗位。开启后侧栏出现入口。') }}</div></div>
+    <label class="switch"><input type="checkbox" {{ 'checked' if features.drill }} onchange="post('/api/settings/features',{name:'drill',on:this.checked?1:0},{ok:this.checked?{{ _('已开启')|jsq }}:{{ _('已关闭')|jsq }},reload:true})"><span></span></label></div>
 </div>
 
 {% if advanced %}

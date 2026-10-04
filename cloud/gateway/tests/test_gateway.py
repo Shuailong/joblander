@@ -165,6 +165,9 @@ def test_first_visit_provisions_then_proxies_with_token(store):
     assert req.headers["x-joblander-gateway"] == u.gateway_token
     assert req.headers["host"] == "app.test"
     assert "cookie" not in req.headers                    # 网关登录态不外泄给 machine
+    c.cookies.set("jl_lang", "en")
+    c.get("/", headers={"Accept-Language": "zh-CN"})
+    assert seen[-1].headers["accept-language"] == "en"   # 首页选的语言带进引擎
 
 
 def test_client_cannot_forge_gateway_header(store):
@@ -226,3 +229,18 @@ def test_search_charges_per_call_and_respects_budget(store):
     client.post("/v1/search", headers=h, json={"query": "Acme"})                 # 余额 0.005 → 还能搜
     r = client.post("/v1/search", headers=h, json={"query": "Acme"})             # 透支后拒
     assert r.status_code == 400 and "Budget" in r.text and len(seen) == 2
+
+
+def test_gateway_pages_follow_language(store):
+    c = _client(store, _fly([]), _upstream([]))
+    assert "Sign in with Google" in c.get("/", headers={"Accept-Language": "en-US"}).text
+    assert "用 Google 登录" in c.get("/", headers={"Accept-Language": "zh-CN"}).text
+    r = c.get("/_gw/lang?to=en", follow_redirects=False)
+    assert r.status_code == 302 and "jl_lang=en" in r.headers["set-cookie"]
+    c.cookies.set("jl_lang", "en")
+    assert "Sign in with Google" in c.get("/", headers={"Accept-Language": "zh-CN"}).text
+    c.cookies.set("jl_state", "a")
+    assert "Sign-in failed" in c.get("/auth/callback?code=c&state=b").text
+    store.create("a@x.com", 2.0)
+    c2 = _client(store, _fly([]), _upstream([]), "a@x.com")
+    assert "Setting up your private space" in c2.get("/", headers={"Accept-Language": "en"}).text

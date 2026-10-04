@@ -25,16 +25,16 @@ table{width:100%;border-collapse:collapse;font-size:13px} td{padding:4px 0;borde
 """
 
 
-def _doc(title: str, body: str, extra_css: str = "", head: str = "") -> HTMLResponse:
-    return HTMLResponse(f"""<!doctype html><html lang="zh"><head><meta charset="utf-8">
+def _doc(title: str, body: str, extra_css: str = "", head: str = "", lang: str = "zh") -> HTMLResponse:
+    return HTMLResponse(f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">{head}<title>{title}</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛬</text></svg>">
 <style>{BASE_CSS}{extra_css}</style></head><body>{body}</body></html>""")
 
 
-def simple(title: str, body: str, refresh: int = 0) -> HTMLResponse:
+def simple(title: str, body: str, refresh: int = 0, lang: str = "zh") -> HTMLResponse:
     head = f'<meta http-equiv="refresh" content="{refresh}">' if refresh else ""
-    return _doc(title, f'<div class="box">{body}</div>', head=head)
+    return _doc(title, f'<div class="box">{body}</div>', head=head, lang=lang)
 
 
 # ---------- 未登录首页 ----------
@@ -61,47 +61,71 @@ footer{border-top:1px solid var(--line);padding:22px 0 40px;font-size:13px;color
 """
 
 
-def landing() -> HTMLResponse:
-    body = """<div class="wrap">
-<nav><span style="font-size:20px">🛬</span><b>joblander</b><span class="sp"></span>
-  <a class="in" href="/auth/login">登录</a></nav>
+LANDING_TEXT = {
+ "zh": dict(title="joblander · 求职作战室", login="登录", switch='<a href="/_gw/lang?to=en">English</a>',
+   h1="把求职当成一场<br><em>有作战室的战役</em>来打",
+   lead="岗位自动找上门、简历按 JD 定制、面试前有弹药、谈薪有底线——一个替你盯全局的 AI 参谋，你只负责拍板。",
+   cta="用 Google 登录，开始使用 →", note="内测邀请制 · 新用户送 AI 试用额度 · 你的数据只在你自己的独立空间里",
+   alt1="指挥中心：今天该做什么、什么逾期了、什么在等你批准",
+   feats=[("◎", "新机会自动找", "每晚按你的偏好搜 LinkedIn 与 MyCareersFuture，对照你的履历打匹配分、初筛硬性要求。"),
+          ("▤", "弹药库 → 定制简历", "上传旧简历拆成战绩库，之后每份简历都从这里取材、按 JD 重写，不编造一个字。"),
+          ("♟", "面前有 brief，面后有复盘", "公司尽调、面试 brief、复盘归档，跨公司沉淀成你的应答 Playbook。"),
+          ("⚖", "Offer 对比与红线", "期权按流动性折价比较；不能说的词、不能漂移的数字，系统替你守着。")],
+   alt2="新机会：按匹配度排好的待决策岗位", how="三分钟上手",
+   steps=[("用 Google 登录", "系统为你开一个独立空间，大约一分钟。"),
+          ("上传一份旧简历", "自动拆成弹药库，并猜出你想找的岗位、替你先搜一轮。"),
+          ("填目标与红线", "目标总包、不能碰的词。"),
+          ("每天早上看一眼", "新机会已打好分，该跟进的已排好，点批准就行。")],
+   promise="系统只起草、从不替你对外发送任何东西：每一个发出去的字都要你过目。",
+   foot='joblander 是开源项目（<a href="https://github.com/Shuailong/joblander">GitHub</a>）· <a href="https://ailayoff.me">ailayoff.me</a> · 截图为虚构演示数据'),
+ "en": dict(title="joblander · your job-search war room", login="Sign in", switch='<a href="/_gw/lang?to=zh">中文</a>',
+   h1="Run your job search like<br><em>a campaign with a war room</em>",
+   lead="Roles find you, resumes are tailored to each JD, you walk into every interview prepared and negotiate with a floor — an AI chief of staff watches the whole board, you make the calls.",
+   cta="Sign in with Google →", note="Invite-only beta · free AI credit for new users · your data lives in your own private space",
+   alt1="Command Center: what to do now, what is overdue, what awaits your approval",
+   feats=[("◎", "Leads that find you", "Nightly searches of LinkedIn and MyCareersFuture, scored against your background with hard requirements screened."),
+          ("▤", "Arsenal → tailored resumes", "Your resume becomes a bank of achievements; every tailored resume draws from it — nothing invented."),
+          ("♟", "Briefs before, debriefs after", "Company research, interview briefs and debriefs that build into your personal answer playbook."),
+          ("⚖", "Offers and red lines", "Equity discounted by liquidity; words you must not say and numbers that must not drift are guarded for you.")],
+   alt2="New Leads: roles ranked by fit, awaiting your decision", how="Up and running in three minutes",
+   steps=[("Sign in with Google", "we set up a private space for you in about a minute."),
+          ("Upload an existing resume", "it becomes your Arsenal, and we guess the roles you want and run a first search."),
+          ("Set targets and red lines", "your target comp and the words you never want to see."),
+          ("Glance at it each morning", "new leads are scored and follow-ups lined up — just approve.")],
+   promise="joblander only drafts — it never sends anything on your behalf. Every word that goes out is yours to approve.",
+   foot='joblander is open source (<a href="https://github.com/Shuailong/joblander">GitHub</a>) · <a href="https://ailayoff.me">ailayoff.me</a> · screenshots use fictional demo data'),
+}
 
+
+def landing(lang: str = "zh") -> HTMLResponse:
+    t = LANDING_TEXT["en" if lang == "en" else "zh"]
+    feats = "".join(f"<div><i>{i}</i><b>{h}</b><span>{d}</span></div>" for i, h, d in t["feats"])
+    steps = "".join(f"<li><b>{h}</b>——{d}</li>" if lang != "en" else f"<li><b>{h}</b> — {d}</li>"
+                    for h, d in t["steps"])
+    body = f"""<div class="wrap">
+<nav><span style="font-size:20px">🛬</span><b>joblander</b><span class="sp"></span>
+  <span style="margin-right:16px;font-size:14px">{t['switch']}</span><a class="in" href="/auth/login">{t['login']}</a></nav>
 <section class="hero">
   <div>
-    <h1>把求职当成一场<br><em>有作战室的战役</em>来打</h1>
-    <p class="lead">岗位自动找上门、简历按 JD 定制、面试前有弹药、谈薪有底线——
-      一个替你盯全局的 AI 参谋，你只负责拍板。</p>
-    <a class="btn" href="/auth/login">用 Google 登录，开始使用 →</a>
-    <div class="note">内测邀请制 · 新用户送 AI 试用额度 · 你的数据只在你自己的独立空间里</div>
+    <h1>{t['h1']}</h1>
+    <p class="lead">{t['lead']}</p>
+    <a class="btn" href="/auth/login">{t['cta']}</a>
+    <div class="note">{t['note']}</div>
   </div>
-  <img class="shot" src="/_gw/static/command-center.jpg" alt="指挥中心：今天该做什么、什么逾期了、什么在等你批准">
+  <img class="shot" src="/_gw/static/command-center.jpg" alt="{t['alt1']}">
 </section>
-
-<section class="feat">
-  <div><i>◎</i><b>新机会自动找</b><span>每晚按你的偏好搜 LinkedIn 与 MyCareersFuture，对照你的履历打匹配分、初筛硬性要求。</span></div>
-  <div><i>▤</i><b>弹药库 → 定制简历</b><span>上传旧简历拆成战绩库，之后每份简历都从这里取材、按 JD 重写，不编造一个字。</span></div>
-  <div><i>♟</i><b>面前有 brief，面后有复盘</b><span>公司尽调、面试 brief、复盘归档，跨公司沉淀成你的应答 Playbook。</span></div>
-  <div><i>⚖</i><b>Offer 对比与红线</b><span>期权按流动性折价比较；不能说的词、不能漂移的数字，系统替你守着。</span></div>
-</section>
-
+<section class="feat">{feats}</section>
 <section class="how">
-  <img class="shot" src="/_gw/static/sourcing.jpg" alt="新机会：按匹配度排好的待决策岗位">
+  <img class="shot" src="/_gw/static/sourcing.jpg" alt="{t['alt2']}">
   <div>
-    <h2 style="margin-top:0">三分钟上手</h2>
-    <ol>
-      <li><b>用 Google 登录</b>——系统为你开一个独立空间，大约一分钟。</li>
-      <li><b>上传一份旧简历</b>——自动拆成弹药库，你核对补充。</li>
-      <li><b>填目标与偏好</b>——想要的岗位、城市、目标总包、不能碰的红线。</li>
-      <li><b>每天早上看一眼</b>——新机会已打好分，该跟进的已排好，点批准就行。</li>
-    </ol>
-    <p style="color:var(--ink-3);font-size:13px;margin-top:16px">系统只起草、从不替你对外发送任何东西：每一个发出去的字都要你过目。</p>
+    <h2 style="margin-top:0">{t['how']}</h2>
+    <ol>{steps}</ol>
+    <p style="color:var(--ink-3);font-size:13px;margin-top:16px">{t['promise']}</p>
   </div>
 </section>
-
-<footer>joblander 是开源项目（<a href="https://github.com/Shuailong/joblander">GitHub</a>）·
-  <a href="https://ailayoff.me">ailayoff.me</a> · 截图为虚构演示数据</footer>
+<footer>{t['foot']}</footer>
 </div>"""
-    return _doc("joblander · 求职作战室", body, LANDING_CSS)
+    return _doc(t["title"], body, LANDING_CSS, lang=lang)
 
 
 # ---------- 开通等待页：飞机进近 + 真实进度 ----------
@@ -143,8 +167,7 @@ h1{font-size:22px;margin:24px 0 6px} .quip{color:var(--ink-2);min-height:26px;tr
 """
 
 WAIT_JS = """
-const quips = ['塔台已确认跑道，正在为你清场…','给你的简历找停机位…','给弹药库搬进货架…',
-  '调试雷达：MCF、LinkedIn 信号就位…','校准红线守卫…','咖啡已经煮上了…','最后检查起落架…'];
+const quips = QUIPS;
 let qi = 0;
 setInterval(() => { const q = document.getElementById('quip'); q.style.opacity = 0;
   setTimeout(() => { qi = (qi + 1) % quips.length; q.textContent = quips[qi]; q.style.opacity = 1; }, 400); }, 3200);
@@ -155,9 +178,9 @@ async function poll(){
       li.className = i < s.stage ? 'done' : (i === s.stage ? 'cur' : '');
       li.querySelector('.d').textContent = i < s.stage ? '✓' : '';
     });
-    if (s.status === 'ready') { document.getElementById('title').textContent = '已着陆，欢迎登机 🛬';
+    if (s.status === 'ready') { document.getElementById('title').textContent = LANDED;
       setTimeout(() => location.replace('/'), 900); return; }
-    document.getElementById('err').textContent = s.status === 'failed' ? '上一次准备没成功，正在自动重试…' : '';
+    document.getElementById('err').textContent = s.status === 'failed' ? RETRYING : '';
   } catch (e) {}
   setTimeout(poll, 2500);
 }
@@ -165,21 +188,74 @@ poll();
 """
 
 
-def waiting(first_time: bool) -> HTMLResponse:
-    title = "正在为你准备独立空间" if first_time else "你的空间正在重启"
+WAIT_TEXT = {
+ "zh": dict(first="正在为你准备独立空间", again="你的空间正在重启", page="准备中 · joblander",
+   steps=["分配专属存储", "启动你的引擎", "引擎热身，马上就好"],
+   quips=["塔台已确认跑道，正在为你清场…", "给你的简历找停机位…", "给弹药库搬进货架…",
+          "调试雷达：MCF、LinkedIn 信号就位…", "校准红线守卫…", "咖啡已经煮上了…", "最后检查起落架…"],
+   landed="已着陆，欢迎登机 🛬", retrying="上一次准备没成功，正在自动重试…"),
+ "en": dict(first="Setting up your private space", again="Your space is restarting", page="Getting ready · joblander",
+   steps=["Allocating your storage", "Starting your engine", "Warming up — almost there"],
+   quips=["Tower has cleared the runway for you…", "Finding a gate for your resume…", "Stocking the Arsenal shelves…",
+          "Tuning the radar: MCF and LinkedIn signals locked…", "Calibrating the red-line guard…",
+          "The coffee's on…", "Final landing-gear check…"],
+   landed="Touchdown — welcome aboard 🛬", retrying="The last attempt didn't finish — retrying automatically…"),
+}
+
+
+def waiting(first_time: bool, lang: str = "zh") -> HTMLResponse:
+    import json as _json
+    t = WAIT_TEXT["en" if lang == "en" else "zh"]
+    title = t["first"] if first_time else t["again"]
+    steps = "".join(('<li class="cur">' if i == 0 else "<li>") + f'<span class="d"></span>{x}</li>'
+                    for i, x in enumerate(t["steps"]))
+    js = (f"const QUIPS = {_json.dumps(t['quips'], ensure_ascii=False)};"
+          f"const LANDED = {_json.dumps(t['landed'], ensure_ascii=False)};"
+          f"const RETRYING = {_json.dumps(t['retrying'], ensure_ascii=False)};" + WAIT_JS)
     body = f"""<div class="stage">
 <div class="scene" aria-hidden="true">
   <span class="cloud c1">☁️</span><span class="cloud c2">☁️</span><span class="cloud c3">☁️</span>
   <div class="runway"></div><span class="puff"></span><span class="plane">🛬</span>
 </div>
 <h1 id="title">{title}</h1>
-<div class="quip" id="quip">塔台已确认跑道，正在为你清场…</div>
-<ol class="steps">
-  <li class="cur"><span class="d"></span>分配专属存储</li>
-  <li><span class="d"></span>启动你的引擎</li>
-  <li><span class="d"></span>引擎热身，马上就好</li>
-</ol>
+<div class="quip" id="quip">{t['quips'][0]}</div>
+<ol class="steps">{steps}</ol>
 <div class="err" id="err"></div>
 <noscript><meta http-equiv="refresh" content="5"></noscript>
-</div><script>{WAIT_JS}</script>"""
-    return _doc("准备中 · joblander", body, WAIT_CSS)
+</div><script>{js}</script>"""
+    return _doc(t["page"], body, WAIT_CSS, lang=lang)
+
+
+# ---------- 网关提示文案（登录 / 邀请 / 账户 / 连接） ----------
+
+MSG = {
+ "login_failed": ("登录失败", "Sign-in failed"),
+ "state_expired": ("登录状态过期，请重试。", "Your sign-in session expired — please try again."),
+ "google_refused": ("Google 没有确认这次登录，请重试。", "Google didn't confirm this sign-in — please try again."),
+ "unverified": ("这个 Google 账号的邮箱未验证。", "This Google account's email isn't verified."),
+ "relogin": ("重新登录", "Sign in again"),
+ "beta": ("还在内测", "Invite-only beta"),
+ "not_invited": ("{email} 还不在邀请名单里。找把你拉进来的朋友加一下，再回来登录。",
+                 "{email} isn't on the invite list yet. Ask the friend who sent you here to add you, then sign in again."),
+ "account": ("账户", "Account"),
+ "balance": ("AI 额度余额：<b>${bal}</b>（累计 ${credit}，已用 ${spent}）",
+             "AI credit balance: <b>${bal}</b> (granted ${credit}, used ${spent})"),
+ "no_usage": ("还没有用量", "No usage yet"),
+ "back": ("← 返回", "← Back"),
+ "logout": ("退出登录", "Sign out"),
+ "unreachable_t": ("暂时连不上", "Temporarily unavailable"),
+ "unreachable": ("<h1>你的空间暂时没响应</h1><p>可能正在重启，几秒后自动重试。</p>",
+                 "<h1>Your space isn't responding</h1><p>It may be restarting — retrying in a few seconds.</p>"),
+}
+
+
+def msg(key: str, lang: str, **kw) -> str:
+    zh, en = MSG[key]
+    return (en if lang == "en" else zh).format(**kw)
+
+
+def lang_of(cookie: str | None, accept_language: str | None) -> str:
+    if cookie in ("zh", "en"):
+        return cookie
+    first = (accept_language or "").split(",")[0].strip().lower()
+    return "en" if first.startswith("en") else "zh"
