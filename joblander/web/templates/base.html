@@ -26,6 +26,7 @@
       <a href="/settings" class="{{ 'on' if nav=='set' }}"><span class="ico">⚙</span>{{ _('设置') }}</a>
     </div>
     <div class="foot">
+      <div style="margin-bottom:6px">{% if cloud %}<a href="#" onclick="dlg('dlg-feedback');return false">✉ {{ _('反馈') }}</a>{% else %}<a href="https://github.com/Shuailong/joblander/issues" target="_blank">✉ {{ _('反馈') }}</a>{% endif %}</div>
       {% if cloud %}<div id="quota"><a href="/_gw/account">{{ _('AI 额度…') }}</a></div>
       <div style="margin-top:4px"><a href="/auth/logout">{{ _('退出登录') }}</a></div>
       {% else %}<div><span class="dot"></span>{{ _('引擎在线（本机）') }}</div>{% endif %}
@@ -39,6 +40,34 @@
 <div id="tasktray" aria-live="polite"></div>
 
 <button id="backtop" title="{{ _('回到顶部') }}" aria-label="{{ _('回到顶部') }}"><span class="chute-ic">🪂</span></button>
+
+{% if cloud %}
+<dialog id="dlg-feedback">
+  <h3>✉ {{ _('反馈') }}</h3>
+  <div class="note" style="margin:0 0 8px">{{ _('哪里不好用、出了什么错、想要什么功能，都可以写。会直接发到作者的邮箱，回复会发到你的登录邮箱。') }}</div>
+  <textarea id="fb-text" style="min-height:140px" placeholder="{{ _('写下你的反馈……') }}"></textarea>
+  <div class="dlg-ft">
+    <button class="btn" onclick="this.closest('dialog').close()">{{ _('取消') }}</button>
+    <button class="btn pri" onclick="sendFeedback(this)">{{ _('发送') }}</button>
+  </div>
+</dialog>
+<script>
+async function sendFeedback(btn){
+  const msg = gv('fb-text').trim();
+  if (msg.length < 3) { toast({{ _('先写点内容')|jsq }}); return; }
+  btn.disabled = true;
+  const fd = new FormData();
+  fd.append('message', msg); fd.append('page', location.pathname); fd.append('lang', document.documentElement.lang);
+  try {
+    const r = await fetch('/_gw/feedback', {method: 'POST', body: fd});
+    const out = r.ok ? await r.json() : {error: r.status};
+    if (out.ok) { toast({{ _('已发送，谢谢！')|jsq }}); document.getElementById('fb-text').value = '';
+                  btn.closest('dialog').close(); }
+    else toast(out.error === 'rate' ? {{ _('发得太频繁了，过一会儿再试')|jsq }} : {{ _('发送失败：')|jsq }} + out.error);
+  } finally { btn.disabled = false; }
+}
+</script>
+{% endif %}
 
 <dialog id="dlg-intake">
   <h3>＋ {{ _('新机会') }}</h3>

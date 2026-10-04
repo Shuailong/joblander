@@ -33,6 +33,11 @@ CREATE TABLE IF NOT EXISTS usage (
   prompt_tokens INTEGER NOT NULL, completion_tokens INTEGER NOT NULL,
   cost_usd REAL NOT NULL, at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL, message TEXT NOT NULL, page TEXT, lang TEXT, user_agent TEXT,
+  emailed INTEGER NOT NULL DEFAULT 0, at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS grants (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL, amount_usd REAL NOT NULL, reason TEXT NOT NULL, at REAL NOT NULL
@@ -147,6 +152,24 @@ class Store:
                             (email.lower(), model, prompt, completion, cost, time.time()))
             self.db.execute("UPDATE users SET spent_usd = spent_usd + ? WHERE email=?",
                             (cost, email.lower()))
+
+    # ---------- 反馈 ----------
+
+    def add_feedback(self, email: str, message: str, page: str, lang: str, ua: str) -> int:
+        cur = self.db.execute("INSERT INTO feedback (email, message, page, lang, user_agent, at) "
+                              "VALUES (?,?,?,?,?,?)", (email.lower(), message, page, lang, ua, time.time()))
+        return cur.lastrowid
+
+    def mark_feedback_emailed(self, fid: int) -> None:
+        self.db.execute("UPDATE feedback SET emailed=1 WHERE id=?", (fid,))
+
+    def feedback_count_since(self, email: str, since: float) -> int:
+        return self.db.execute("SELECT COUNT(*) FROM feedback WHERE email=? AND at>=?",
+                               (email.lower(), since)).fetchone()[0]
+
+    def list_feedback(self, limit: int = 30) -> list[dict]:
+        return [dict(r) for r in self.db.execute(
+            "SELECT * FROM feedback ORDER BY id DESC LIMIT ?", (limit,))]
 
     def recent_usage(self, email: str, limit: int = 20) -> list[dict]:
         return [dict(r) for r in self.db.execute(

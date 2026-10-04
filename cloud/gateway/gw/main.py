@@ -42,6 +42,8 @@ def build():
         free_credit_usd=float(env("FREE_CREDIT_USD", "2")),
         memory_mb=int(env("USER_MEMORY_MB", "1024")),
         admins={e.strip().lower() for e in env("ADMIN_EMAILS", "").split(",") if e.strip()},
+        feedback_to=env("FEEDBACK_TO", env("ADMIN_EMAILS", "").split(",")[0].strip()),
+        resend_api_key=env("RESEND_API_KEY", ""),
     )
     web = create_web_app(settings, store, fly)
     meter = create_meter_app(store, env("OPENAI_API_KEY"), prices,

@@ -312,3 +312,45 @@ def test_reset_form_parses_in_real_dependency_set():
     from pathlib import Path
     req = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text()
     assert "python-multipart" in req
+
+
+def test_feedback_stored_emailed_and_rate_limited(store):
+    store.create("a@x.com", 1.0)
+    sent = []
+    def handler(req: httpx.Request):
+        sent.append(json.loads(req.content)); return httpx.Response(200, json={"id": "e1"})
+    s = Settings(**{**SETTINGS.__dict__, "feedback_to": "boss@x.com", "resend_api_key": "re_x"})
+    app = create_web_app(s, store, _fly([]), _upstream([]))
+    c = TestClient(app, base_url="https://app.test")
+    c.cookies.set("jl_session", make_session("s", "a@x.com"))
+    # 邮件走网关里的共享 httpx client：替换它的 transport
+    import httpx as _h
+    orig = _h.AsyncClient.post
+    async def fake_post(self, url, **kw):
+        if "resend" in str(url):
+            return handler(_h.Request("POST", url, json=kw.get("json")))
+        return await orig(self, url, **kw)
+    _h.AsyncClient.post = fake_post
+    try:
+        assert c.post("/_gw/feedback", data={"message": "x"}).json() == {"error": "empty"}
+        r = c.post("/_gw/feedback", data={"message": "The brief button is slow\nmore detail",
+                                          "page": "/company/1", "lang": "en"},
+                   headers={"Origin": "https://app.test", "User-Agent": "UA"})
+        assert r.json() == {"ok": True}
+        assert sent[0]["to"] == ["boss@x.com"] and sent[0]["reply_to"] == "a@x.com"
+        assert sent[0]["subject"] == "[joblander feedback] The brief button is slow"
+        assert store.list_feedback()[0]["emailed"] == 1
+        assert c.post("/_gw/feedback", data={"message": "hi"}, headers={"Origin": "https://evil.example"}).status_code == 403
+        for _ in range(9):
+            c.post("/_gw/feedback", data={"message": "again"})
+        assert c.post("/_gw/feedback", data={"message": "again"}).json() == {"error": "rate"}
+    finally:
+        _h.AsyncClient.post = orig
+
+
+def test_feedback_kept_when_email_not_configured(store):
+    store.create("a@x.com", 1.0)
+    c = _client(store, _fly([]), _upstream([]), "a@x.com")
+    assert c.post("/_gw/feedback", data={"message": "works offline"}).json() == {"ok": True}
+    f = store.list_feedback()[0]
+    assert f["message"] == "works offline" and f["emailed"] == 0

@@ -138,3 +138,15 @@ def test_research_report_english_skeleton():
     assert "missing why hiring" in md and "blind spots pay" in md and "(search snippet)" in md
     zh = format_deep_summary(d)
     assert "缺 动因" in zh and "（搜索摘要）" in zh
+
+
+def test_feedback_entry_cloud_dialog_local_github(client, monkeypatch):
+    c, _ = client
+    html = c.get("/settings").text
+    assert "github.com/Shuailong/joblander/issues" in html and "/_gw/feedback" not in html
+    monkeypatch.setenv("JOBLANDER_GATEWAY_TOKEN", "t")
+    from joblander.web.app import create_app
+    c2 = TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1",
+                    headers={"X-Joblander-Gateway": "t"})
+    html = c2.get("/settings", headers={"Accept-Language": "en"}).text
+    assert "/_gw/feedback" in html and "Feedback" in html

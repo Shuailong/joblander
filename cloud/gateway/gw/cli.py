@@ -4,6 +4,7 @@
   grant <email> <usd> [原因]   给额度（充值落地前，手工给朋友加额度也走这里）
   users                        列出用户、状态、余额
   upgrade <image>              把全部用户 machine 换到新镜像（数据在卷上，不受影响）
+  feedback [n]                 最近 n 条用户反馈（默认 20）
   reset <email>                销毁该用户的 machine 与卷（数据不可恢复），下次登录按新用户重新开通
 """
 
@@ -39,6 +40,11 @@ def main(argv: list[str]) -> None:
                   f"余额 ${u.balance_usd:7.2f}  已用 ${u.spent_usd:.2f}  {u.error or ''}")
     elif cmd == "upgrade":
         asyncio.run(_upgrade(store, args[0]))
+    elif cmd == "feedback":
+        for f in store.list_feedback(int(args[0]) if args else 20):
+            import time as _t
+            print(f"#{f['id']} {_t.strftime('%m-%d %H:%M', _t.localtime(f['at']))} {f['email']} "
+                  f"[{f['lang']}] {f['page']} {'✉' if f['emailed'] else '·'}\n    {f['message'][:300]}")
     elif cmd == "reset":
         asyncio.run(_reset(store, args[0]))
     else:

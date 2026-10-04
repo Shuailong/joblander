@@ -47,6 +47,9 @@ class Settings:
     memory_mb: int = 1024        # chromium 转 PDF 在 512MB 下卡死
     timezone: str = "Asia/Singapore"
     admins: set[str] = field(default_factory=set)   # 管理员免邀请
+    feedback_to: str = ""                            # 反馈收件人（管理员邮箱）
+    resend_api_key: str = ""
+    feedback_from: str = "joblander <onboarding@resend.dev>"
 
 
 # ---------- 会话：HMAC 签名的 email|过期时间，不存服务端 ----------
@@ -237,6 +240,35 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             return {"error": "busy"}
         store.set_status(email, "resetting")
         provisioning[email] = asyncio.create_task(reset(email))
+        return {"ok": True}
+
+    @app.post("/_gw/feedback")
+    async def feedback(request: Request):
+        """应用内反馈：先存库（不丢），再尽力发邮件给管理员；每人每小时最多 10 条。"""
+        email = current(request)
+        if not email or store.get(email) is None:
+            return Response(status_code=401)
+        origin = request.headers.get("origin") or ""
+        if origin and origin != f"https://{settings.public_host}":
+            return Response(status_code=403)
+        form = await request.form()
+        message = str(form.get("message") or "").strip()[:5000]
+        if len(message) < 3:
+            return {"error": "empty"}
+        if store.feedback_count_since(email, time.time() - 3600) >= 10:
+            return {"error": "rate"}
+        page = str(form.get("page") or "")[:300]
+        lg = str(form.get("lang") or lang(request))[:5]
+        ua = (request.headers.get("user-agent") or "")[:300]
+        fid = store.add_feedback(email, message, page, lg, ua)
+        try:
+            from gw.notify import send_feedback
+            if await send_feedback(google, settings.resend_api_key, settings.feedback_to,
+                                   sender=settings.feedback_from, user=email, message=message,
+                                   page=page, lang=lg, ua=ua, fid=fid):
+                store.mark_feedback_emailed(fid)
+        except Exception:                                       # noqa: BLE001  邮件失败不影响收下反馈
+            pass
         return {"ok": True}
 
     @app.get("/_gw/balance")
