@@ -57,7 +57,8 @@ async def serve() -> None:
     # 公网口给 Fly 入口代理（走 IPv4）；计量口只给私网（6PN 是 IPv6）——绑 :: 在 Fly 上是 v6-only
     servers = [uvicorn.Server(uvicorn.Config(web, host="0.0.0.0", port=8080, proxy_headers=True,
                                              forwarded_allow_ips="*", access_log=False)),
-               uvicorn.Server(uvicorn.Config(meter, host="::", port=8081))]
+               uvicorn.Server(uvicorn.Config(meter, host="::", port=8081, access_log=False))]
+    # access 日志器是全局共享的：任一 Config 开着就会把它重新装回去，两边都得关
     await asyncio.gather(*(s.serve() for s in servers))
 
 
