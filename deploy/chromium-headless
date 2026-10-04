@@ -1,0 +1,4 @@
+#!/bin/sh
+# 容器里 chromium 自带沙箱起不来（缺 user namespace）。每个用户独占一台 machine，
+# 且只渲染本机生成的简历 HTML，关沙箱的代价可接受。
+exec chromium --no-sandbox "$@"

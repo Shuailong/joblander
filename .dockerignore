@@ -1,0 +1,17 @@
+# 镜像里只要引擎代码；私有配置、本机数据、官网、开发产物一律不进
+.git
+.venv
+config.yaml
+data/
+*.env
+.env*
+*.log
+**/__pycache__
+*.egg-info
+build/
+dist/
+site/
+docs/
+tests/
+.pytest_cache
+.DS_Store

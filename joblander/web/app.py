@@ -27,8 +27,15 @@ from joblander.eventlog import EventLog
 
 from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 HERE = Path(__file__).parent
-# 本机名字白名单：Host 校验（挡 DNS rebinding）与写操作的 Origin 校验共用
+# 本机名字白名单：Host 校验（挡 DNS rebinding）与写操作的 Origin 校验共用。
+# 云端版由登录网关转发，经 JOBLANDER_ALLOWED_HOSTS（逗号分隔）补上对外域名。
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+
+
+def _allowed_hosts() -> set[str]:
+    import os
+    extra = os.environ.get("JOBLANDER_ALLOWED_HOSTS", "")
+    return _LOCAL_HOSTS | {h.strip().lower() for h in extra.split(",") if h.strip()}
 ACTIVE = {"Added", "Dream", "In Consideration", "To Apply", "Screening Called",
           "Applied", "Interview Scheduled", "Interview Completed"}
 
@@ -205,6 +212,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             daemon.stop()
 
     app = FastAPI(title="joblander", lifespan=lifespan)
+    allowed_hosts = _allowed_hosts()
 
     @app.middleware("http")
     async def _same_origin_guard(request, call_next):
@@ -219,7 +227,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
           跨站表单提交浏览器一定带 Origin；两个头都没有的是 curl/CLI/测试，放行。
         """
         host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]")
-        if host and host not in _LOCAL_HOSTS:
+        if host and host.lower() not in allowed_hosts:
             return JSONResponse({"error": f"拒绝：Host「{host}」不是本机"}, status_code=421)
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
             src = request.headers.get("origin") or request.headers.get("referer") or ""
@@ -228,7 +236,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                     h = urlparse(src).hostname or ""
                 except ValueError:
                     h = "?"
-                if h not in _LOCAL_HOSTS:
+                if h.lower() not in allowed_hosts:
                     return JSONResponse(
                         {"error": "拒绝：跨站请求（joblander 只接受本机页面发起的写操作）"},
                         status_code=403)

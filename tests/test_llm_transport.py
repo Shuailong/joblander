@@ -92,3 +92,38 @@ def test_from_config_tier_routing(monkeypatch):
         raw = {"llm": {"provider": "openai"}}
     assert from_config(C3(), "flash").model == "gpt-5.6-luna"
     assert from_config(C3(), "pro").model == "gpt-5.6-sol"
+
+
+def test_openai_base_url_routes_to_proxy(monkeypatch):
+    """云端版：OPENAI_BASE_URL 指向计量代理，请求发去代理而不是 api.openai.com。"""
+    from joblander import llm as L
+
+    seen: dict = {}
+    monkeypatch.setattr(L, "_http_sse_text",
+                        lambda url, body, headers, timeout=300: seen.update(url=url) or "ok")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-sub")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://meter.internal:4000/v1/")
+    L.OpenAIChat("gpt-5.6-sol").generate("hi")
+    assert seen["url"] == "http://meter.internal:4000/v1/chat/completions"
+    monkeypatch.delenv("OPENAI_BASE_URL")
+    L.OpenAIChat("gpt-5.6-sol").generate("hi")
+    assert seen["url"] == L.OpenAIChat.URL
+
+
+def test_proxy_budget_rejection_becomes_quota_exceeded(monkeypatch):
+    """代理按额度拒绝 ≠ 故障：转成 QuotaExceeded，给用户看得懂的提示。其他 4xx 原样抛。"""
+    from joblander import llm as L
+
+    def over(url, body, headers, timeout=300):
+        raise LLMError('400: {"error":{"message":"Budget has been exceeded! Current cost: 2.01",'
+                       '"type":"budget_exceeded"}}')
+    monkeypatch.setattr(L, "_http_sse_text", over)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-sub")
+    with pytest.raises(L.QuotaExceeded, match="额度已用完"):
+        L.OpenAIChat("gpt-5.6-sol").generate("hi")
+
+    monkeypatch.setattr(L, "_http_sse_text",
+                        lambda *a, **k: (_ for _ in ()).throw(LLMError("400: bad request")))
+    with pytest.raises(LLMError) as ei:
+        L.OpenAIChat("gpt-5.6-sol").generate("hi")
+    assert not isinstance(ei.value, L.QuotaExceeded)
