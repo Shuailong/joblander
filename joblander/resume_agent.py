@@ -95,6 +95,13 @@ def resume_dir(cfg, company: str) -> Path:
     return company_dir(cfg, company, create=True) / "resume"
 
 
+def _version_note(cfg, n: int) -> str:
+    from joblander.lang import lang_of, pick
+    lg = lang_of(cfg)
+    return (pick(lg, "首版：弹药库 × JD 自动定制", "First version: tailored from your Arsenal × the JD") if n == 1
+            else pick(lg, "基于累积意见重新生成", "Regenerated with all feedback so far"))
+
+
 def resume_state(cfg, company: str) -> dict[str, Any]:
     from joblander.company import load_meta
     return load_meta(cfg, company).get("resume") or {"current": "", "versions": [], "feedback": []}
@@ -406,8 +413,7 @@ def customise(cfg, llm, company: str, *, jd: str = "", feedback: str = "",
     pdf = _to_pdf(out)
 
     ver = {"v": n, "file": f"resume-v{n}", "at": datetime.now(SGT).strftime("%Y-%m-%d %H:%M"),
-           "note": (feedback if feedback else
-                    ("首版：弹药库 × JD 自动定制" if n == 1 else "基于累积意见重新生成"))[:120],
+           "note": (feedback if feedback else _version_note(cfg, n))[:120],
            "changes": changes, "pdf": bool(pdf), "sentinel": verdict.action.value}
     state.setdefault("versions", []).append(ver)
     state["current"] = ver["file"]

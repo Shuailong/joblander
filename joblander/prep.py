@@ -64,6 +64,21 @@ def _load_playbook(cfg) -> list[dict[str, Any]]:
         return yaml.safe_load(f) or []
 
 
+# 轮次名的英文（界面与 brief 骨架用；打法模板本身作为 LLM 背景材料，保持中文）
+ROUND_LABELS_EN = {"screening": "Screening · HR / recruiter", "oa": "Online assessment",
+                   "tech": "Technical", "hm": "Hiring manager", "bar": "Bar raiser / cross-team",
+                   "negotiation": "Negotiation"}
+
+
+def _round_label(rt, lang: str = "zh") -> str:
+    if not rt:
+        return ""
+    if lang == "en":
+        key = next((k for k, v in ROUND_TEMPLATES.items() if v is rt), "")
+        return ROUND_LABELS_EN.get(key, rt["label"])
+    return rt["label"]
+
+
 ROUND_TEMPLATES: dict[str, dict[str, Any]] = {
     "screening": {
         "label": "Screening · HR/猎头初筛",
@@ -274,24 +289,27 @@ def _context_pack(cfg, row, company: str, *, round_type: str, round_note: str,
     ])
 
 
-def _staff_sections(out: dict[str, Any], rt) -> list[str]:
+def _staff_sections(out: dict[str, Any], rt, lang: str = "zh") -> list[str]:
     """LLM 参谋产出 → markdown 段。配额代码侧硬执行（超发直接截断）——
     局面 + 打法为主轴，10 分钟金标不靠模型自觉。"""
     def _clean(s: str) -> str:                  # 剥 prompt 回声：行首 ⚡/序号/多余空白
         return re.sub(r"^[⚡①-⑩\s]+", "", str(s)).strip()
 
-    md: list[str] = ["", "## 局面", (out.get("situation") or "").strip()]
-    md += ["", f"## 接下来的打法{'（' + rt['label'] + '在即）' if rt else ''}"]
+    from joblander.lang import pick
+    rl = _round_label(rt, lang)
+    md: list[str] = ["", pick(lang, "## 局面", "## Situation"), (out.get("situation") or "").strip()]
+    md += ["", pick(lang, f"## 接下来的打法{'（' + rl + '在即）' if rt else ''}",
+                    f"## Game plan{' (' + rl + ' coming up)' if rt else ''}")]
     md += [f"{i}. {_clean(p)}" for i, p in enumerate((out.get("strategy") or [])[:5], 1)]
     if out.get("watchouts"):
-        md += ["", "## 易翻车点"] + [f"- {w}" for w in out["watchouts"][:3]]
+        md += ["", pick(lang, "## 易翻车点", "## Watch out")] + [f"- {w}" for w in out["watchouts"][:3]]
     qa = (out.get("qa_prep") or [])[:3]
     if qa:
-        md += ["", "## 预判问答"]
+        md += ["", pick(lang, "## 预判问答", "## Likely questions")]
         for x in qa:
-            md += [f"- **Q：{x.get('q', '')}**", f"  → {x.get('a', '')}"]
+            md += [f"- **Q{pick(lang, '：', ': ')}{x.get('q', '')}**", f"  → {x.get('a', '')}"]
     if out.get("asks"):
-        md += ["", "## 本场必问"] + [f"- {a}" for a in out["asks"][:3]]
+        md += ["", pick(lang, "## 本场必问", "## Questions to ask")] + [f"- {a}" for a in out["asks"][:3]]
     return md
 
 
@@ -323,21 +341,25 @@ def build_brief(cfg, llm, company_query: str, *, round_note: str = "",
     rt = ROUND_TEMPLATES.get(round_type)
     now = datetime.now(SGT)
     mode = "staff"
+    from joblander.lang import lang_of, pick
+    lg = lang_of(cfg)
+    rl = _round_label(rt, lg)
     jd = jd_text(cfg, company)                  # 本地 JD 档案（Job URL 可能空而档案在）
     jd_line = (row.get("Job URL")
-               or (f"本地 JD 档案 ✓（{len(jd)} 字符）" if jd
-                   else "⚠️ 无 JD 原文（P6：先要 JD）"))
+               or (pick(lg, f"本地 JD 档案 ✓（{len(jd)} 字符）", f"JD on file ✓ ({len(jd)} chars)") if jd
+                   else pick(lg, "⚠️ 无 JD 原文（P6：先要 JD）", "⚠️ No JD yet — ask for one first")))
 
     md: list[str] = [
-        f"# {company} · 参谋 Brief" + (f" · {rt['label']}" if rt else ""),
-        f"> 生成：{now.isoformat(timespec='minutes')} ｜ joblander W7 参谋 v1"
-        "（LLM 战略层 + 确定性守卫层）",
+        f"# {company} · " + pick(lg, "参谋 Brief", "Interview brief") + (f" · {rl}" if rt else ""),
+        pick(lg, f"> 生成：{now.isoformat(timespec='minutes')} ｜ joblander W7 参谋 v1（LLM 战略层 + 确定性守卫层）",
+             f"> Generated {now.isoformat(timespec='minutes')} · joblander"),
         "",
-        "## 战况",
-        f"- 岗位：{row.get('Position') or '—'} ｜ 状态：{row.get('Status')} ｜ "
-        f"优先级：{row.get('Priority') or '—'}",
-        f"- 联系人：{row.get('Contact Person') or '—'}（{row.get('Contact Info') or '—'}）"
-        f" ｜ Next：{row.get('Next Steps') or '—'}",
+        pick(lg, "## 战况", "## Status"),
+        pick(lg, f"- 岗位：{row.get('Position') or '—'} ｜ 状态：{row.get('Status')} ｜ 优先级：{row.get('Priority') or '—'}",
+             f"- Role: {row.get('Position') or '—'} | Stage: {row.get('Status')} | Priority: {row.get('Priority') or '—'}"),
+        pick(lg, f"- 联系人：{row.get('Contact Person') or '—'}（{row.get('Contact Info') or '—'}）",
+             f"- Contact: {row.get('Contact Person') or '—'} ({row.get('Contact Info') or '—'})")
+        + f" ｜ Next：{row.get('Next Steps') or '—'}",
         f"- JD：{jd_line}",
     ]
 
@@ -347,22 +369,23 @@ def build_brief(cfg, llm, company_query: str, *, round_note: str = "",
             _context_pack(cfg, row, company, round_type=round_type,
                           round_note=round_note, jd=jd),
             system=PREP_SYSTEM, json_mode=True, effort="high")))
-        md += _staff_sections(out, rt)
+        md += _staff_sections(out, rt, lg)
     except Exception as e:                       # 参谋掉线：brief 必须照出（降级可见）
         mode = "fallback"
-        md += ["", f"> ⚠️ 参谋 LLM 未接通（{str(e)[:100]}）——本份为确定性降级版"]
+        md += ["", pick(lg, f"> ⚠️ 参谋 LLM 未接通（{str(e)[:100]}）——本份为确定性降级版",
+                        f"> ⚠️ AI unavailable ({str(e)[:100]}) — this is the fallback template version")]
         md += _fallback_sections(cfg, row, rt, round_type, jd)
 
     if round_note:
-        md += ["", "## 本场特别注意", round_note]
+        md += ["", pick(lg, "## 本场特别注意", "## Notes for this round"), round_note]
 
     # 只指路不复印（用户金标：口径/playbook/弹药他自己有，罗列=阅读负担）
     hot_ids = "、".join(p["id"] for p in playbook
                         if p.get("status") in ("needs_work", "improving"))
     md += ["", "---",
-           "> 红线口径 → /system ｜ playbook 原文 → /playbook"
+           pick(lg, "> 红线口径 → 设置 ｜ playbook 原文 → /playbook", "> Red lines → Settings | Playbook → /playbook")
            + (f"（needs_work：{hot_ids}）" if hot_ids else "")
-           + " ｜ 弹药全文 → 弹药库"]
+           + pick(lg, " ｜ 弹药全文 → 弹药库", " | Full achievements → Arsenal")]
 
     text = "\n".join(md) + "\n"
     out_dir = cfg.workspace_dir / "10-briefs"
@@ -372,9 +395,13 @@ def build_brief(cfg, llm, company_query: str, *, round_note: str = "",
     out_path.write_text(text, encoding="utf-8")
 
     from joblander.company import timeline_upsert
-    timeline_upsert(cfg, company, title_prefix="参谋 Brief", source="prep",
-                    title=f"参谋 Brief：{rt['label'] if rt else '通用'}",
-                    summary=("LLM 参谋" if mode == "staff" else "⚠️ 降级模板版")
+    from joblander.lang import lang_of, pick
+    lg = lang_of(cfg)
+    rl = _round_label(rt, lg)
+    timeline_upsert(cfg, company, title_prefix=("参谋 Brief", "Interview brief"), source="prep",
+                    title=pick(lg, f"参谋 Brief：{rl or '通用'}", f"Interview brief: {rl or 'general'}"),
+                    summary=(pick(lg, "LLM 参谋", "AI brief") if mode == "staff"
+                             else pick(lg, "⚠️ 降级模板版", "⚠️ fallback template"))
                             + f" · {out_path.name}",
                     content_md="\n".join(md[2:]).lstrip())   # 时间线里不重复 H1 头
 

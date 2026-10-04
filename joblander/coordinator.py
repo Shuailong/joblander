@@ -24,11 +24,12 @@ def _dt(v: str | datetime) -> datetime:
 
 def check_candidate_slot(existing: list[dict[str, Any]], start: str | datetime,
                          end: str | datetime, kind: str = "interview",
-                         rules: dict | None = None) -> list[str]:
+                         rules: dict | None = None, lang: str = "zh") -> list[str]:
     """候选时段 vs 既有日程 → 违例清单（空 = 可约）。
 
     existing: [{"start": iso, "end": iso, "kind": "interview|tech|call|block", "title": str}]
     """
+    en = lang == "en"
     r = {**DEFAULT_RULES, **(rules or {})}
     s, e = _dt(start), _dt(end)
     violations: list[str] = []
@@ -38,29 +39,34 @@ def check_candidate_slot(existing: list[dict[str, Any]], start: str | datetime,
         es, ee = _dt(ev["start"]), _dt(ev["end"])
         title = ev.get("title", "?")
         if s < ee and es < e:
-            violations.append(f"重叠：与「{title}」（{es:%H:%M}–{ee:%H:%M}）冲突")
+            violations.append(f"Overlaps \"{title}\" ({es:%H:%M}–{ee:%H:%M})" if en
+                              else f"重叠：与「{title}」（{es:%H:%M}–{ee:%H:%M}）冲突")
             continue
         gap_min = min(abs((s - ee).total_seconds()), abs((es - e).total_seconds())) / 60
         if gap_min < r["min_buffer_min"]:
-            violations.append(f"缓冲不足：与「{title}」间隔 {gap_min:.0f}min < {r['min_buffer_min']}min")
+            violations.append(
+                f"Too little buffer: {gap_min:.0f} min from \"{title}\" < {r['min_buffer_min']} min" if en
+                else f"缓冲不足：与「{title}」间隔 {gap_min:.0f}min < {r['min_buffer_min']}min")
         if ev.get("kind") in HARD_KINDS and es.date() == s.date():
             day_hard += 1
         if kind == "tech" and ee <= s:
             gap_h = (s - ee).total_seconds() / 3600
             if 0 <= gap_h < r["prep_gap_hours_tech"]:
                 violations.append(
-                    f"技术轮前保护块不足：「{title}」结束后仅 {gap_h:.1f}h < {r['prep_gap_hours_tech']}h")
+                    f"Not enough prep time before a technical round: only {gap_h:.1f} h after \"{title}\" < {r['prep_gap_hours_tech']} h"
+                    if en else f"技术轮前保护块不足：「{title}」结束后仅 {gap_h:.1f}h < {r['prep_gap_hours_tech']}h")
     if kind in HARD_KINDS and day_hard > r["max_hard_per_day"]:
-        violations.append(f"同日硬面 {day_hard} 场 > 上限 {r['max_hard_per_day']}（07-23/08-06 连场教训）")
+        violations.append(f"{day_hard} interviews that day > limit of {r['max_hard_per_day']}" if en
+                          else f"同日硬面 {day_hard} 场 > 上限 {r['max_hard_per_day']}（07-23/08-06 连场教训）")
     return violations
 
 
 def pick_slot(existing: list[dict], candidates: list[tuple[str, str]],
-              kind: str = "interview", rules: dict | None = None) -> list[dict]:
+              kind: str = "interview", rules: dict | None = None, lang: str = "zh") -> list[dict]:
     """多个候选时段排序：违例少者优先（对方给 3 个时段选哪个）。"""
     scored = []
     for start, end in candidates:
-        v = check_candidate_slot(existing, start, end, kind, rules)
+        v = check_candidate_slot(existing, start, end, kind, rules, lang=lang)
         scored.append({"start": start, "end": end, "violations": v, "ok": not v})
     return sorted(scored, key=lambda x: len(x["violations"]))
 
@@ -106,7 +112,8 @@ def suggest_slots(cfg, llm, invite_text: str, company: str = "",
 
     cands = [(s["start"], s.get("end") or s["start"]) for s in slots
              if s.get("start") and len(s["start"]) >= 16]
-    ranked = pick_slot(cal_events, cands, kind="interview") if cands else []
+    from joblander.lang import lang_of
+    ranked = pick_slot(cal_events, cands, kind="interview", lang=lang_of(cfg)) if cands else []
     for r in ranked:
         r["label"] = next((x.get("label", "") for x in slots if x.get("start") == r["start"]), "")
 
@@ -125,21 +132,24 @@ def suggest_slots(cfg, llm, invite_text: str, company: str = "",
             "extracted": data, "calendar_ok": calendar_ok, "company": company}
 
 
-def format_slot_report(out: dict[str, Any]) -> str:
+def format_slot_report(out: dict[str, Any], lang: str = "zh") -> str:
     """suggest_slots 结果 → 落档案的 markdown（时段对照表 + 草稿他发）。"""
-    lines = ["**候选时段对照**（规则：同日硬面 ≤2 · 缓冲 ≥30min · 技术轮前保护 ≥4h）", ""]
+    from joblander.lang import pick
+    lines = [pick(lang, "**候选时段对照**（规则：同日硬面 ≤2 · 缓冲 ≥30min · 技术轮前保护 ≥4h）",
+                  "**Proposed slots vs. your calendar** (rules: ≤2 interviews/day · ≥30 min buffer · ≥4 h before technical rounds)"), ""]
     if not out["slots"]:
-        lines.append(f"未抽取到完整时段。{(out['extracted'].get('notes') or '')}")
+        lines.append(pick(lang, "未抽取到完整时段。", "No complete time slots found. ") + (out['extracted'].get('notes') or ''))
     for s in out["slots"]:
-        mark = "✅ 可约" if s["ok"] else "⚠️ " + "；".join(s["violations"])
+        mark = pick(lang, "✅ 可约", "✅ works") if s["ok"] else "⚠️ " + pick(lang, "；", "; ").join(s["violations"])
         lines.append(f"- `{s['start']}` {s.get('label', '')} — {mark}")
     if not out["calendar_ok"]:
-        lines.append("\n> ⚠️ 日历不可用，本次未对照真实日程——确认前自查。")
+        lines.append(pick(lang, "\n> ⚠️ 日历不可用，本次未对照真实日程——确认前自查。",
+                          "\n> ⚠️ Calendar unavailable — not checked against your real schedule; double-check before confirming."))
     notes = out["extracted"].get("notes")
     if notes:
-        lines.append(f"\n> 抽取备注：{notes}")
+        lines.append(pick(lang, f"\n> 抽取备注：{notes}", f"\n> Extraction notes: {notes}"))
     if out["draft"]:
-        lines += ["", "**回复草稿（你来发）**", "", "```", out["draft"], "```"]
+        lines += ["", pick(lang, "**回复草稿（你来发）**", "**Reply draft (you send it)**"), "", "```", out["draft"], "```"]
     return "\n".join(lines)
 
 

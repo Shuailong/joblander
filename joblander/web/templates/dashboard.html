@@ -88,7 +88,7 @@
 {% if battles %}
 <div class="card" style="margin-bottom:10px">
   {% for b in battles %}<div class="row"><span class="when">{{ {'interview':'🎯','call':'📞','email':'✉️','note':'📝','transcript':'🎙','intake':'📥','offer':'🏁'}.get(b.kind,'•') }}</span>
-    <div class="body"><b>{{ b.company }}</b> {{ b.title }}{% if b.summary %}<div class="meta">{{ b.summary[:90] }}</div>{% endif %}</div></div>{% endfor %}
+    <div class="body"><b>{{ b.company }}</b> {{ _(b.title) }}{% if b.summary %}<div class="meta">{{ b.summary[:90] }}</div>{% endif %}</div></div>{% endfor %}
 </div>
 {% endif %}
 {% if diary_pending %}

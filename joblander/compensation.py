@@ -83,18 +83,20 @@ def salary_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
-def _stats_table(stats: dict[str, Any]) -> list[str]:
-    lines = ["| 方向 | 样本 | P25 | 中位 | P75 | 区间 |",
+def _stats_table(stats: dict[str, Any], lang: str = "zh") -> list[str]:
+    from joblander.lang import pick
+    lines = [pick(lang, "| 方向 | 样本 | P25 | 中位 | P75 | 区间 |", "| Track | Sample | P25 | Median | P75 | Range |"),
              "|---|---|---|---|---|---|"]
     def fmt(name: str, q: dict) -> str:
         return (f"| {name} | {q['n']} | {q['p25']:,} | **{q['median']:,}** | "
                 f"{q['p75']:,} | {q['lo']:,}–{q['hi']:,} |")
     if stats.get("all"):
-        lines.append(fmt("全部", stats["all"]))
+        lines.append(fmt(pick(lang, "全部", "All"), stats["all"]))
     for kw, q in (stats.get("by_kw") or {}).items():
         lines.append(fmt(kw, q))
     lines.append("")
-    lines.append("（单位：SGD/月，取每岗区间中值；来源 MCF 实时数据）")
+    lines.append(pick(lang, "（单位：SGD/月，取每岗区间中值；来源 MCF 实时数据）",
+                      "(SGD/month, midpoint of each listed range; live MCF data)"))
     return lines
 
 
@@ -105,6 +107,11 @@ def _anchor_note(cfg, stats: dict[str, Any]) -> list[str]:
     if not med or not floor:
         return []
     pct = (med / floor - 1) * 100
+    from joblander.lang import lang_of
+    if lang_of(cfg) == "en":
+        return ["", "## Against your floor (relative)",
+                f"- Market median monthly pay is **{abs(pct):.0f}% {'above' if pct >= 0 else 'below'}** your monthly base floor"
+                " (the floor itself is not shown; MCF figures are monthly base, not total comp)"]
     verdict = "高于" if pct >= 0 else "低于"
     return ["", "## 对照个人底线（相对值）",
             f"- 市场中位月薪{verdict}你的月 base 底线 **{abs(pct):.0f}%**"
@@ -149,25 +156,32 @@ def build_comp_report(cfg, llm, keywords: list[str] | None = None,
             system=REPORT_SYSTEM)
 
     now = datetime.now(SGT)
+    from joblander.lang import lang_of, pick
+    lg = lang_of(cfg)
     md: list[str] = [
-        f"# 薪酬调研 · {now:%Y-%m-%d}",
-        f"> joblander W4 ｜ 数据抓取：{now:%Y-%m-%d %H:%M} ｜ "
-        f"关键词：{'、'.join(keywords)} ｜ 样本：MCF {len(market)} 个带薪资岗位"
-        + (f" + {len(extras)} 份补充材料" if extras else ""),
+        pick(lg, f"# 薪酬调研 · {now:%Y-%m-%d}", f"# Compensation research · {now:%Y-%m-%d}"),
+        pick(lg, f"> joblander W4 ｜ 数据抓取：{now:%Y-%m-%d %H:%M} ｜ "
+                 f"关键词：{'、'.join(keywords)} ｜ 样本：MCF {len(market)} 个带薪资岗位"
+                 + (f" + {len(extras)} 份补充材料" if extras else ""),
+             f"> joblander · data pulled {now:%Y-%m-%d %H:%M} · keywords: {', '.join(keywords)}"
+             f" · sample: {len(market)} MCF listings with pay" + (f" + {len(extras)} extra sources" if extras else "")),
         "",
-        "## Band 统计（统计层，零 LLM）", "",
-        *_stats_table(stats),
+        pick(lg, "## Band 统计（统计层，零 LLM）", "## Pay bands (pure statistics)"), "",
+        *_stats_table(stats, lg),
         *_anchor_note(cfg, stats),
         "",
-        narrative or "（无叙事：市场与补充材料均为空）",
+        narrative or pick(lg, "（无叙事：市场与补充材料均为空）", "(No narrative: no market data or extra material)"),
         "",
-        "## 方法与来源",
-        "- 主源：MyCareersFuture 实时搜索（逐岗链接见清单，月薪为雇主自报区间）",
-        "- 统计口径：每岗取区间中值；P25/中位/P75 按样本计算",
-        "- 时效：岗位数据即抓即用，超过两周建议重跑",
+        pick(lg, "## 方法与来源", "## Method and sources"),
+        pick(lg, "- 主源：MyCareersFuture 实时搜索（逐岗链接见清单，月薪为雇主自报区间）",
+             "- Source: live MyCareersFuture search (links below; monthly pay is the employer-posted range)"),
+        pick(lg, "- 统计口径：每岗取区间中值；P25/中位/P75 按样本计算",
+             "- Each listing counts at its range midpoint; P25 / median / P75 over the sample"),
+        pick(lg, "- 时效：岗位数据即抓即用，超过两周建议重跑", "- Freshness: re-run if older than two weeks"),
         "",
-        "<details><summary>样本清单（按薪资降序，前 80）</summary>", "",
-        *(job_lines or ["（无）"]), "", "</details>",
+        pick(lg, "<details><summary>样本清单（按薪资降序，前 80）</summary>",
+             "<details><summary>Sample listings (highest pay first, top 80)</summary>"), "",
+        *(job_lines or [pick(lg, "（无）", "(none)")]), "", "</details>",
     ]
     out_dir = cfg.workspace_dir / "15-comp"
     out_dir.mkdir(parents=True, exist_ok=True)

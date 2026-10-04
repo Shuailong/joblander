@@ -125,3 +125,16 @@ def test_gateway_set_lang_overrides_saved_language(client):
     update_config(cfg, {"ui_lang": "zh"})
     html = c.get("/settings", headers={"X-Joblander-Set-Lang": "en"}).text
     assert cfg.raw["ui_lang"] == "en" and '<html lang="en">' in html
+
+
+def test_research_report_english_skeleton():
+    from joblander.researcher import format_deep_summary
+    d = {"summary_md": "Strong fintech team [1].", "card": ["Raised Series C [1]"],
+         "sources": [{"n": 1, "url": "https://x.example", "title": "OKX hiring（搜索摘要）", "tier": "aggregator"}],
+         "gaps": ["salary band"], "trail": [{"round": 1, "coverage": {"动因": "缺", "薪酬": "死角", "面试": "有"},
+                                             "queries": ["a"], "gained": 2}]}
+    md = format_deep_summary(d, lang="en")
+    assert not re.search(r"[一-鿿]", md), md
+    assert "missing why hiring" in md and "blind spots pay" in md and "(search snippet)" in md
+    zh = format_deep_summary(d)
+    assert "缺 动因" in zh and "（搜索摘要）" in zh

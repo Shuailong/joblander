@@ -998,9 +998,19 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             from joblander.daily import NOTES_HEADER, read_section
             notes_name = Path(rel).name
             notes = read_section(p, NOTES_HEADER)
+        text = p.read_text(encoding="utf-8")
+        from joblander.web.i18n import get_lang
+        if get_lang() == "en":
+            # 日报的分段标题同时是读写定位的键（daily.*_HEADER），文件里保持中文，只在显示时换
+            import re as _re
+            for zh, en in (("## 晨报 · 战线与待办", "## Morning report · pipeline and to-dos"),
+                           ("## 今日日记", "## Today's diary"), ("## 我的手记", "## My notes")):
+                text = text.replace(zh, en)
+            text = _re.sub(r"^# 日报 · ", "# Daily log · ", text, flags=_re.M)
+            text = _re.sub(r"^# 周报 · ", "# Weekly report · ", text, flags=_re.M)
         return tpl.TemplateResponse(request, "doc.html", ctx(
             "pb", title=Path(rel).name,
-            html=md_to_html(p.read_text(encoding="utf-8")),
+            html=md_to_html(text),
             notes_name=notes_name, notes=notes))
 
     @app.get("/offers", response_class=HTMLResponse)
@@ -1186,7 +1196,10 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             out, _ = build_brief(cfg, _llm(), company, round_note=note,
                                  round_type=round_type)
             return {"path": out.name}
-        label = f"生成 brief · {company}" + (f" · {round_type}" if round_type else "")
+        from joblander.prep import ROUND_TEMPLATES, _round_label
+        from joblander.web.i18n import get_lang
+        rl = _round_label(ROUND_TEMPLATES.get(round_type), get_lang())
+        label = _t("生成 brief · {co}", co=company) + (f" · {rl}" if rl else "")
         tid = start_task("brief", label, run)
         return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
 
@@ -1328,7 +1341,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             from joblander.resume_agent import customise
             out = customise(cfg, _llm(), co, notion_client=_notion())
             return {"v": out["version"]["v"], "sentinel": out["sentinel"]}
-        tid = start_task("resume_react", f"定制简历 · {co}", run_customise)
+        tid = start_task("resume_react", _t("定制简历 · {co}", co=co), run_customise)
         return {"ok": True, "chat": chat, "task": tid,
                 "label": f"定制简历 · {co}"}
 
@@ -1367,7 +1380,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             v = (out.get("recruiter") or {}).get("verdict") or {}
             return {"interview": v.get("interview"),
                     "needs_user": len((out.get("coach") or {}).get("needs_user") or [])}
-        tid = start_task("resume_eval", f"招聘方评估 · {co}", run_eval)
+        tid = start_task("resume_eval", _t("招聘方评估 · {co}", co=co), run_eval)
         return {"ok": True, "task": tid}
 
     @app.post("/api/md/preview")
@@ -1456,7 +1469,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                                          {"attachments": atts + [rel]})
         elif kind != "jd":
             companyfile.timeline_add(cfg, name, kind="note",
-                                     title=f"附件：{saved.name}", attachments=[rel],
+                                     title=_t("附件：{name}", name=saved.name), attachments=[rel],
                                      author="human", source="upload")
         return {"ok": True, "file": rel}
 
@@ -1661,18 +1674,20 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                 jd_text=jd, seed_urls=url_list, seed_materials=materials)
             seeded = d.get("seeded") or {}
             fed = len(seeded.get("urls", [])) + len(seeded.get("materials", []))
+            from joblander.lang import lang_of, pick
+            lg = lang_of(cfg)
+            nr, ns, nf = 1 + len(d.get("trail", [])), len(d.get("sources", [])), len(d.get("facts", []))
             _timeline_upsert(co, title_prefix=("尽调", "Deep Research"),
-                source="researcher", title="尽调报告：公司综合简介",
-                summary=f"{1 + len(d.get('trail', []))} 轮检索 · "
-                        f"{len(d.get('sources', []))} 个来源 · "
-                        f"{len(d.get('facts', []))} 条事实"
-                        + (f"（喂入 {fed} 份）" if fed else "")
-                        + ("（含 JD）" if jd else ""),
-                content_md=format_deep_summary(d))
+                source="researcher", title=pick(lg, "尽调报告：公司综合简介", "Deep Research: company profile"),
+                summary=pick(lg, f"{nr} 轮检索 · {ns} 个来源 · {nf} 条事实"
+                                 + (f"（喂入 {fed} 份）" if fed else "") + ("（含 JD）" if jd else ""),
+                             f"{nr} rounds · {ns} sources · {nf} facts"
+                             + (f" ({fed} provided)" if fed else "") + (" (incl. JD)" if jd else "")),
+                content_md=format_deep_summary(d, lang=lg))
             return {"sources": len(d.get("sources", [])),
                     "rounds": 1 + len(d.get("trail", [])),
                     "facts": len(d.get("facts", [])), "seeds": fed}
-        tid = start_task("research", f"尽调 · {co}", run_deep)
+        tid = start_task("research", _t("尽调 · {co}", co=co), run_deep)
         return {"ok": True, "task": tid}
 
     @app.post("/api/company/referral")
@@ -1688,13 +1703,16 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             ref = suggest_referral(cfg, _llm("flash"), co)
             if ref.get("error"):
                 raise RuntimeError(ref["error"])
-            _timeline_upsert(co, title_prefix="内推匹配", source="referral",
-                title="内推匹配（W14）",
-                summary=f"{len(ref.get('matches') or [])} 位候选",
-                content_md=format_referral_md(ref))
+            from joblander.lang import lang_of, pick
+            lg = lang_of(cfg)
+            n = len(ref.get("matches") or [])
+            _timeline_upsert(co, title_prefix=("内推匹配", "Referral"), source="referral",
+                title=pick(lg, "内推匹配", "Referral match"),
+                summary=pick(lg, f"{n} 位候选", f"{n} candidates"),
+                content_md=format_referral_md(ref, lang=lg))
             return {"matches": len(ref.get("matches") or [])}
 
-        tid = start_task("referral", f"内推匹配 · {co}", run)
+        tid = start_task("referral", _t("内推匹配 · {co}", co=co), run)
         return {"ok": True, "task": tid}
 
     @app.post("/api/coordinator/slots")
@@ -1710,17 +1728,21 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         def run():
             from joblander.coordinator import format_slot_report, suggest_slots
             out = suggest_slots(cfg, _llm(), text, company=co)
-            report = format_slot_report(out)
+            from joblander.lang import lang_of, pick
+            lg = lang_of(cfg)
+            report = format_slot_report(out, lang=lg)
             companyfile.timeline_add(
-                cfg, co, kind="note", title="排期参谋：候选时段对照与回复草稿",
-                content_md=report, summary=(out["best"] or {}).get("start", "无可约时段"),
+                cfg, co, kind="note",
+                title=pick(lg, "排期参谋：候选时段对照与回复草稿", "Scheduling: proposed slots and reply draft"),
+                content_md=report,
+                summary=(out["best"] or {}).get("start", pick(lg, "无可约时段", "no workable slot")),
                 author="ai", source="coordinator")
             _log().append("coordinator.slots_suggested", "joblander.web",
                           {"company": co, "slots": len(out["slots"]),
                            "ok": bool(out["best"]), "calendar_ok": out["calendar_ok"]})
             return {"company": co, "best": (out["best"] or {}).get("start")}
 
-        tid = start_task("slots", f"排期参谋 · {co}", run)
+        tid = start_task("slots", _t("排期参谋 · {co}", co=co), run)
         return {"ok": True, "task": tid}
 
     @app.post("/api/company/assess")

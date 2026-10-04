@@ -90,7 +90,7 @@ def test_build_brief_staff_sections(cfg):
         assert piece in prompt, f"输入缺：{piece}"
     for anchor in ("参谋 Brief", "## 局面", "## 接下来的打法", "## 预判问答",
                    "## 本场必问", "## 易翻车点", "watch the tenure question",
-                   "红线口径 → /system", "needs_work：P1"):
+                   "红线口径 → 设置", "needs_work：P1"):
         assert anchor in text, f"缺 section：{anchor}"
     assert "第六条应被配额截断" not in text        # strategy 配额 5 条硬截断
     assert "第四问应被配额截断" not in text        # qa_prep 配额 3 条硬截断
@@ -161,7 +161,7 @@ def test_build_brief_fallback_when_llm_down(cfg):
     assert "降级版" in text and "技术轮·通用模板" in text
     assert "团队技术栈" in text                       # tech 模板必问
     assert "STAR 弹药索引" not in text                # 降级版同样不罗列（10 分钟金标）
-    assert "红线口径 → /system" in text               # 只指路不复印
+    assert "红线口径 → 设置" in text               # 只指路不复印
     _, generic = build_brief(cfg, MockLLM([]), "Acme")
     assert "本轮打法" not in generic and "band/档位" in generic
     _, neg = build_brief(cfg, MockLLM([]), "Acme", round_type="negotiation")

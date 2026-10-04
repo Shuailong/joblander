@@ -624,7 +624,7 @@ def test_brief_generation(client, tmp_path, monkeypatch):
     assert briefs, "同步任务模式下 brief 应已落盘"
     text = briefs[-1].read_text(encoding="utf-8")
     assert "接下来的打法" in text and "R2 定生死" in text      # LLM 参谋层落地
-    assert "红线口径 → /system" in text and "R2 focus" in text  # 只指路不复印
+    assert "红线口径 → 设置" in text and "R2 focus" in text  # 只指路不复印
 
     from joblander import company as cf
     from joblander.config import Config

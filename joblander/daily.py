@@ -122,22 +122,28 @@ def build_daily(cfg, notion_client=None, today: str | None = None) -> tuple[Path
             due.append(r)
     pending = _pending_proposals(cfg)
 
+    from joblander.lang import lang_of, pick
+    lg = lang_of(cfg)
+
     def _line(r):
         return (f"- **{r.get('Company')}**（{r.get('Status')}｜{r.get('Priority') or '—'}）"
-                f"：{r.get('Next Steps') or '—'}")
+                f"{pick(lg, '：', ': ')}{r.get('Next Steps') or '—'}")
 
-    md: list[str] = [f"> 生成 {now:%H:%M} ｜ pipeline 活跃 {len(active)}/{len(rows)} 行", ""]
-    md += ["### 🔴 逾期 follow-up" if overdue else "### follow-up：无逾期 ✅"]
-    md += [_line(r) + f"（挂 {r.get('Follow-up Reminder')}）" for r in overdue]
+    md: list[str] = [pick(lg, f"> 生成 {now:%H:%M} ｜ pipeline 活跃 {len(active)}/{len(rows)} 行",
+                          f"> Generated {now:%H:%M} · {len(active)}/{len(rows)} active"), ""]
+    md += [pick(lg, "### 🔴 逾期 follow-up", "### 🔴 Overdue follow-ups") if overdue
+           else pick(lg, "### follow-up：无逾期 ✅", "### Follow-ups: nothing overdue ✅")]
+    md += [_line(r) + pick(lg, f"（挂 {r.get('Follow-up Reminder')}）", f" (due {r.get('Follow-up Reminder')})")
+           for r in overdue]
     if due:
-        md += ["", "### 🟡 今日到期"] + [_line(r) for r in due]
+        md += ["", pick(lg, "### 🟡 今日到期", "### 🟡 Due today")] + [_line(r) for r in due]
     high = [r for r in active if r.get("Priority") == "High"]
     if high:
-        md += ["", "### High 优先级战线"] + [_line(r) for r in high]
+        md += ["", pick(lg, "### High 优先级战线", "### High priority")] + [_line(r) for r in high]
     if pending:
-        md += ["", f"### 待你审批（{len(pending)}）"]
-        md += [f"- {p.get('company') or '?'}（`{p['dir']}/{p['file']}`）——UI 各属地页可批"
-               for p in pending]
+        md += ["", pick(lg, f"### 待你审批（{len(pending)}）", f"### Awaiting your approval ({len(pending)})")]
+        md += [f"- {p.get('company') or '?'}（`{p['dir']}/{p['file']}`）"
+               + pick(lg, "——UI 各属地页可批", " — approve it in the app") for p in pending]
 
     out = upsert_section(daily_path(cfg, today), MORNING_HEADER,
                          "\n".join(md), title=f"# 日报 · {today}")

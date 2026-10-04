@@ -11,7 +11,7 @@
 {% if cap and cap.dimensions %}
 <h2>{{ _('能力画像') }} <span class="note" style="text-transform:none;letter-spacing:0">{{ _('估于') }} {{ cap.built_at }} {{ _('｜ 市场侧：') }}{{ cap.sources.jd_high_n if cap.sources.jd_high_n is defined else '—' }} {{ _('家') }}{{ _('自定义点名') if cap.sources.jd_mode == 'custom' else _(' High 机会') }}{{ _('的 JD ｜ 自身侧：') }}{{ cap.sources.evidence_n }} {{ _('份复盘 +') }} {{ cap.sources.gap_signals_n }} {{ _('条初筛差距 + 履历 ｜') }} <span style="color:var(--ink-2)">{{ _('▬ 市场要求') }}</span> · <span style="color:var(--accent-ink)">{{ _('▮ 当前能力') }}</span></span></h2>
 {% if cap.sources.jd_companies %}
-<div class="note" style="margin:-6px 0 4px">{{ _('JD 语料：') }}{% for c in cap.sources.jd_companies %}{{ c.company }}（{{ c.origin }}）{{ '｜' if not loop.last }}{% endfor %}{{ _('——「无」的去公司页传 JD，重估即吃进。') }}</div>
+<div class="note" style="margin:-6px 0 4px">{{ _('JD 语料：') }}{% for c in cap.sources.jd_companies %}{{ c.company }}（{{ _(c.origin) }}）{{ '｜' if not loop.last }}{% endfor %}{{ _('——「无」的去公司页传 JD，重估即吃进。') }}</div>
 {% endif %}
 <details class="scopebox" {{ 'open' if scope.mode == 'custom' and not cap.sources.jd_companies }}>
   <summary class="note" style="cursor:pointer;margin:0">{{ _('⚙ JD 策略：') }}<b>{{ _('High 优先级机会（自动跟随作战室）') if scope.mode == 'high' else _('自定义 ') ~ (scope.companies | length) ~ _(' 家：') ~ (scope.companies | join('、')) }}</b> {{ _('— 点开调整') }}</summary>

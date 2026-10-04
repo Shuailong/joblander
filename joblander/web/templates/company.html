@@ -261,7 +261,7 @@
       <details class="tle2" {{ 'open' if loop.index0 == 0 and g.date == tl_groups[0].date }}>
         <summary>
           <span class="ktag k-{{ e.kind or 'note' }}">{{ {'interview':'🎤','oa':'✍️','call':'📞','email':'✉️','apply':'📤','retro':'🧭','assessment':'📊','intake':'📥','transcript':'📄'}.get(e.kind,'📝') }} {{ _(kind_labels.get(e.kind, _('笔记'))) }}</span>
-          <b class="t" title="{{ e.title }}">{{ e.title }}</b>
+          <b class="t" title="{{ _(e.title) }}">{{ _(e.title) }}</b>
           <span class="who {{ 'ai' if e.author=='ai' else 'h' }}">{{ 'AI' if e.author=='ai' else _('人工') }}</span>
           {% for p in e.participants[:2] %}<span class="pill blue">{{ p }}</span>{% endfor %}
           {% if e.attachments %}<span class="pill gray" title="{{ e.attachments|length }} {{ _('个附件') }}">📎{{ e.attachments|length }}</span>{% endif %}

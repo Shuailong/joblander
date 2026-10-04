@@ -52,22 +52,28 @@ def playbook_health(cfg) -> list[dict[str, Any]]:
     return out
 
 
-def priority_proposal(rows: list[dict]) -> list[str]:
+def priority_proposal(rows: list[dict], lang: str = "zh") -> list[str]:
     """W12 v0：组合层信号（启发式，判断权在人）。"""
+    from joblander.lang import pick
     sig: list[str] = []
     high = [r for r in rows if r.get("Priority") == "High" and r.get("Status") in ACTIVE]
     stalled = [r for r in high if not r.get("Follow-up Reminder")]
     for r in stalled:
-        sig.append(f"High 无 follow-up：{r.get('Company')} —— 要么定日期要么降级")
+        sig.append(pick(lang, f"High 无 follow-up：{r.get('Company')} —— 要么定日期要么降级",
+                        f"High priority without a follow-up: {r.get('Company')} — set a date or lower the priority"))
     waiting = [r for r in rows if r.get("Status") == "Interview Scheduled"]
     if len(waiting) < 3:
-        sig.append(f"排面中的仗只剩 {len(waiting)} 场 —— 考虑把本周小时数向找新机会倾斜")
+        sig.append(pick(lang, f"排面中的仗只剩 {len(waiting)} 场 —— 考虑把本周小时数向找新机会倾斜",
+                        f"Only {len(waiting)} interviews scheduled — consider spending more of this week on new leads"))
     added = [r for r in rows if r.get("Status") == "Added"]
     for r in added:
-        sig.append(f"入池未评估：{r.get('Company')} —— 公司页点「评估匹配」或关闭")
+        sig.append(pick(lang, f"入池未评估：{r.get('Company')} —— 公司页点「评估匹配」或关闭",
+                        f"Added but not assessed: {r.get('Company')} — run \"Assess fit\" or close it"))
     return sig
 
 
+STAGE_LABELS_EN = {"面试中": "Interviewing", "申请 / 初筛": "Applied / screening", "待申请": "To apply",
+                   "评估中": "Evaluating", "线索": "Leads", "Offer": "Offer"}
 STAGE_GROUPS = [("面试中", {"Interview Scheduled", "Interview Completed"}),
                 ("申请 / 初筛", {"Applied", "Screening Called"}),
                 ("待申请", {"To Apply"}),
@@ -167,6 +173,8 @@ def _cal_interviews(cfg, today: str) -> list[dict]:
 
 
 def next_battles(cfg, rows: list[dict], today: str) -> list[dict]:
+    from joblander.lang import lang_of, pick
+    lg = lang_of(cfg)
     """下周的仗 = tracker（Interview Scheduled）∪ 日历（interview 事件）双源合并。
     单看日历会漏（事件没建），单看 tracker 会缺时间——都列，缺口标出来。"""
     cal = _cal_interviews(cfg, today)
@@ -181,58 +189,68 @@ def next_battles(cfg, rows: list[dict], today: str) -> list[dict]:
         if ev:
             matched_titles.add(ev.get("title") or "")
         when = str(ev["start"])[5:16].replace("T", " ") if ev \
-            else (r.get("Follow-up Reminder") or "时间待定")
+            else (r.get("Follow-up Reminder") or pick(lg, "时间待定", "TBD"))
         prep: list[str] = []
         slug = (r.get("Company") or "").split("（")[0].strip().replace(" ", "-").replace("/", "-")
         bdir = cfg.workspace_dir / "10-briefs"
         fresh_brief = bdir.exists() and any(
             f.name >= f"{today[:8]}" for f in bdir.glob(f"*{slug}*.md")) if slug else False
         if not fresh_brief:
-            prep.append("生成 brief")
+            prep.append(pick(lg, "生成 brief", "generate a brief"))
         jd_dir = cfg.workspace_dir / "18-companies" / slug / "jd"
         if not (jd_dir.exists() and any(jd_dir.iterdir())):
-            prep.append("补 JD")
+            prep.append(pick(lg, "补 JD", "add the JD"))
         if not ev:
-            prep.append("⚠️ 日历缺事件——指挥中心排期缺口里一键补")
+            prep.append(pick(lg, "⚠️ 日历缺事件——指挥中心排期缺口里一键补",
+                             "⚠️ missing from calendar — fix it from the Command Center"))
         battles.append({"company": r.get("Company"), "when": when,
                         "next": r.get("Next Steps") or "", "prep": prep})
     for e in cal:                                 # 日历有、tracker 没跟上的
         if (e.get("title") or "") not in matched_titles:
             battles.append({"company": e.get("title"), "when":
                             str(e["start"])[5:16].replace("T", " "),
-                            "next": "", "prep": ["⚠️ tracker 未标 Interview Scheduled——已提同步提案"]})
-    return sorted(battles, key=lambda b: ("9" if "待定" in b["when"] else "0") + b["when"])
+                            "next": "", "prep": [pick(lg, "⚠️ tracker 未标 Interview Scheduled——已提同步提案",
+                                                      "⚠️ not marked Interview Scheduled — a sync proposal was created")]})
+    return sorted(battles, key=lambda b: ("9" if b["when"] in ("时间待定", "TBD") else "0") + b["when"])
 
 
 def next_three(cfg, rows: list[dict], health: list[dict], today: str,
                focus: str = "") -> list[str]:
     """下周三件事（面试与备战已单列成段，这里不重复）：逾期推进 > 专练 > 清高分线索 > 补管道。"""
+    from joblander.lang import lang_of, pick
+    lg = lang_of(cfg)
     picks: list[str] = []
     overdue = sorted([r for r in rows if r.get("Status") in ACTIVE
                       and (r.get("Follow-up Reminder") or "9999") < today],
                      key=lambda r: r.get("Follow-up Reminder") or "")
     if overdue:
         r = overdue[0]
-        picks.append(f"▶ 推进：{r.get('Company')} 逾期最久（{r.get('Follow-up Reminder')}）"
-                     f"——{r.get('Next Steps') or '定下一步'}")
+        picks.append(pick(lg, f"▶ 推进：{r.get('Company')} 逾期最久（{r.get('Follow-up Reminder')}）"
+                              f"——{r.get('Next Steps') or '定下一步'}",
+                          f"▶ Push: {r.get('Company')} is the most overdue ({r.get('Follow-up Reminder')})"
+                          f" — {r.get('Next Steps') or 'decide the next step'}"))
     if focus:
-        picks.append(f"🎯 专练：{focus}")
+        picks.append(pick(lg, f"🎯 专练：{focus}", f"🎯 Practice: {focus}"))
     else:
         worst = next((h for h in health if h["alert"]), None)
         if worst:
-            picks.append(f"🩹 修短板：「{worst['pattern']}」已连续 "
-                         f"{worst['consecutive_miss']} miss——上场前把最佳答案再排练一遍")
+            picks.append(pick(lg, f"🩹 修短板：「{worst['pattern']}」已连续 "
+                                  f"{worst['consecutive_miss']} miss——上场前把最佳答案再排练一遍",
+                              f"🩹 Fix a weak spot: \"{worst['pattern']}\" missed {worst['consecutive_miss']} times"
+                              " in a row — rehearse your best answer before the next interview"))
     try:
         from joblander.applyops import list_pending
         hot = [p for p in list_pending(cfg) if p.get("kind") == "lead.intake"
                and ((p.get("fit") or {}).get("fit") or 0) >= 4]
         if hot:
-            picks.append(f"📥 清决策：{len(hot)} 条 fit≥4 的新机会在等——新机会 5 分钟清完")
+            picks.append(pick(lg, f"📥 清决策：{len(hot)} 条 fit≥4 的新机会在等——新机会 5 分钟清完",
+                              f"📥 Decide: {len(hot)} new leads with fit ≥4 are waiting — 5 minutes on New Leads"))
     except Exception:
         pass
     scheduled = [r for r in rows if r.get("Status") == "Interview Scheduled"]
     if len(scheduled) < 3:
-        picks.append(f"🧲 补管道：排面中的仗只剩 {len(scheduled)} 场——本周给找新机会多留点时间")
+        picks.append(pick(lg, f"🧲 补管道：排面中的仗只剩 {len(scheduled)} 场——本周给找新机会多留点时间",
+                          f"🧲 Fill the pipeline: only {len(scheduled)} interviews scheduled — leave more time for new leads"))
     return picks[:3]
 
 
@@ -246,7 +264,9 @@ def build_weekly(cfg, llm=None) -> tuple[Path, str]:
     # 2026-08-10 起 Notion 不做内容同步：时间线以本地档案为唯一事实源，不再周度回填
     funnel = funnel_stats(rows)
     health = playbook_health(cfg)
-    signals = priority_proposal(rows)
+    from joblander.lang import lang_of, pick
+    lg = lang_of(cfg)
+    signals = priority_proposal(rows, lg)
     since = (now - timedelta(days=6)).strftime("%Y-%m-%d")
     recap = week_recap(cfg, rows, since)
     corpus = week_review_corpus(cfg, since)
@@ -256,11 +276,15 @@ def build_weekly(cfg, llm=None) -> tuple[Path, str]:
                        focus=(review or {}).get("focus", ""))
 
     span = f"{since[5:]} ~ {now.strftime('%m-%d')}"
-    summary = (f"本周 {len(recap['interviews'])} 场面试/通话、推进 {len(recap['moves'])} 家、"
-               f"关闭 {len(recap['closes'])} 家；活跃 {funnel['active']} 家，"
-               f"下周排面 {len(battles)} 场。")
+    summary = pick(lg, f"本周 {len(recap['interviews'])} 场面试/通话、推进 {len(recap['moves'])} 家、"
+                       f"关闭 {len(recap['closes'])} 家；活跃 {funnel['active']} 家，"
+                       f"下周排面 {len(battles)} 场。",
+                   f"This week: {len(recap['interviews'])} interviews/calls, {len(recap['moves'])} companies moved forward, "
+                   f"{len(recap['closes'])} closed; {funnel['active']} active, "
+                   f"{len(battles)} interviews next week.")
 
-    md = [f"# 周报 · {span}", f"> {summary}", "", "## 本周战果"]
+    md = [pick(lg, f"# 周报 · {span}", f"# Weekly report · {span}"), f"> {summary}", "",
+          pick(lg, "## 本周战果", "## This week's progress")]
     got = False
     for iv in recap["interviews"]:
         md.append(f"- 🎤 {iv['date'][5:]}｜{iv['company']}：{iv['title']}")
@@ -273,63 +297,70 @@ def build_weekly(cfg, llm=None) -> tuple[Path, str]:
         md.append(f"- 🪦 {c['company']}（{c['to']}）")
         got = True
     if not got:
-        md.append("- 本周没有实质进展——这本身就是最重要的信号")
+        md.append(pick(lg, "- 本周没有实质进展——这本身就是最重要的信号",
+                       "- No real progress this week — that itself is the most important signal"))
 
-    md += ["", "## 下周的仗与备战"]
+    md += ["", pick(lg, "## 下周的仗与备战", "## Next week's interviews and prep")]
     for b in battles:
         line = f"- 🎤 **{b['when']}**｜{b['company']}"
         if b["next"]:
             line += f"｜{b['next']}"
         if b["prep"]:
-            line += f"｜备战：{'、'.join(b['prep'])}"
+            line += pick(lg, f"｜备战：{'、'.join(b['prep'])}", f" | prep: {', '.join(b['prep'])}")
         md.append(line)
     if not battles:
-        md.append("- 下周没有已排面试——火力放在推进在途申请和补管道")
+        md.append(pick(lg, "- 下周没有已排面试——火力放在推进在途申请和补管道",
+                       "- No interviews scheduled next week — focus on moving applications forward and filling the pipeline"))
 
-    md += ["", "## 战线现状"]
+    md += ["", pick(lg, "## 战线现状", "## Pipeline")]
     parts = []
     for label, statuses in STAGE_GROUPS:
         n = sum(1 for r in rows if r.get("Status") in statuses)
         if n:
-            parts.append(f"{label} {n}")
-    md.append(f"- 活跃 {funnel['active']} 家：" + " ｜ ".join(parts))
+            parts.append(f"{STAGE_LABELS_EN.get(label, label) if lg == 'en' else label} {n}")
+    md.append(pick(lg, f"- 活跃 {funnel['active']} 家：", f"- {funnel['active']} active: ") + " ｜ ".join(parts))
     try:
         from joblander.applyops import list_pending
         leads = [p for p in list_pending(cfg) if p.get("kind") == "lead.intake"]
         hot = sum(1 for p in leads if ((p.get("fit") or {}).get("fit") or 0) >= 4)
         if leads:
-            md.append(f"- 新机会待决策 {len(leads)} 条（fit≥4 有 {hot} 条）——弹药，不算战果")
+            md.append(pick(lg, f"- 新机会待决策 {len(leads)} 条（fit≥4 有 {hot} 条）——弹药，不算战果",
+                           f"- {len(leads)} new leads to review ({hot} with fit ≥4)"))
     except Exception:
         pass
-    md.append(f"- 累计关闭 {funnel['terminal']} 家（共接触 {funnel['total']} 家）")
+    md.append(pick(lg, f"- 累计关闭 {funnel['terminal']} 家（共接触 {funnel['total']} 家）",
+                   f"- {funnel['terminal']} closed so far ({funnel['total']} companies in total)"))
 
-    md += ["", f"## 本周复盘提炼（来自 {len(corpus)} 份纪要）"]
+    md += ["", pick(lg, f"## 本周复盘提炼（来自 {len(corpus)} 份纪要）",
+                    f"## This week's lessons (from {len(corpus)} notes)")]
     if review:
         if review.get("good"):
-            md.append("**答得好：**")
+            md.append(pick(lg, "**答得好：**", "**What went well:**"))
             md += [f"- 【{g.get('where','')}】{g.get('what','')}——{g.get('why','')}"
                    for g in review["good"]]
         if review.get("bad"):
-            md.append("**待改进：**")
-            md += [f"- 【{b_.get('where','')}】{b_.get('what','')} → 改：{b_.get('fix','')}"
+            md.append(pick(lg, "**待改进：**", "**To improve:**"))
+            md += [f"- 【{b_.get('where','')}】{b_.get('what','')} → " + pick(lg, "改：", "fix: ") + f"{b_.get('fix','')}"
                    for b_ in review["bad"]]
     elif corpus:
-        md.append("（LLM 未配置——纪要清单如下，配置后自动提炼）")
+        md.append(pick(lg, "（LLM 未配置——纪要清单如下，配置后自动提炼）", "(AI not configured — notes listed below)"))
         md += [f"- {c_['date'][5:]}｜{c_['company']}：{c_['title']}" for c_ in corpus]
     else:
-        md.append("- 本周无纪要入档——有面必录，复盘才有原料")
+        md.append(pick(lg, "- 本周无纪要入档——有面必录，复盘才有原料",
+                       "- No notes logged this week — log every interview so there is something to learn from"))
     alerts = [h for h in health if h["alert"]]
     if alerts:
         md.append("")
-        md.append("参考信号（Playbook 供对照，不替代复盘）：" + "；".join(
-            f"「{h['pattern'][:26]}」连续 {h['consecutive_miss']} miss" for h in alerts))
+        md.append(pick(lg, "参考信号（Playbook 供对照，不替代复盘）：", "Playbook signals: ") + pick(lg, "；", "; ").join(
+            pick(lg, f"「{h['pattern'][:26]}」连续 {h['consecutive_miss']} miss",
+                 f"\"{h['pattern'][:26]}\" missed {h['consecutive_miss']}× in a row") for h in alerts))
 
-    md += ["", "## 下周三件事（面试之外）"]
-    md += [f"{i}. {p}" for i, p in enumerate(picks, 1)] or ["1. 无"]
+    md += ["", pick(lg, "## 下周三件事（面试之外）", "## Three things for next week (besides interviews)")]
+    md += [f"{i}. {p}" for i, p in enumerate(picks, 1)] or [pick(lg, "1. 无", "1. None")]
 
     extra = [s for s in signals if not any(s[:12] in p for p in picks)]
     if extra:
-        md += ["", "<details><summary>更多信号</summary>", ""]
+        md += ["", f"<details><summary>{pick(lg, '更多信号', 'More signals')}</summary>", ""]
         md += [f"- {s}" for s in extra]
         md += ["", "</details>"]
 

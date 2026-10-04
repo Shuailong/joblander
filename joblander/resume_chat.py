@@ -74,6 +74,8 @@ def apply_facts(cfg, facts: list[dict[str, Any]]) -> list[str]:
     ⚠️/使用注意段拒收。返回人读得懂的变更清单。"""
     from joblander.arsenal import bank_path
 
+    from joblander.lang import lang_of, pick
+    lg = lang_of(cfg)
     p = bank_path(cfg)
     bank = p.read_text(encoding="utf-8")
     changed: list[str] = []
@@ -87,10 +89,10 @@ def apply_facts(cfg, facts: list[dict[str, Any]]) -> list[str]:
             if m and "⚠️" not in bank[m.start():bank.find("\n", m.start())] :
                 block = m.group(0)
                 bank = bank[:m.start()] + block.rstrip() + "\n" + "\n".join(bullets) + "\n\n" + bank[m.end():]
-                changed.append(f"{target} 追加 {len(bullets)} 条")
+                changed.append(pick(lg, f"{target} 追加 {len(bullets)} 条", f"{target}: +{len(bullets)}"))
                 continue
         sec = (f.get("new_section") or "").strip()
-        title = (f.get("new_title") or "未归类补充").strip()
+        title = (f.get("new_title") or pick(lg, "未归类补充", "Uncategorized addition")).strip()
         if "⚠️" in title or "使用注意" in title or "usage rules" in title.lower():
             continue
         sm = re.search(rf"^## {re.escape(sec)}.*?(?=^## |\Z)", bank, re.M | re.S) if sec else None
@@ -98,10 +100,14 @@ def apply_facts(cfg, facts: list[dict[str, Any]]) -> list[str]:
         if sm:
             bank = bank[:sm.end()].rstrip() + "\n\n" + entry + "\n" + bank[sm.end():]
         else:   # 找不到归属段：挂在「素材使用注意」之前，规则永远垫底
-            cut = bank.find("## ⚠️ 素材使用注意")
-            bank = (bank[:cut].rstrip() + "\n\n" + f"## 补充素材\n\n{entry}\n" + bank[cut:]) \
+            # 规则段标题有多种写法（手写「## ⚠️ 素材使用注意」、向导生成「## 【⚠️ 素材使用注意】」、
+            # 英文「… Usage rules】」）——原先只认第一种，向导建的弹药库新条目会落到规则段之后
+            rm = re.search(r"^## .*(使用注意|Usage rules)", bank, re.M | re.I)
+            cut = rm.start() if rm else -1
+            extra = pick(lg, "## 补充素材", "## Additional material")
+            bank = (bank[:cut].rstrip() + "\n\n" + f"{extra}\n\n{entry}\n" + bank[cut:]) \
                 if cut > 0 else bank.rstrip() + "\n\n" + entry
-        changed.append(f"新条目「{title}」{len(bullets)} 条")
+        changed.append(pick(lg, f"新条目「{title}」{len(bullets)} 条", f"new entry \"{title}\": {len(bullets)}"))
     if changed:
         p.write_text(bank, encoding="utf-8")
     return changed
@@ -136,14 +142,17 @@ def talk(cfg, llm, company: str, message: str,
             f"【用户本条消息】\n{message}",
             system=CHAT_SYSTEM, json_mode=True)))
     except Exception as e:                        # 教练掉线也留回执，历史完整可重试
-        out = {"reply": f"（教练这轮没接上：{str(e)[:120]}——你的消息我已记下，重发一遍即可拿归档计划）",
+        from joblander.lang import lang_of, pick
+        out = {"reply": pick(lang_of(cfg), f"（教练这轮没接上：{str(e)[:120]}——你的消息我已记下，重发一遍即可拿归档计划）",
+                             f"(The coach didn't respond this time: {str(e)[:120]} — your message is saved; resend it to get the filing plan)"),
                "facts": [], "opinions": []}
 
     known = set(_entry_ids(bank))
     facts = [f for f in out.get("facts") or []
              if (f.get("target") in known) or str(f.get("target", "")).lower() == "new"]
     plan_id = uuid.uuid4().hex[:8] if facts else ""
-    turns.append({"role": "coach", "text": out.get("reply") or "收到。", "at": now,
+    from joblander.lang import lang_of, pick
+    turns.append({"role": "coach", "text": out.get("reply") or pick(lang_of(cfg), "收到。", "Got it."), "at": now,
                   "plan_id": plan_id, "facts": facts,
                   "opinions": out.get("opinions") or [], "applied": False})
     _save_chat(cfg, company, turns)
