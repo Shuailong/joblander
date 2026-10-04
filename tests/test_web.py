@@ -191,8 +191,9 @@ def test_approvals_live_where_they_belong(client):
         assert client.get(path, follow_redirects=False).status_code == 302
     src = client.get("/sourcing").text
     assert "待入池" in src and "NewCo" in src and "否决所选" in src
-    assert "scanbar" in src and "↻ 扫邮箱" in src and "↻ 扫 MCF" in src
-    assert "上次扫" in src and "入库" in src              # 工具条时间 + 每条线索入库时间
+    assert "scanbar" in src and "↻ 立即搜" in src
+    assert "↻ 扫邮箱" not in src                          # 没连 Gmail 不给按钮
+    assert "MCF 上次" in src and "入库" in src            # 工具条时间 + 每条线索入库时间
     assert "⛔ fluent Thai" in src                         # requirements 初筛高亮
     assert "NewCo" not in client.get("/pipeline").text    # 机会页只管已有申请
     co = client.get("/company/aaa111").text

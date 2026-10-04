@@ -539,6 +539,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             except Exception:
                 state = {}
         mcf_last = _log().last("sourcing.mcf_run")   # 倒序早停，不再读整份日志
+        li_last = _log().last("sourcing.linkedin_run")
         bankp = cfg.workspace_dir / "03-materials" / "achievement-bank.md"
         bank = {"exists": bankp.exists(),
                 "kb": round(bankp.stat().st_size / 1024) if bankp.exists() else 0,
@@ -557,6 +558,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             "src", good=good, low=low, total=len(leads), prefs=prefs,
             links=search_links(prefs), profile_files=profile_files, bank=bank,
             digest_chars=len(_profile_digest(cfg)),
+            li_last=li_last,
             gmail_last=(state.get("last.gmail_scan") or "")[:16].replace("T", " "),
             mcf_last=mcf_last))
 
@@ -1009,6 +1011,16 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         rows = pull_tracker(cfg)
         _stamp_state({"last.notion_pull": datetime.now(SGT).isoformat(timespec="seconds")})
         return {"rows": len(rows)}
+
+    @app.post("/api/sourcing/scan")
+    def api_sourcing_scan(days: int = Form(2)):
+        """立即搜：MCF + LinkedIn（开着的话）同一条查重/评分/入池管线。"""
+        from joblander.sourcing import load_prefs, source_all
+        if not load_prefs(cfg).get("keywords"):
+            return JSONResponse({"error": "先在下方「搜索偏好」填目标岗位关键词"}, status_code=400)
+        tid = start_task("sourcing", "搜新机会",
+                         lambda: source_all(cfg, _llm("flash"), days=days))
+        return {"ok": True, "task": tid, "label": "搜新机会"}
 
     @app.post("/api/mcf/scan")
     def api_mcf_scan(days: int = Form(2)):

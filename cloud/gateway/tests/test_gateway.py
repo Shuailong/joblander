@@ -204,3 +204,23 @@ def test_balance_endpoint(store):
     c = _client(store, _fly([]), _upstream([]), "a@x.com")
     assert c.get("/_gw/balance").json() == {"balance_usd": 1.5, "credit_usd": 2.0, "spent_usd": 0.5}
     assert _client(store, _fly([]), _upstream([])).get("/_gw/balance").status_code == 401
+
+
+def test_search_charges_per_call_and_respects_budget(store):
+    _, key = store.create("a@x.com", 0.015)
+    seen = []
+
+    def tavily(req: httpx.Request):
+        seen.append(json.loads(req.content))
+        return httpx.Response(200, json={"results": [{"title": "T", "url": "U", "content": "C"}]})
+    client = TestClient(create_meter_app(store, "sk", PRICES,
+                                         httpx.AsyncClient(transport=httpx.MockTransport(tavily)),
+                                         tavily_key="tvly-REAL", search_price_usd=0.01))
+    h = {"Authorization": f"Bearer {key}"}
+    r = client.post("/v1/search", headers=h, json={"query": "Acme", "max_results": 50})
+    assert r.json()["results"] == [{"title": "T", "url": "U", "snippet": "C"}]
+    assert seen[0]["api_key"] == "tvly-REAL" and seen[0]["max_results"] == 10   # 封顶
+    assert store.get("a@x.com").spent_usd == pytest.approx(0.01)
+    client.post("/v1/search", headers=h, json={"query": "Acme"})                 # 余额 0.005 → 还能搜
+    r = client.post("/v1/search", headers=h, json={"query": "Acme"})             # 透支后拒
+    assert r.status_code == 400 and "Budget" in r.text and len(seen) == 2

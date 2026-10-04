@@ -127,3 +127,35 @@ def test_proxy_budget_rejection_becomes_quota_exceeded(monkeypatch):
     with pytest.raises(LLMError) as ei:
         L.OpenAIChat("gpt-5.6-sol").generate("hi")
     assert not isinstance(ei.value, L.QuotaExceeded)
+
+
+def test_cloud_search_goes_through_gateway(monkeypatch):
+    """云端版：没配 search 段、有 JOBLANDER_SEARCH_URL → 走网关代搜，带子 key；额度用完给人话。"""
+    import io
+    from joblander import search as S
+    from joblander.config import Config
+
+    seen = {}
+
+    class R(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+
+    def fake_open(req, timeout=0):
+        seen.update(url=req.full_url, auth=req.headers.get("Authorization"))
+        return R(json.dumps({"results": [{"title": "t", "url": "u", "snippet": "s"}]}).encode())
+
+    monkeypatch.setenv("JOBLANDER_SEARCH_URL", "http://gw.internal:8081/v1/search")
+    monkeypatch.setenv("OPENAI_API_KEY", "jlm-sub")
+    monkeypatch.setattr("urllib.request.urlopen", fake_open)
+    cfg = Config(raw={}, path=None)
+    assert S.web_search(cfg, "Acme 融资")[0]["url"] == "u"
+    assert seen == {"url": "http://gw.internal:8081/v1/search", "auth": "Bearer jlm-sub"}
+
+    import urllib.error
+    def over(req, timeout=0):
+        raise urllib.error.HTTPError(req.full_url, 400, "x", {},
+                                     io.BytesIO(b'{"error":{"message":"Budget has been exceeded"}}'))
+    monkeypatch.setattr("urllib.request.urlopen", over)
+    with pytest.raises(S.SearchError, match="额度已用完"):
+        S.web_search(cfg, "Acme")

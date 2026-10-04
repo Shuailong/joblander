@@ -112,6 +112,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
                    "JOBLANDER_ALLOWED_HOSTS": settings.public_host,
                    "OPENAI_API_KEY": meter_key,
                    "OPENAI_BASE_URL": settings.meter_url,
+                   "JOBLANDER_SEARCH_URL": settings.meter_url.rstrip("/") + "/search",
                    "JOBLANDER_TZ": settings.timezone}
             name = "u-" + hashlib.sha256(email.encode()).hexdigest()[:12]
             mid = await fly.create_machine(

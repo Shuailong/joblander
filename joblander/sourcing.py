@@ -217,90 +217,237 @@ def market_band(title: str, limit: int = 20) -> str:
     return f"市场参考 {lo:,.0f}–{hi:,.0f} SGD/月（MCF 同类岗 {len(los)} 条挂牌，p25–p75）"
 
 
-def _seen_path(cfg) -> Path:
-    return cfg.workspace_dir / "19-sourcing" / "mcf-seen.json"
+def _seen_path(cfg, source: str = "mcf") -> Path:
+    return cfg.workspace_dir / "19-sourcing" / f"{source}-seen.json"
+
+
+class _Run:
+    """一轮主动侦察的共用骨架：去重账本（跨轮）、同轮 (公司,岗位) 去重、排除词、
+    已在库查重、fit 评分、写入池提案。各渠道只负责「搜 → 转 lead → 拉 JD 详情」。"""
+
+    def __init__(self, cfg, llm, source: str, days: int):
+        from joblander.eventlog import EventLog
+        from joblander.prep import _load_projection
+        self.cfg, self.llm, self.source = cfg, llm, source
+        self.prefs = load_prefs(cfg)
+        self.log = EventLog(cfg.workspace_dir / "08-events" / "event-log.jsonl")
+        self.sp = _seen_path(cfg, source)
+        self.seen: dict[str, str] = (json.loads(self.sp.read_text(encoding="utf-8"))
+                                     if self.sp.exists() else {})
+        try:
+            self.rows = _load_projection(cfg)
+        except FileNotFoundError:
+            self.rows = []
+        self.groups = cfg.policy.get("group_exclusivity", [])
+        self.cutoff = (datetime.now(SGT) - timedelta(days=days)).strftime("%Y-%m-%d")
+        self.run_keys: set[tuple[str, str]] = set()
+        self.excl = [e.casefold() for e in self.prefs.get("exclude") or []]
+        self.outs: list[Path] = []
+        self.fetched = 0
+
+    def admit(self, uid: str, posted: str, company: str, title: str) -> bool:
+        """不需要 JD 详情就能判的闸：见过 / 过期 / 同轮重复 / 排除词。过闸才值得拉详情。"""
+        if not uid or uid in self.seen or (posted and posted < self.cutoff):
+            return False
+        rk = ((company or "").casefold(), (title or "").casefold())
+        if rk in self.run_keys:
+            self.seen[uid] = posted or "dup"
+            return False
+        self.run_keys.add(rk)
+        self.seen[uid] = posted or datetime.now(SGT).strftime("%Y-%m-%d")
+        if any(e in (title or "").casefold() for e in self.excl):
+            self.log.append("lead.discarded", f"joblander.sourcing.{self.source}",
+                            {"reason": "exclude_keyword", "position": title})
+            return False
+        return True
+
+    def tracked(self, lead: dict[str, Any]) -> dict[str, Any] | None:
+        """已在库的公司：你已经在打这场仗，主动抓到的挂牌岗不构成新信息 → 丢弃记账。
+        （对方来信的跟进走 scout.intake，那才转公司页更新提案——语义不同）"""
+        from joblander.scout import dedupe
+        verdict = dedupe(self.rows, lead.get("company"), self.groups)
+        if verdict.get("verdict") == "duplicate":
+            self.log.append("lead.discarded", f"joblander.sourcing.{self.source}",
+                            {"reason": "already_tracked", "existing": verdict.get("existing"),
+                             "company": lead.get("company"), "position": lead.get("position")})
+            return None
+        return verdict
+
+    def propose(self, lead: dict[str, Any], verdict: dict[str, Any], kw: str, uid: str) -> None:
+        proposal = {
+            "kind": "lead.intake", "lead": lead, "dedupe": verdict,
+            "source_hint": self.source,
+            "fit": assess_fit(self.cfg, self.llm, lead, jd_text=lead.get("jd_excerpt", "")),
+            "raw_excerpt": f"{self.source.upper()} {kw} · {lead.get('position')} @ {lead.get('company')}",
+            "approved": None,
+        }
+        out_dir = self.cfg.workspace_dir / "12-intake"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        slug = (lead.get("company") or "x").replace(" ", "-").replace("/", "-")[:40]
+        out = out_dir / f"{datetime.now(SGT).strftime('%Y-%m-%d-%H%M%S')}-{slug}-{uid[-6:]}.json"
+        out.write_text(json.dumps(proposal, ensure_ascii=False, indent=1), encoding="utf-8")
+        self.log.append("scout.lead_proposed", f"joblander.sourcing.{self.source}",
+                        {"company": lead.get("company"), "fit": (proposal["fit"] or {}).get("fit"),
+                         "source": self.source, "out": str(out)})
+        self.outs.append(out)
+
+    def finish(self, keywords: list[str]) -> list[Path]:
+        self.sp.parent.mkdir(parents=True, exist_ok=True)
+        self.sp.write_text(json.dumps(self.seen, ensure_ascii=False, indent=0), encoding="utf-8")
+        self.log.append(f"sourcing.{self.source}_run", "joblander.sourcing",
+                        {"keywords": keywords, "fetched": self.fetched, "proposed": len(self.outs)})
+        return self.outs
 
 
 def source_mcf(cfg, llm, days: int = 2, limit_per_kw: int = 20) -> list[Path]:
-    """按偏好关键词抓 MCF 新岗 → 查重 → fit 评估 → 入池/跟进提案。幂等（uuid 去重）。"""
-    from joblander.eventlog import EventLog
-    from joblander.prep import _load_projection
-    from joblander.scout import dedupe
-
-    prefs = load_prefs(cfg)
-    keywords = prefs.get("keywords") or []
-    log = EventLog(cfg.workspace_dir / "08-events" / "event-log.jsonl")
+    """按偏好关键词抓 MCF 新岗 → 查重 → fit 评估 → 入池提案。幂等（uuid 去重）。"""
+    run = _Run(cfg, llm, "mcf", days)
+    keywords = run.prefs.get("keywords") or []
     if not keywords:
-        log.append("sourcing.mcf_skipped", "joblander.sourcing", {"reason": "no_keywords"})
+        run.log.append("sourcing.mcf_skipped", "joblander.sourcing", {"reason": "no_keywords"})
         return []
-
-    sp = _seen_path(cfg)
-    seen: dict[str, str] = json.loads(sp.read_text(encoding="utf-8")) if sp.exists() else {}
-    rows = _load_projection(cfg)
-    groups = cfg.policy.get("group_exclusivity", [])
-    cutoff = (datetime.now(SGT) - timedelta(days=days)).strftime("%Y-%m-%d")
-
-    outs: list[Path] = []
-    fetched = 0
-    run_keys: set[tuple[str, str]] = set()      # 同轮 (公司,岗位) 去重：中介重复挂牌很常见
     for kw in keywords:
         try:
             jobs = mcf_search(kw, limit=limit_per_kw)
         except Exception as e:
-            log.append("sourcing.mcf_error", "joblander.sourcing", {"kw": kw, "error": str(e)})
+            run.log.append("sourcing.mcf_error", "joblander.sourcing", {"kw": kw, "error": str(e)})
             continue
-        fetched += len(jobs)
+        run.fetched += len(jobs)
         for job in jobs:
             uuid = job.get("uuid") or ""
             posted = (job.get("metadata") or {}).get("newPostingDate") or ""
-            if not uuid or uuid in seen or (posted and posted < cutoff):
-                continue
-            rk = (((job.get("postedCompany") or {}).get("name") or "").casefold(),
-                  (job.get("title") or "").casefold())
-            if rk in run_keys:
-                seen[uuid] = posted or "dup"
-                continue
-            run_keys.add(rk)
-            seen[uuid] = posted or datetime.now(SGT).strftime("%Y-%m-%d")
             lead = mcf_to_lead(job)
-            # 排除词/查重先判（只需标题与公司名），JD 详情留到过闸后再拉——省无谓请求
-            excl = [e.casefold() for e in prefs.get("exclude") or []]
-            title = (lead.get("position") or "").casefold()
-            if any(e in title for e in excl):
-                log.append("lead.discarded", "joblander.sourcing",
-                           {"reason": "exclude_keyword", "position": lead.get("position")})
+            if not run.admit(uuid, posted, lead.get("company") or "", lead.get("position") or ""):
                 continue
-            verdict = dedupe(rows, lead.get("company"), groups)
-            if verdict.get("verdict") == "duplicate":
-                # 已在库的公司：你已经在打这场仗，主动抓到的挂牌岗不构成新信息 → 丢弃记账。
-                # （对方来信的跟进走 scout.intake，那才转公司页更新提案——语义不同）
-                log.append("lead.discarded", "joblander.sourcing",
-                           {"reason": "already_tracked", "existing": verdict.get("existing"),
-                            "company": lead.get("company"), "position": lead.get("position")})
+            verdict = run.tracked(lead)
+            if verdict is None:
                 continue
             try:                                 # JD 正文供 requirements 初筛；拉不到不阻塞
                 lead = mcf_to_lead(job, mcf_job_detail(uuid))
             except Exception:
                 pass
-            proposal = {
-                "kind": "lead.intake", "lead": lead, "dedupe": verdict,
-                "source_hint": "mcf",
-                "fit": assess_fit(cfg, llm, lead, jd_text=lead.get("jd_excerpt", "")),
-                "raw_excerpt": f"MCF {kw} · {lead.get('position')} @ {lead.get('company')}",
-                "approved": None,
-            }
-            out_dir = cfg.workspace_dir / "12-intake"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            slug = (lead.get("company") or "x").replace(" ", "-").replace("/", "-")[:40]
-            out = out_dir / f"{datetime.now(SGT).strftime('%Y-%m-%d-%H%M%S')}-{slug}-{uuid[:6]}.json"
-            out.write_text(json.dumps(proposal, ensure_ascii=False, indent=1), encoding="utf-8")
-            log.append("scout.lead_proposed", "joblander.sourcing",
-                       {"company": lead.get("company"), "fit": (proposal["fit"] or {}).get("fit"),
-                        "source": "mcf", "out": str(out)})
-            outs.append(out)
+            run.propose(lead, verdict, kw, uuid)
+    return run.finish(keywords)
 
-    sp.parent.mkdir(parents=True, exist_ok=True)
-    sp.write_text(json.dumps(seen, ensure_ascii=False, indent=0), encoding="utf-8")
-    log.append("sourcing.mcf_run", "joblander.sourcing",
-               {"keywords": keywords, "fetched": fetched, "proposed": len(outs)})
-    return outs
+
+# ---------- LinkedIn 公开职位（免登录 guest 接口） ----------
+# 条款灰区：只读公开列表、不登录、每人每晚几次请求、可在设置里关（features.linkedin）。
+# 接口随时可能改版或限流——解析失败、被拦都只记账不抛，不拖垮夜扫。
+
+LI_SEARCH = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+LI_DETAIL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{id}"
+LI_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+         "(KHTML, like Gecko) Chrome/129.0 Safari/537.36")
+
+
+def _li_get(url: str, timeout: int = 20) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": LI_UA,
+                                               "Accept-Language": "en-US,en;q=0.9"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode("utf-8", errors="replace")
+
+
+def _txt(s: str) -> str:
+    import html as _h
+    return _h.unescape(_strip_html(s))
+
+
+def parse_linkedin_cards(page: str) -> list[dict[str, str]]:
+    out = []
+    for card in page.split("<li")[1:]:
+        m = re.search(r"urn:li:jobPosting:(\d+)", card)
+        if not m:
+            continue
+        g = lambda pat: (lambda x: _txt(x.group(1)) if x else "")(re.search(pat, card, re.S))
+        href = re.search(r'base-card__full-link[^>]*href="([^"?]+)', card)
+        posted = re.search(r'<time[^>]*datetime="([\d-]+)"', card)
+        out.append({"id": m.group(1),
+                    "title": g(r'base-search-card__title">(.*?)</h3>'),
+                    "company": g(r'base-search-card__subtitle">(.*?)</h4>'),
+                    "location": g(r'job-search-card__location">(.*?)</span>'),
+                    "posted": posted.group(1) if posted else "",
+                    "url": href.group(1) if href else f"https://www.linkedin.com/jobs/view/{m.group(1)}"})
+    return out
+
+
+def linkedin_search(keyword: str, location: str, hours: int = 48, start: int = 0) -> list[dict[str, str]]:
+    q = urllib.parse.urlencode({"keywords": keyword, "location": location,
+                                "f_TPR": f"r{hours * 3600}", "start": start})
+    return parse_linkedin_cards(_li_get(f"{LI_SEARCH}?{q}"))
+
+
+def parse_linkedin_detail(page: str) -> dict[str, Any]:
+    m = re.search(r"show-more-less-html__markup[^>]*>(.*?)</div>", page, re.S)
+    crit = {k.strip(): _txt(v) for k, v in re.findall(
+        r'description__job-criteria-subheader">\s*(.*?)\s*</h3>\s*<span[^>]*>(.*?)</span>', page, re.S)}
+    return {"description": _txt(m.group(1)) if m else "", "criteria": crit}
+
+
+def linkedin_to_lead(card: dict[str, str], detail: dict[str, Any] | None = None) -> dict[str, Any]:
+    lead = {
+        "category": "job_lead",
+        "company": card.get("company"),
+        "position": card.get("title"),
+        "location": card.get("location") or "",
+        "comp_mentions": [],
+        "urls": [card.get("url")],
+        "highlight": f"LinkedIn 挂牌 {card.get('posted') or ''}".strip(),
+        "suggested_next_step": "看 JD 原文，对口就投",
+        "contact": {"channel": "linkedin"},
+    }
+    if detail:
+        lead["jd_excerpt"] = (detail.get("description") or "")[:2500]
+        crit = detail.get("criteria") or {}
+        if crit.get("Seniority level"):
+            lead["highlight"] += f"；{crit['Seniority level']}"
+    return lead
+
+
+def source_linkedin(cfg, llm, days: int = 2, pages_per_kw: int = 1) -> list[Path]:
+    """按偏好关键词 × 首选地点抓 LinkedIn 公开职位 → 与 MCF 同一条查重/评分/入池管线。"""
+    import time
+    from joblander.wizard import features
+    run = _Run(cfg, llm, "linkedin", days)
+    keywords = run.prefs.get("keywords") or []
+    if not features(cfg)["linkedin"] or not keywords:
+        return []
+    loc = (run.prefs.get("locations") or ["Singapore"])[0]
+    for kw in keywords:
+        for page in range(pages_per_kw):
+            try:
+                cards = linkedin_search(kw, loc, hours=days * 24, start=page * 10)
+            except Exception as e:
+                run.log.append("sourcing.linkedin_error", "joblander.sourcing", {"kw": kw, "error": str(e)[:200]})
+                break
+            run.fetched += len(cards)
+            for card in cards:
+                if not run.admit(card["id"], card["posted"], card["company"], card["title"]):
+                    continue
+                lead = linkedin_to_lead(card)
+                verdict = run.tracked(lead)
+                if verdict is None:
+                    continue
+                try:
+                    time.sleep(1)                  # 礼貌间隔：一人一晚几十个请求，不扎堆
+                    lead = linkedin_to_lead(card, parse_linkedin_detail(
+                        _li_get(LI_DETAIL.format(id=card["id"]))))
+                except Exception:
+                    pass
+                run.propose(lead, verdict, kw, card["id"])
+            if len(cards) < 10:
+                break
+    return run.finish(keywords)
+
+
+def source_all(cfg, llm, days: int = 2) -> dict[str, int]:
+    """夜扫与「立即搜」的统一入口：各渠道互不拖累。"""
+    out = {}
+    for name, fn in (("mcf", source_mcf), ("linkedin", source_linkedin)):
+        try:
+            out[name] = len(fn(cfg, llm, days=days))
+        except Exception as e:                       # noqa: BLE001
+            out[name] = 0
+            from joblander.eventlog import EventLog
+            EventLog(cfg.workspace_dir / "08-events" / "event-log.jsonl").append(
+                "sourcing.error", "joblander.sourcing", {"source": name, "error": str(e)[:200]})
+    return out

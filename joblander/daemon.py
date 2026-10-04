@@ -260,10 +260,10 @@ class Daemon:
         if not self._due_daily("sourcing", 2, 30):
             return
         from joblander.notify import notify
-        from joblander.sourcing import source_mcf
-        outs = source_mcf(self.cfg, self._llm("flash"), days=2)
-        if outs:
-            notify("夜扫收获", f"{len(outs)} 条新机会已评分待决策（新机会）",
+        from joblander.sourcing import source_all
+        n = sum(source_all(self.cfg, self._llm("flash"), days=2).values())
+        if n:
+            notify("夜扫收获", f"{n} 条新机会已评分待决策（新机会）",
                    "http://127.0.0.1:8899/sourcing")
 
     def job_morning_report(self):

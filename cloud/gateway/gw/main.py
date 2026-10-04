@@ -44,7 +44,9 @@ def build():
         admins={e.strip().lower() for e in env("ADMIN_EMAILS", "").split(",") if e.strip()},
     )
     web = create_web_app(settings, store, fly)
-    meter = create_meter_app(store, env("OPENAI_API_KEY"), prices)
+    meter = create_meter_app(store, env("OPENAI_API_KEY"), prices,
+                             tavily_key=env("TAVILY_API_KEY", ""),
+                             search_price_usd=float(env("SEARCH_PRICE_USD", "0.01")))
     return web, meter
 
 

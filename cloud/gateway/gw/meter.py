@@ -28,10 +28,39 @@ def cost_usd(prices: dict, model: str, prompt: int, completion: int) -> float:
     return (prompt * p["input"] + completion * p["output"]) / 1_000_000
 
 
+TAVILY_URL = "https://api.tavily.com/search"
+
+
 def create_meter_app(store: Store, openai_key: str, prices: dict,
-                     client: httpx.AsyncClient | None = None) -> FastAPI:
+                     client: httpx.AsyncClient | None = None, *,
+                     tavily_key: str = "", search_price_usd: float = 0.01) -> FastAPI:
     app = FastAPI(title="joblander-meter")
     http = client or httpx.AsyncClient(timeout=httpx.Timeout(600, connect=10))
+
+    @app.post("/v1/search")
+    async def search(request: Request):
+        """公司调研的搜索：平台 Tavily key 只在这里；按次计费，与 AI 共用一份额度。"""
+        auth = request.headers.get("authorization") or ""
+        user = store.by_meter_key(auth.removeprefix("Bearer ").strip()) if auth else None
+        if user is None:
+            return _reject("unknown key", 401, "auth")
+        if not tavily_key:
+            return _reject("search not configured", 503)
+        if user.balance_usd <= 0:
+            return _reject(f"Budget has been exceeded: balance {user.balance_usd:.4f} USD",
+                           400, "budget_exceeded")
+        body = await request.json()
+        q = str(body.get("query") or "").strip()[:400]
+        if not q:
+            return _reject("empty query", 400)
+        n = max(1, min(int(body.get("max_results") or 6), 10))
+        r = await http.post(TAVILY_URL, json={"api_key": tavily_key, "query": q, "max_results": n})
+        if r.status_code >= 400:
+            return _reject(f"search upstream {r.status_code}", 502)
+        store.charge(user.email, "search:tavily", 0, 0, search_price_usd)
+        return {"results": [{"title": x.get("title", ""), "url": x.get("url", ""),
+                             "snippet": (x.get("content") or "")[:800]}
+                            for x in r.json().get("results", [])][:n]}
 
     @app.post("/v1/chat/completions")
     async def chat(request: Request):

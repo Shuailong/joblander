@@ -18,6 +18,7 @@ import html as _html
 import json
 import re
 import urllib.parse
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -102,8 +103,28 @@ NO_KEY_HINT = ("内置零 key 引擎已被各家反爬拦截（2026-08 实测）
                "search:\n  provider: tavily\n  api_key: tvly-…")
 
 
+def _gateway(query: str, url: str, max_results: int = 6) -> list[dict[str, str]]:
+    """云端版：搜索经网关计量代理（平台 key 只在网关，按次记账；余额耗尽同样被拒）。"""
+    import os
+    req = urllib.request.Request(
+        url, data=json.dumps({"query": query, "max_results": max_results}).encode(),
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")
+        if "budget" in body.lower():
+            raise SearchError("AI 额度已用完——搜索暂停") from e
+        raise SearchError(f"搜索网关 {e.code}: {body[:200]}") from e
+    return data.get("results", [])[:max_results]
+
+
 def _one_provider(pv: dict, query: str, max_results: int) -> list[dict[str, str]]:
     name, key = pv.get("provider") or "", pv.get("api_key") or ""
+    if name == "gateway" and pv.get("url"):
+        return _gateway(query, pv["url"], max_results)
     if name == "tavily" and key:
         return _tavily(query, key, max_results)
     if name == "brave" and key:
@@ -119,6 +140,8 @@ def _providers(cfg) -> list[dict]:
     sc = (cfg.raw.get("search") or {}) if cfg is not None else {}
     if sc.get("providers"):
         return list(sc["providers"])
+    if not sc.get("provider") and os.environ.get("JOBLANDER_SEARCH_URL"):   # 云端版：网关代搜
+        return [{"provider": "gateway", "url": os.environ["JOBLANDER_SEARCH_URL"]}]
     key = sc.get("api_key") or os.environ.get("SEARCH_API_KEY") or ""
     return [{**sc, "api_key": key}] if sc.get("provider") and key else []
 

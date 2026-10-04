@@ -42,15 +42,24 @@
   <button class="btn pri" onclick="dlg('dlg-intake')">＋ 贴入</button>
 </div>
 <h1>新机会</h1>
-<div class="sub">夜里 02:30 自动扫（MCF 按偏好 + Gmail 每 30 分钟一轮）→ 评分 → 这里等你晨起决策。LinkedIn 没有 API：用下面的深链自己看，看到好的贴回来。</div>
+<div class="sub">每晚 02:30 按你的偏好搜 MyCareersFuture{{ ' 和 LinkedIn' if features.linkedin }} 的新岗位 → 去重 → 对照弹药库打匹配分、初筛硬性要求 → 在这里等你决定入不入池。</div>
+
+{% if not prefs.get('keywords') %}
+<div class="card" style="border-left:3px solid var(--accent);margin-bottom:16px">
+  <b>先告诉系统你在找什么</b>
+  <p style="margin:6px 0 10px;color:var(--ink-2)">在下方「搜索偏好」填目标岗位关键词（比如 <span class="num">Product Manager, Data Engineer</span>）和地点，然后点「立即搜」。</p>
+  <button class="btn pri" onclick="togPrefs(true);document.getElementById('prefs').scrollIntoView({behavior:'smooth'})">✎ 填搜索偏好</button>
+</div>
+{% endif %}
 
 <div class="scanbar">
-  <span>Gmail 上次扫 <b class="num">{{ gmail_last or '—' }}</b></span>
-  <button class="btn" onclick="post('/api/scan',{days:2},{btn:this})">↻ 扫邮箱</button>
-  <span style="color:var(--line-strong)">｜</span>
-  <span>MCF 上次扫 <b class="num">{% if mcf_last %}{{ mcf_last.ts[:16].replace('T',' ') }}{% else %}—{% endif %}</b></span>
-  <button class="btn" onclick="post('/api/mcf/scan',{days:2},{btn:this})">↻ 扫 MCF</button>
-  <span class="note" style="margin:0">都是后台任务——点完随便去哪，右下角看进度，完成自动刷新</span>
+  <span>MCF 上次 <b class="num">{% if mcf_last %}{{ mcf_last.ts[:16].replace('T',' ') }}{% else %}—{% endif %}</b></span>
+  {% if features.linkedin %}<span>LinkedIn 上次 <b class="num">{% if li_last %}{{ li_last.ts[:16].replace('T',' ') }}{% else %}—{% endif %}</b></span>{% endif %}
+  <button class="btn pri" onclick="post('/api/sourcing/scan',{days:2},{btn:this})">↻ 立即搜</button>
+  {% if conn.gmail %}<span style="color:var(--line-strong)">｜</span>
+  <span>Gmail 上次 <b class="num">{{ gmail_last or '—' }}</b></span>
+  <button class="btn" onclick="post('/api/scan',{days:2},{btn:this})">↻ 扫邮箱</button>{% endif %}
+  <span class="note" style="margin:0">后台任务——点完随便去哪，右下角看进度，完成自动刷新</span>
 </div>
 
 <h2>待入池（{{ total }} 岗 · 按公司聚合，已在库公司不出现在这里）</h2>
@@ -69,7 +78,7 @@
 </details>
 {% endif %}
 {% else %}
-<div class="card">暂无待决策线索 ✅ 夜扫和邮箱循环开着，有新的会出现在这里并通知你。</div>
+<div class="card">暂无待决策线索 ✅ 每晚自动搜，有新的会出现在这里。等不及就点上面的「立即搜」。</div>
 {% endif %}
 
 <div class="grid2" style="margin-top:26px">
@@ -90,7 +99,7 @@
     <form id="prefs" style="display:none">
       <label>求职意向（一句话，评分器主要看这个）</label>
       <input type="text" name="intent" value="{{ prefs.get('intent','') }}">
-      <label>目标岗位关键词（逗号分隔，MCF/深链按这个搜）</label>
+      <label>目标岗位关键词（逗号分隔，MCF / LinkedIn 按这个搜）</label>
       <input type="text" name="keywords" value="{{ (prefs.get('keywords') or []) | join(', ') }}">
       <label>地点（逗号分隔）</label>
       <input type="text" name="locations" value="{{ (prefs.get('locations') or []) | join(', ') }}">
@@ -109,16 +118,22 @@
 
   <div class="card">
     <h2 style="margin-top:0">渠道</h2>
-    <div class="row"><span class="when">自动</span><div class="body"><b>Gmail</b>（含 LinkedIn Job Alert 邮件）
-      <div class="meta">每 30 分钟自动一轮，分类闸过滤非机会 ｜ 手动扫在顶部工具条</div></div></div>
     <div class="row"><span class="when">自动</span><div class="body"><b>MyCareersFuture</b>
       <div class="meta">每晚 02:30 按偏好关键词抓新岗{% if mcf_last %} ｜ 上次抓 {{ mcf_last.payload.fetched }} 提 {{ mcf_last.payload.proposed }}{% endif %}</div></div></div>
-    <div class="row"><span class="when">半自动</span><div class="body"><b>LinkedIn Search / Inbox</b>
-      <div class="meta">无 API（不做灰色爬取）。深链按你的关键词拼好近 24h 搜索——看到好的用「＋ 贴入」丢回来：</div>
+    {% if features.linkedin %}
+    <div class="row"><span class="when">自动</span><div class="body"><b>LinkedIn</b>
+      <div class="meta">每晚按关键词 × 首选地点搜近 48h 公开职位{% if li_last %} ｜ 上次抓 {{ li_last.payload.fetched }} 提 {{ li_last.payload.proposed }}{% endif %} ｜ 可在<a href="/settings#features">设置</a>里关</div></div></div>
+    {% else %}
+    <div class="row"><span class="when">半自动</span><div class="body"><b>LinkedIn</b>
+      <div class="meta">自动搜索已关（<a href="/settings#features">设置</a>里可开）。深链按你的关键词拼好近 24h 搜索——看到好的用「＋ 贴入」丢回来：</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
-        {% for l in links %}<a class="btn" href="{{ l.url }}" target="_blank" style="font-size:12px">{{ l.label }} ↗</a>{% endfor %}
-        <a class="btn" href="https://www.linkedin.com/messaging/" target="_blank" style="font-size:12px">LinkedIn Inbox ↗</a>
+        {% for l in links if 'LinkedIn' in l.label %}<a class="btn" href="{{ l.url }}" target="_blank" style="font-size:12px">{{ l.label }} ↗</a>{% endfor %}
       </div></div></div>
+    {% endif %}
+    {% if conn.gmail %}
+    <div class="row"><span class="when">自动</span><div class="body"><b>Gmail</b>（含 LinkedIn Job Alert 邮件）
+      <div class="meta">每 30 分钟自动一轮，分类闸过滤非机会</div></div></div>
+    {% endif %}
     <div class="row"><span class="when">贴入</span><div class="body"><b>WhatsApp / 猎头消息 / 任意 JD</b>
       <div class="meta">复制原文 →「＋ 贴入」→ 抽取 + 查重 + 评分自动完成</div></div></div>
   </div>

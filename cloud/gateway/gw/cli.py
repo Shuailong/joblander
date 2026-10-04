@@ -50,6 +50,9 @@ async def _upgrade(store: Store, image: str) -> None:
             continue
         cfg = (await fly.get_machine(u.machine_id))["config"]
         cfg["image"] = image
+        # 新版本引入的环境变量补给老 machine（只补不改：口令与子 key 原样保留）
+        meter = os.environ.get("METER_URL", "http://joblander-gw.internal:8081/v1")
+        cfg.setdefault("env", {}).setdefault("JOBLANDER_SEARCH_URL", meter.rstrip("/") + "/search")
         await fly.update_machine(u.machine_id, cfg)
         print(f"{u.email}: → {image}")
 
