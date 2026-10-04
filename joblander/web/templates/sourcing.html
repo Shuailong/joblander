@@ -23,7 +23,7 @@
     {% if p.lead.comp_mentions %}<div class="meta">💰 {{ p.lead.comp_mentions | join('；') }}</div>{% endif %}
     {% if p.lead.market_ref %}<div class="meta">📊 {{ p.lead.market_ref }}</div>{% endif %}
   </div>
-  <button class="btn pri" onclick="post('/api/proposal/apply',{file:'{{ p._file }}'},{btn:this,ok:{{ _('已入池')|jsq }},reload:true})" title="{{ _('tracker 建行（线索列）+ 建公司档案') }}">{{ _('入池') }}</button>
+  <button class="btn pri" onclick="post('/api/proposal/apply',{file:'{{ p._file }}'},{btn:this,ok:{{ _('已入池')|jsq }},reload:true})" title="{{ _('tracker 建行（线索列）+ 建公司档案') }}">{{ _('批准入池') }}</button>
   <button class="btn danger" onclick="post('/api/proposal/reject',{file:'{{ p._file }}'},{btn:this,ok:{{ _('已否决')|jsq }},reload:true})">{{ _('否决') }}</button>
 </div>
 {% endmacro %}
@@ -76,7 +76,7 @@
   <button class="btn" onclick="selBy('all')">{{ _('全选') }}</button>
   <button class="btn" onclick="selBy('')">{{ _('清除') }}</button>
   <span class="sp"></span>
-  <button class="btn danger" onclick="batchReject(this)" title="{{ _('所选全部否决——只记账，可反悔') }}">{{ _('否决所选') }}（<span id="seln">0</span>）</button>
+  <button class="btn danger" onclick="batchReject(this)" title="{{ _('所选全部否决——只记账，可反悔') }}">{{ _('否决所选') }} (<span id="seln">0</span>)</button>
 </div>
 {% for g in good %}{{ groupcard(g) }}{% endfor %}
 {% if low %}

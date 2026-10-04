@@ -7,27 +7,42 @@ from __future__ import annotations
 
 from fastapi.responses import HTMLResponse
 
-BASE_CSS = """
-:root{--bg:#F7F7F5;--surface:#fff;--ink:#26251E;--ink-2:#6F6D64;--ink-3:#A3A198;--line:#E8E6E1;
-  --accent:#0E6E62;--accent-ink:#0A5249;--accent-soft:#E4F0EE;--sky:#EAF1F8;--runway:#3a3f44}
-@media (prefers-color-scheme: dark){:root{--bg:#191A18;--surface:#20221F;--ink:#E9E8E3;--ink-2:#A5A49B;
-  --ink-3:#6E6D66;--line:#31332E;--accent:#3FA294;--accent-ink:#5FBFB1;--accent-soft:#173832;--sky:#1F2A38;--runway:#4a5056}}
+_LIGHT = "--bg:#F6F7F8;--surface:#fff;--ink:#16191D;--ink-2:#5B636D;--ink-3:#9AA1AA;--line:#E6E8EB;" \
+         "--accent:#0E7C6E;--accent-ink:#0A6156;--accent-soft:#E3F2EF;--on-accent:#fff;--sky:#EAF1FA;--runway:#3a3f44"
+_DARK = "--bg:#0E1013;--surface:#15181C;--ink:#E7EAEE;--ink-2:#A2AAB4;--ink-3:#6B737D;--line:#23282E;" \
+        "--accent:#2EB39F;--accent-ink:#5ACDB9;--accent-soft:#12302B;--on-accent:#05211D;--sky:#1A2636;--runway:#4a5056"
+BASE_CSS = (":root{color-scheme:light;" + _LIGHT + "}"
+            "@media (prefers-color-scheme: dark){:root:not([data-theme=light]){color-scheme:dark;" + _DARK + "}}"
+            ":root[data-theme=dark]{color-scheme:dark;" + _DARK + "}" + """
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans SC","Segoe UI",sans-serif}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 "Inter",-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif;
+  -webkit-font-smoothing:antialiased}
 a{color:var(--accent-ink)}
-.btn{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:#fff;padding:10px 20px;
-  border-radius:9px;text-decoration:none;font-weight:600;font-size:15px}
-.btn:hover{filter:brightness(1.08)}
-.box{max-width:460px;margin:12vh auto;padding:28px 24px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
-.box h1{font-size:20px;margin:0 0 8px} .box p{color:var(--ink-2);margin:0 0 16px}
-table{width:100%;border-collapse:collapse;font-size:13px} td{padding:4px 0;border-bottom:1px solid var(--line)}
+.btn{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:var(--on-accent);padding:11px 20px;
+  border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.15)}
+.btn:hover{filter:brightness(1.06)}
+.box{max-width:460px;margin:12vh auto;padding:30px 28px;background:var(--surface);border:1px solid var(--line);border-radius:16px;
+  box-shadow:0 1px 2px rgba(16,24,40,.04),0 8px 28px rgba(16,24,40,.08)}
+.box h1{font-size:21px;margin:0 0 8px;letter-spacing:-.01em} .box p{color:var(--ink-2);margin:0 0 16px}
+table{width:100%;border-collapse:collapse;font-size:13px} td{padding:5px 0;border-bottom:1px solid var(--line)}
+.tbtn{all:unset;cursor:pointer;width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:var(--ink-2);border:1px solid var(--line)}
+.tbtn:hover{color:var(--ink)}
 @media (max-width:520px){.box{margin:16px}}
-"""
+""")
+
+# 与引擎同一个 localStorage 键（同源），首帧前生效
+THEME_HEAD = ("<script>try{var t=localStorage.getItem('jl_theme');if(t==='light'||t==='dark')"
+              "document.documentElement.dataset.theme=t}catch(e){}</script>"
+              '<link rel="preconnect" href="https://fonts.googleapis.com">'
+              '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">')
+THEME_TOGGLE_JS = ("function jlTheme(){var r=document.documentElement,dark=r.dataset.theme?r.dataset.theme==='dark':"
+                   "matchMedia('(prefers-color-scheme: dark)').matches;var t=dark?'light':'dark';r.dataset.theme=t;"
+                   "try{localStorage.setItem('jl_theme',t)}catch(e){}}")
 
 
 def _doc(title: str, body: str, extra_css: str = "", head: str = "", lang: str = "zh") -> HTMLResponse:
     return HTMLResponse(f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">{head}<title>{title}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">{THEME_HEAD}{head}<title>{title}</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛬</text></svg>">
 <style>{BASE_CSS}{extra_css}</style></head><body>{body}</body></html>""")
 
@@ -42,15 +57,17 @@ def simple(title: str, body: str, refresh: int = 0, lang: str = "zh") -> HTMLRes
 LANDING_CSS = """
 .wrap{max-width:1040px;margin:0 auto;padding:0 20px}
 nav{display:flex;align-items:center;gap:10px;padding:18px 0}
-nav b{font-size:17px} nav .sp{flex:1} nav a.in{font-weight:600;text-decoration:none}
+nav b{font-size:17px;letter-spacing:-.01em}
+.mark{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;font:700 14px/1 inherit;color:var(--on-accent);
+  background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 55%,#3767A6))} nav .sp{flex:1} nav a.in{font-weight:600;text-decoration:none}
 .hero{display:grid;grid-template-columns:1.05fr 1fr;gap:40px;align-items:center;padding:48px 0 40px}
-.hero h1{font-size:40px;line-height:1.2;margin:0 0 14px;letter-spacing:-.5px}
+.hero h1{font-size:44px;line-height:1.12;margin:0 0 16px;letter-spacing:-.025em;font-weight:700}
 .hero h1 em{font-style:normal;color:var(--accent)}
 .hero p.lead{font-size:17px;color:var(--ink-2);margin:0 0 26px}
 .hero .note{font-size:13px;color:var(--ink-3);margin-top:12px}
-.shot{border-radius:12px;border:1px solid var(--line);box-shadow:0 18px 50px -20px rgba(0,0,0,.35);width:100%;display:block}
+.shot{border-radius:14px;border:1px solid var(--line);box-shadow:0 18px 50px -20px rgba(0,0,0,.35);width:100%;display:block}
 .feat{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:10px 0 44px}
-.feat div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+.feat div{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
 .feat b{display:block;margin:6px 0 4px} .feat span{font-size:13.5px;color:var(--ink-2)}
 .feat i{font-style:normal;font-size:22px}
 .how{display:grid;grid-template-columns:1fr 1.1fr;gap:36px;align-items:center;padding:20px 0 56px}
@@ -103,8 +120,9 @@ def landing(lang: str = "zh") -> HTMLResponse:
     steps = "".join(f"<li><b>{h}</b>——{d}</li>" if lang != "en" else f"<li><b>{h}</b> — {d}</li>"
                     for h, d in t["steps"])
     body = f"""<div class="wrap">
-<nav><span style="font-size:20px">🛬</span><b>joblander</b><span class="sp"></span>
-  <span style="margin-right:16px;font-size:14px">{t['switch']}</span><a class="in" href="/auth/login">{t['login']}</a></nav>
+<nav><span class="mark">jl</span><b>joblander</b><span class="sp"></span>
+  <button class="tbtn" onclick="jlTheme()" title="Theme" aria-label="Theme">◐</button>
+  <span style="margin:0 16px;font-size:14px">{t['switch']}</span><a class="in" href="/auth/login">{t['login']}</a></nav>
 <section class="hero">
   <div>
     <h1>{t['h1']}</h1>
@@ -124,7 +142,7 @@ def landing(lang: str = "zh") -> HTMLResponse:
   </div>
 </section>
 <footer>{t['foot']}</footer>
-</div>"""
+</div><script>{THEME_TOGGLE_JS}</script>"""
     return _doc(t["title"], body, LANDING_CSS, lang=lang)
 
 

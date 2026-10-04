@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block title %}joblander{% endblock %}</title>
+<script>
+/* 主题先于首帧生效（否则深色用户每次进页先闪一下白）：light | dark | 缺省 = 跟随系统 */
+try { var t = localStorage.getItem('jl_theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="/static/app.css?v={{ v }}">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛬</text></svg>">
 {% if lang == 'en' %}<script>window.I18N = {{ i18n_js|tojson }};</script>{% endif %}
@@ -12,7 +18,7 @@
 <body>
 <div class="frame">
   <aside class="side">
-    <div class="brand"><span class="glyph">▸▸▸</span><b>joblander</b></div>
+    <a class="brand" href="/" style="color:inherit"><span class="glyph">jl</span><b>joblander</b></a>
     <div class="nav">
       <a href="/" class="{{ 'on' if nav=='dash' }}"><span class="ico">◈</span>{{ _('指挥中心') }}{% if pending_n %}<span class="cnt hot" title="{{ _('{n} 单更新提案等你批（公司页/指挥中心）', n=pending_n) }}">{{ pending_n }}</span>{% endif %}</a>
       <a href="/sourcing" class="{{ 'on' if nav=='src' }}"><span class="ico">◎</span>{{ _('新机会') }}{% if leads_n %}<span class="cnt hot" title="{{ _('{n} 条新线索待决策', n=leads_n) }}">{{ leads_n }}</span>{% endif %}</a>
@@ -26,10 +32,15 @@
       <a href="/settings" class="{{ 'on' if nav=='set' }}"><span class="ico">⚙</span>{{ _('设置') }}</a>
     </div>
     <div class="foot">
-      <div style="margin-bottom:6px">{% if cloud %}<a href="#" onclick="dlg('dlg-feedback');return false">✉ {{ _('反馈') }}</a>{% else %}<a href="https://github.com/Shuailong/joblander/issues" target="_blank">✉ {{ _('反馈') }}</a>{% endif %}</div>
-      {% if cloud %}<div id="quota"><a href="/_gw/account">{{ _('AI 额度…') }}</a></div>
-      <div style="margin-top:4px"><a href="/auth/logout">{{ _('退出登录') }}</a></div>
-      {% else %}<div><span class="dot"></span>{{ _('引擎在线（本机）') }}</div>{% endif %}
+      <div class="theme-sw" role="group" aria-label="{{ _('主题') }}">
+        <button type="button" data-t="light" title="{{ _('浅色') }}" aria-label="{{ _('浅色') }}">☀</button>
+        <button type="button" data-t="auto" title="{{ _('跟随系统') }}" aria-label="{{ _('跟随系统') }}">◐</button>
+        <button type="button" data-t="dark" title="{{ _('深色') }}" aria-label="{{ _('深色') }}">☾</button>
+      </div>
+      <div>{% if cloud %}<a href="#" onclick="dlg('dlg-feedback');return false">✉ {{ _('反馈') }}</a>{% else %}<a href="https://github.com/Shuailong/joblander/issues" target="_blank">✉ {{ _('反馈') }}</a>{% endif %}</div>
+      {% if cloud %}<div id="quota" class="hide-sm"><a href="/_gw/account">{{ _('AI 额度…') }}</a></div>
+      <div class="hide-sm"><a href="/auth/logout">{{ _('退出登录') }}</a></div>
+      {% else %}<div class="hide-sm"><span class="dot"></span>{{ _('引擎在线（本机）') }}</div>{% endif %}
     </div>
   </aside>
   <main class="main">

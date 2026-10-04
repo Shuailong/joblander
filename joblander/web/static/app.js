@@ -162,3 +162,19 @@ function initBackTop(){
   });
 }
 addEventListener('DOMContentLoaded', initBackTop);
+
+// 主题切换：light / dark / auto（跟随系统）。偏好存本机，首帧前由 base.html 头部脚本应用
+function applyTheme(t){
+  const root = document.documentElement;
+  if (t === 'light' || t === 'dark') root.dataset.theme = t; else delete root.dataset.theme;
+  try { t === 'auto' ? localStorage.removeItem('jl_theme') : localStorage.setItem('jl_theme', t); } catch (e) {}
+  document.querySelectorAll('.theme-sw button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+}
+addEventListener('DOMContentLoaded', () => {
+  let cur = 'auto';
+  try { cur = localStorage.getItem('jl_theme') || 'auto'; } catch (e) {}
+  document.querySelectorAll('.theme-sw button').forEach(b => {
+    b.classList.toggle('on', b.dataset.t === cur);
+    b.addEventListener('click', () => applyTheme(b.dataset.t));
+  });
+});
