@@ -166,12 +166,22 @@ def mcf_job_detail(uuid: str, timeout: int = 20) -> dict[str, Any]:
         return json.loads(resp.read().decode())
 
 
-def mcf_to_lead(job: dict[str, Any], detail: dict[str, Any] | None = None) -> dict[str, Any]:
+# 线索卡上由代码拼出的几句话（不是 LLM 写的），跟着输出语言走
+_LEAD_TEXT = {
+    "zh": {"listed": "（MCF 挂牌）", "mcf": "MCF 挂牌", "li": "LinkedIn 挂牌", "next": "看 JD 原文，对口就投"},
+    "en": {"listed": " (MCF listing)", "mcf": "MCF listing", "li": "LinkedIn listing",
+           "next": "Read the JD; apply if it fits"},
+}
+
+
+def mcf_to_lead(job: dict[str, Any], detail: dict[str, Any] | None = None,
+                lang: str = "zh") -> dict[str, Any]:
+    tx = _LEAD_TEXT["en" if lang == "en" else "zh"]
     sal = job.get("salary") or {}
     comp = []
     if sal.get("minimum") and sal.get("maximum"):
         cycle = ((sal.get("type") or {}).get("salaryType") or "Monthly")
-        comp.append(f"{sal['minimum']}–{sal['maximum']} SGD/{cycle}（MCF 挂牌）")
+        comp.append(f"{sal['minimum']}–{sal['maximum']} SGD/{cycle}{tx['listed']}")
     md = job.get("metadata") or {}
     url = md.get("jobDetailsUrl") or MCF_JOB_URL.format(uuid=job.get("uuid", ""))
     lead = {
@@ -181,9 +191,9 @@ def mcf_to_lead(job: dict[str, Any], detail: dict[str, Any] | None = None) -> di
         "location": "Singapore",
         "comp_mentions": comp,
         "urls": [url],
-        "highlight": f"MCF 挂牌 {md.get('newPostingDate') or ''}"
-                     + (f"；{comp[0]}" if comp else ""),
-        "suggested_next_step": "看 JD 原文，对口就投",
+        "highlight": f"{tx['mcf']} {md.get('newPostingDate') or ''}"
+                     + ((f"; {comp[0]}" if lang == "en" else f"；{comp[0]}") if comp else ""),
+        "suggested_next_step": tx["next"],
         "contact": {"channel": "mcf"},
     }
     if detail:
@@ -244,6 +254,8 @@ class _Run:
         self.excl = [e.casefold() for e in self.prefs.get("exclude") or []]
         self.outs: list[Path] = []
         self.fetched = 0
+        from joblander.llm import output_lang
+        self.lang = output_lang(cfg)
 
     def admit(self, uid: str, posted: str, company: str, title: str) -> bool:
         """不需要 JD 详情就能判的闸：见过 / 过期 / 同轮重复 / 排除词。过闸才值得拉详情。"""
@@ -319,14 +331,14 @@ def source_mcf(cfg, llm, days: int = 2, limit_per_kw: int = 20,
         for job in jobs:
             uuid = job.get("uuid") or ""
             posted = (job.get("metadata") or {}).get("newPostingDate") or ""
-            lead = mcf_to_lead(job)
+            lead = mcf_to_lead(job, lang=run.lang)
             if not run.admit(uuid, posted, lead.get("company") or "", lead.get("position") or ""):
                 continue
             verdict = run.tracked(lead)
             if verdict is None:
                 continue
             try:                                 # JD 正文供 requirements 初筛；拉不到不阻塞
-                lead = mcf_to_lead(job, mcf_job_detail(uuid))
+                lead = mcf_to_lead(job, mcf_job_detail(uuid), lang=run.lang)
             except Exception:
                 pass
             run.propose(lead, verdict, kw, uuid)
@@ -386,7 +398,9 @@ def parse_linkedin_detail(page: str) -> dict[str, Any]:
     return {"description": _txt(m.group(1)) if m else "", "criteria": crit}
 
 
-def linkedin_to_lead(card: dict[str, str], detail: dict[str, Any] | None = None) -> dict[str, Any]:
+def linkedin_to_lead(card: dict[str, str], detail: dict[str, Any] | None = None,
+                     lang: str = "zh") -> dict[str, Any]:
+    tx = _LEAD_TEXT["en" if lang == "en" else "zh"]
     lead = {
         "category": "job_lead",
         "company": card.get("company"),
@@ -394,15 +408,15 @@ def linkedin_to_lead(card: dict[str, str], detail: dict[str, Any] | None = None)
         "location": card.get("location") or "",
         "comp_mentions": [],
         "urls": [card.get("url")],
-        "highlight": f"LinkedIn 挂牌 {card.get('posted') or ''}".strip(),
-        "suggested_next_step": "看 JD 原文，对口就投",
+        "highlight": f"{tx['li']} {card.get('posted') or ''}".strip(),
+        "suggested_next_step": tx["next"],
         "contact": {"channel": "linkedin"},
     }
     if detail:
         lead["jd_excerpt"] = (detail.get("description") or "")[:2500]
         crit = detail.get("criteria") or {}
         if crit.get("Seniority level"):
-            lead["highlight"] += f"；{crit['Seniority level']}"
+            lead["highlight"] += ("; " if lang == "en" else "；") + crit["Seniority level"]
     return lead
 
 
@@ -429,14 +443,14 @@ def source_linkedin(cfg, llm, days: int = 2, pages_per_kw: int = 1,
             for card in cards:
                 if not run.admit(card["id"], card["posted"], card["company"], card["title"]):
                     continue
-                lead = linkedin_to_lead(card)
+                lead = linkedin_to_lead(card, lang=run.lang)
                 verdict = run.tracked(lead)
                 if verdict is None:
                     continue
                 try:
                     time.sleep(1)                  # 礼貌间隔：一人一晚几十个请求，不扎堆
                     lead = linkedin_to_lead(card, parse_linkedin_detail(
-                        _li_get(LI_DETAIL.format(id=card["id"]))))
+                        _li_get(LI_DETAIL.format(id=card["id"]))), lang=run.lang)
                 except Exception:
                     pass
                 run.propose(lead, verdict, kw, card["id"])

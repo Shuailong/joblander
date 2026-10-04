@@ -269,8 +269,17 @@ def create_app(with_daemon: bool = True) -> FastAPI:
     async def _ui_lang(request, call_next):
         """界面语言：设置里选过的优先，否则跟浏览器。contextvar 随请求走，模板与报错都读它。"""
         from joblander.web import i18n
-        i18n.set_lang(i18n.pick_lang(cfg.raw.get("ui_lang"),
-                                     request.headers.get("accept-language")))
+        lang = i18n.pick_lang(cfg.raw.get("ui_lang"), request.headers.get("accept-language"))
+        i18n.set_lang(lang)
+        # 第一次打开页面就把语言记进配置：后台任务、夜扫、AI 输出都没有浏览器请求可看，
+        # 只认配置。之后在设置里切换会覆盖它。
+        if (not cfg.raw.get("ui_lang") and request.method == "GET"
+                and "text/html" in (request.headers.get("accept") or "")):
+            from joblander.config import update_config
+            try:
+                update_config(cfg, {"ui_lang": lang})
+            except OSError:
+                pass
         return await call_next(request)
 
     @app.middleware("http")
@@ -626,7 +635,8 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                 tl_groups[-1]["entries"].append(e)
             else:
                 try:
-                    wd = "一二三四五六日"[datetime.fromisoformat(d).weekday()]
+                    wd = _t(["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+                            [datetime.fromisoformat(d).weekday()])
                 except Exception:
                     wd = ""
                 tl_groups.append({"date": d, "weekday": wd, "entries": [e]})
@@ -867,7 +877,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         for hp in sorted(mdir.glob("resume*.html")) if mdir.exists() else []:
             pp = next((p for p in (hp.with_suffix(".pdf"), *mdir.glob(f"{hp.stem}*.pdf"))
                        if p.exists()), None)
-            label = "标准版" if hp.name == "resume.html" else hp.stem.replace("resume-", "")
+            label = _t("标准版") if hp.name == "resume.html" else hp.stem.replace("resume-", "")
             generic.append({
                 "label": label, "html": f"03-materials/{hp.name}",
                 "pdf": f"03-materials/{pp.name}" if pp else "",

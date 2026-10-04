@@ -205,12 +205,15 @@ class Daemon:
                 .replace(" ", "-").replace("/", "-")[:30]
             stamp = now.strftime("%Y-%m-%d-%H%M%S")
             if g["type"] == "missing_calendar":
+                from joblander.llm import output_lang
+                en = output_lang(self.cfg) == "en"     # 后台作业没有请求语言，按配置
                 prop = {"kind": "calendar.event", "company": g["company"],
                         "notion_page_id": g.get("page_id"),
-                        "title": f"面试：{g['company']}",
+                        "title": (f"Interview: {g['company']}" if en else f"面试：{g['company']}"),
                         "date": g.get("date") or "", "time": "",
                         "duration_min": 60,
-                        "note": "tracker 已排面但日历没这场——补上时间，确认即建",
+                        "note": ("interview in the pipeline but not on your calendar — add the time and confirm"
+                                 if en else "tracker 已排面但日历没这场——补上时间，确认即建"),
                         "approved": None}
                 fn = f"{stamp}-{slug}-calgap.json"
             else:

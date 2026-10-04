@@ -177,7 +177,43 @@ class GeminiChat:
         return data["candidates"][0]["content"]["parts"][0]["text"]
 
 
+# 英文界面时附加在每个 system prompt 末尾。提示词本身是中文写的，所以要点名：哪些照旧（JSON 键、
+# 代码要比对的固定取值），哪些改英文（一切给人读的文字）。固定取值显示时由界面层再翻。
+ENGLISH_OUTPUT = """
+
+【OUTPUT LANGUAGE — overrides any language instruction above】
+The user reads English. Write every human-readable string in natural, professional English:
+summaries, explanations, reasons, drafts, notes, headings, bullet points, markdown documents, resumes.
+Keep EXACTLY as specified above (do not translate):
+- JSON keys and structure;
+- any enumerated / fixed values the instructions define for a field (for example 不符, 存疑, 缺, 死角, 达标,
+  category or type labels, status names) — copy them character for character;
+- facts: names, companies, titles, numbers, dates, URLs, quoted source text."""
+
+
+class OutputLanguage:
+    """给任意 LLMClient 套上输出语言指令；不改提示词本体，所有 Agent 一处生效。"""
+
+    def __init__(self, inner: LLMClient, suffix: str):
+        self.inner, self.suffix = inner, suffix
+        self.model = getattr(inner, "model", "")
+
+    def generate(self, prompt: str, system: str | None = None, json_mode: bool = False,
+                 effort: str | None = None) -> str:
+        return self.inner.generate(prompt, system=(system or "") + self.suffix,
+                                   json_mode=json_mode, effort=effort)
+
+
+def output_lang(cfg) -> str:
+    return "en" if (cfg.raw.get("ui_lang") if cfg is not None else None) == "en" else "zh"
+
+
 def from_config(cfg, tier: str = "pro") -> LLMClient:
+    client = _from_config(cfg, tier)
+    return OutputLanguage(client, ENGLISH_OUTPUT) if output_lang(cfg) == "en" else client
+
+
+def _from_config(cfg, tier: str = "pro") -> LLMClient:
     """tier 模型分层（§8.4 简化版）：
     - "pro"   质量敏感：复盘、简历定制、公司评估、能力画像、周报、调研
     - "flash" 高频/结构化：抽取、初筛、扫描分类、字段建议、日记草稿

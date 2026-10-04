@@ -93,11 +93,22 @@ def skip(cfg) -> None:
     p.write_text("1", encoding="utf-8")
 
 
-def render_bank(sections: list[dict]) -> str:
+RED_LINE_SECTION_EN = """## 【⚠️ 素材使用注意 · Usage rules】
+
+- Use only the facts written in this bank; experience or numbers not in here must never appear in anything sent out
+- Use numbers verbatim — no rounding, no changing the basis
+- This bank was split automatically from your old resume — review each section and add detail before relying on it"""
+
+
+def render_bank(sections: list[dict], lang: str = "zh") -> str:
     """LLM 的结构化拆分 → 弹药库 markdown。条目编号 A1、A2… 全库连续——
     教练归档、brief 引用与 brief_eval 的幻觉编号检查都靠它。"""
-    out = ["# 战绩弹药库", "",
-           "> 由旧简历自动拆出的初稿。逐段核对、补上简历里装不下的细节——这里写得越实，定制简历越好。"]
+    out = (["# Achievement Arsenal", "",
+            "> First draft split from your old resume. Review each section and add the details your resume "
+            "had no room for — the richer this is, the better your tailored resumes."]
+           if lang == "en" else
+           ["# 战绩弹药库", "",
+            "> 由旧简历自动拆出的初稿。逐段核对、补上简历里装不下的细节——这里写得越实，定制简历越好。"])
     n = 0
     for s in sections:
         title = str(s.get("title") or "").strip()
@@ -113,7 +124,8 @@ def render_bank(sections: list[dict]) -> str:
                 out.append(detail)
     if not n:
         raise ValueError("没能从简历里拆出任何条目——换一份文字版简历（不是扫描图片）再试")
-    return "\n".join(out) + "\n\n" + RED_LINE_SECTION + "\n"
+    rules = RED_LINE_SECTION_EN if lang == "en" else RED_LINE_SECTION
+    return "\n".join(out) + "\n\n" + rules + "\n"
 
 
 def bootstrap_from_resume(cfg, llm, resume_text: str) -> dict[str, Any]:
@@ -150,7 +162,8 @@ def _bootstrap(cfg, llm, text: str) -> dict[str, Any]:
             system=BANK_SYSTEM, json_mode=True)))
     except (json.JSONDecodeError, ValueError):
         raise ValueError("拆分结果不是合法 JSON——重试一次") from None
-    bank_md = render_bank(raw.get("sections") or [])
+    from joblander.llm import output_lang
+    bank_md = render_bank(raw.get("sections") or [], lang=output_lang(cfg))
     atomic_write_text(bank_path(cfg), bank_md)
 
     wrote_profile = False

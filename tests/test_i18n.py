@@ -11,7 +11,7 @@ from joblander.web.i18n import jsq, pick_lang
 from joblander.web.i18n_en import EN
 
 TPL = Path(__file__).resolve().parents[1] / "joblander" / "web" / "templates"
-TRANSLATED = ["base.html", "settings.html", "sourcing.html", "dashboard.html"]
+TRANSLATED = sorted(p.name for p in TPL.glob("*.html"))
 CJK = re.compile(r"[一-鿿]")
 
 
@@ -64,3 +64,42 @@ def test_language_setting_overrides_browser(client):
     assert '<html lang="en">' in c.get("/settings", headers={"Accept-Language": "zh-CN"}).text
     c.post("/api/settings/lang", data={"lang": "zh"})
     assert '<html lang="zh">' in c.get("/settings", headers={"Accept-Language": "en"}).text
+
+
+def test_english_output_wraps_every_agent(tmp_path, monkeypatch):
+    """英文界面：所有经 from_config 拿到的 LLM 都带上输出语言指令；中文界面原样。"""
+    from joblander import llm as L
+    seen = {}
+    monkeypatch.setattr(L, "_from_config", lambda cfg, tier="pro": type("C", (), {
+        "generate": lambda self, prompt, system=None, json_mode=False, effort=None:
+            seen.update(system=system) or "ok"})())
+    L.from_config(Config(raw={"ui_lang": "en"}, path=None)).generate("p", system="你是评估官")
+    assert seen["system"].startswith("你是评估官") and "OUTPUT LANGUAGE" in seen["system"]
+    assert "不符" in seen["system"]                       # 点名固定取值不许翻
+    L.from_config(Config(raw={}, path=None)).generate("p", system="你是评估官")
+    assert seen["system"] == "你是评估官"
+
+
+def test_first_page_view_persists_language(client):
+    c, cfg = client
+    assert not cfg.raw.get("ui_lang")
+    c.get("/settings", headers={"Accept-Language": "en-US", "Accept": "text/html"})
+    assert cfg.raw["ui_lang"] == "en"                     # 后台任务 / AI 输出从此认它
+    c.get("/settings", headers={"Accept-Language": "zh-CN", "Accept": "text/html"})
+    assert cfg.raw["ui_lang"] == "en"                     # 之后只有设置里能改
+
+
+def test_english_arsenal_scaffold_stays_internal():
+    from joblander import wizard
+    md = wizard.render_bank([{"title": "Acme", "items": [{"headline": "Did X", "detail": ""}]}], lang="en")
+    assert md.startswith("# Achievement Arsenal") and "### A1. Did X" in md
+    from joblander.arsenal import INTERNAL_PAT
+    rules_title = [l for l in md.splitlines() if l.startswith("## ") and "⚠️" in l][0]
+    assert INTERNAL_PAT.search(rules_title)
+
+
+def test_lead_text_follows_language():
+    from joblander import sourcing as S
+    card = {"id": "1", "title": "PM", "company": "A", "location": "SG", "posted": "2026-10-01", "url": "u"}
+    assert S.linkedin_to_lead(card, lang="en")["highlight"] == "LinkedIn listing 2026-10-01"
+    assert S.linkedin_to_lead(card)["highlight"] == "LinkedIn 挂牌 2026-10-01"

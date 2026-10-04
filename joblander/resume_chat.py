@@ -91,7 +91,7 @@ def apply_facts(cfg, facts: list[dict[str, Any]]) -> list[str]:
                 continue
         sec = (f.get("new_section") or "").strip()
         title = (f.get("new_title") or "未归类补充").strip()
-        if "⚠️" in title or "使用注意" in title:
+        if "⚠️" in title or "使用注意" in title or "usage rules" in title.lower():
             continue
         sm = re.search(rf"^## {re.escape(sec)}.*?(?=^## |\Z)", bank, re.M | re.S) if sec else None
         entry = f"### {title}\n\n" + "\n".join(bullets) + "\n"

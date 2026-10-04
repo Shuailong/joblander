@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}练兵场 · joblander{% endblock %}
+{% block title %}{{ _('练兵场 · joblander') }}{% endblock %}
 {% block main %}
-<div class="topbar"><span class="crumb"><b>练兵场</b> / {{ p.title }}</span><span class="sp"></span>
-  <a class="btn" href="/drill?skip={{ p.id }}">🎲 换一题</a>
+<div class="topbar"><span class="crumb"><b>{{ _('练兵场') }}</b> / {{ p.title }}</span><span class="sp"></span>
+  <a class="btn" href="/drill?skip={{ p.id }}">{{ _('🎲 换一题') }}</a>
 </div>
 <h1>{{ p.title }} <span class="pill amber">Medium</span></h1>
-<div class="sub">随机一道 LeetCode Medium。先想清楚「问题 → 数据结构与算法」的映射再动手；卡住了再开提示。一期只支持 Python3。</div>
+<div class="sub">{{ _('随机一道 LeetCode Medium。先想清楚「问题 → 数据结构与算法」的映射再动手；卡住了再开提示。一期只支持 Python3。') }}</div>
 
 <div class="grid2 drgrid">
   <div class="card">
@@ -17,7 +17,7 @@ Output: {{ ex[1] }}</div>
     {% endfor %}
     <div class="note"><b>Constraints</b></div>
     <ul class="drcons">{% for c in p.constraints %}<li>{{ c }}</li>{% endfor %}</ul>
-    <details style="margin-top:12px"><summary class="note" style="cursor:pointer">💡 提示（先自己做映射，别急着开）</summary>
+    <details style="margin-top:12px"><summary class="note" style="cursor:pointer">{{ _('💡 提示（先自己做映射，别急着开）') }}</summary>
       <div class="note" style="margin-top:6px"><span class="pill teal">{{ p.pattern }}</span></div>
       <div class="note">{{ p.hint }}</div>
     </details>
@@ -25,9 +25,9 @@ Output: {{ ex[1] }}</div>
   <div class="card">
     <textarea id="dr-code" class="dr-ed" spellcheck="false"></textarea>
     <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
-      <button class="btn pri" id="dr-run">▶ 运行全部用例</button>
-      <button class="btn" id="dr-reset" title="清空草稿，回到起始模板">重置</button>
-      <span class="note" style="margin:0">⌘/Ctrl + Enter 运行 · 草稿自动保存在本机</span>
+      <button class="btn pri" id="dr-run">{{ _('▶ 运行全部用例') }}</button>
+      <button class="btn" id="dr-reset" title="{{ _('清空草稿，回到起始模板') }}">{{ _('重置') }}</button>
+      <span class="note" style="margin:0">{{ _('⌘/Ctrl + Enter 运行 · 草稿自动保存在本机') }}</span>
     </div>
     <div id="dr-out"></div>
   </div>
@@ -54,10 +54,10 @@ document.getElementById("dr-reset").onclick = () => {
 const esc = t => String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 async function runDrill() {
   const out = await post("/api/drill/run", { id: DR.id, code: ed.value },
-                         { btn: document.getElementById("dr-run"), ok: "判题完成" });
+                         { btn: document.getElementById("dr-run"), ok: {{ _('判题完成')|jsq }} });
   if (!out) return;
-  const head = { pass: ["pass", "✓ 全部通过"], fail: ["block", "✗ 未通过"],
-                 error: ["block", "⛔ 运行错误"], timeout: ["warn", "⏱ 超时"] }[out.verdict];
+  const head = { pass: ["pass", {{ _('✓ 全部通过')|jsq }}], fail: ["block", {{ _('✗ 未通过')|jsq }}],
+                 error: ["block", {{ _('⛔ 运行错误')|jsq }}], timeout: ["warn", {{ _('⏱ 超时')|jsq }}] }[out.verdict];
   const ms = (out.cases || []).reduce((s, c) => s + (c.ms || 0), 0);
   let h = `<div class="sentinel ${head[0]}">${head[1]} · ${out.passed}/${out.total} 用例` +
           (out.verdict === "pass" ? ` · ${ms.toFixed(0)} ms` : "") + `</div>`;
@@ -70,7 +70,7 @@ async function runDrill() {
     h += `<div class="dr-case"><b>#${c.i}</b>
 输入　${esc(c.args)}
 期望　${esc(c.expected)}
-${c.err ? "" : "实际　" + esc(c.got)}</div>`;
+${c.err ? "" : {{ _('实际　')|jsq }} + esc(c.got)}</div>`;
     if (c.err) h += `<pre class="dr-err">${esc(c.err)}</pre>`;
   });
   if (out.stdout) h += `<details class="note"><summary style="cursor:pointer">调试输出（print）</summary><pre class="dr-err">${esc(out.stdout)}</pre></details>`;
