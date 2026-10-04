@@ -271,3 +271,23 @@ def test_reset_destroys_and_reprovisions(store):
     assert ("DELETE", "/v1/apps/users/machines/m_old", None) in calls
     assert ("DELETE", "/v1/apps/users/volumes/vol_old", None) in calls
     assert "准备独立空间" in c.get("/").text                        # 下次访问 = 新用户开通
+
+
+def test_cli_reset_runs(store, tmp_path, monkeypatch):
+    """管理命令 reset 走得通（曾因函数定义在入口之后而 NameError——网页路径的测试覆盖不到）。"""
+    import runpy, sys
+    store.create("a@x.com", 1.0)
+    store.set_status("a@x.com", "ready", machine_id="m1", volume_id="v1")
+    calls = []
+    monkeypatch.setenv("GW_DB", store.db.execute("PRAGMA database_list").fetchone()[2])
+    monkeypatch.setenv("FLY_API_TOKEN", "tok")
+    import gw.flyapi as F
+    orig = F.Fly.__init__
+    transport = httpx.MockTransport(lambda req: calls.append((req.method, req.url.path)) or httpx.Response(200, json={}))
+    def fake_init(self, token, app, region, client=None):
+        orig(self, token, app, region, httpx.AsyncClient(transport=transport))
+    monkeypatch.setattr(F.Fly, "__init__", fake_init)
+    monkeypatch.setattr(sys, "argv", ["gw.cli", "reset", "a@x.com"])
+    runpy.run_module("gw.cli", run_name="__main__")
+    assert store.get("a@x.com").machine_id is None
+    assert {m for m, *_ in calls} == {"DELETE"}

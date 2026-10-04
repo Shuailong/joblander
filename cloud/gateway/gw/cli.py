@@ -60,9 +60,6 @@ async def _upgrade(store: Store, image: str) -> None:
         print(f"{u.email}: → {image}")
 
 
-if __name__ == "__main__":
-    main(sys.argv[1:])
-
 
 async def _reset(store: Store, email: str) -> None:
     u = store.get(email)
@@ -76,3 +73,7 @@ async def _reset(store: Store, email: str) -> None:
         await fly.delete_volume(u.volume_id)
     store.clear_machine(email)
     print(f"{email}: 已重置，下次登录重新开通（额度保留 ${store.get(email).balance_usd:.2f}）")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
