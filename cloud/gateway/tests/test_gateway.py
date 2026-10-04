@@ -196,3 +196,11 @@ def test_bad_state_is_refused(store):
     c = _client(store, _fly([]), _upstream([]))
     c.cookies.set("jl_state", "a")
     assert "登录失败" in c.get("/auth/callback?code=c&state=b").text
+
+
+def test_balance_endpoint(store):
+    store.create("a@x.com", 2.0)
+    store.charge("a@x.com", "m-pro", 0, 0, 0.5)
+    c = _client(store, _fly([]), _upstream([]), "a@x.com")
+    assert c.get("/_gw/balance").json() == {"balance_usd": 1.5, "credit_usd": 2.0, "spent_usd": 0.5}
+    assert _client(store, _fly([]), _upstream([])).get("/_gw/balance").status_code == 401

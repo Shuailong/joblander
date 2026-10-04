@@ -12,9 +12,7 @@
       <button class="btn" onclick="dlg('dlg-slots')" title="贴入含时间的邀约：抽取候选时段 → 对照日历跑排期规则 → 推荐 + 回复草稿（你来发）">📅 排期</button>
       <button class="btn" onclick="dlg('dlg-research')" title="尽调员多轮检索出带来源简介；有料可喂入当种子，留空全自动">🔎 尽调</button>
       <button class="btn" onclick="post('/api/company/referral',{page_id:PID},{})" title="按 LinkedIn 人脉地图选内推人 + 触达草稿（你来发）落时间线">🤝 内推</button>
-      {# Notion 唯一入口（正文不再同步，历史纪要点这看）：url 缺失时按 page_id 兜底 #}
-      {% if r.url or r.notion_page_id %}<a class="btn" href="{{ r.url or 'https://www.notion.so/' ~ (r.notion_page_id | replace('-', '')) }}" target="_blank" title="公司页正文在 Notion——本地只存时间线与档案">Notion ↗</a>{% endif %}
-      <button class="btn danger" onclick="delRow(this)" title="从作战室删除这行：Notion 归档（垃圾桶可恢复）；本地档案与时间线保留">🗑 删除</button>
+      <button class="btn danger" onclick="delRow(this)" title="从作战室删除这行；公司档案与时间线保留">🗑 删除</button>
     </div>
   </details>
 </div>
@@ -123,7 +121,7 @@
 {% if match_radar %}<script defer>addEventListener('DOMContentLoaded',()=>drawRadar(document.getElementById('cradar'), {{ match_radar | tojson }}));</script>{% endif %}
 
 {% if props %}
-<h2 id="pending">待你批（{{ props|length }}）<span class="note" style="text-transform:none;letter-spacing:0">面后录入 / 跟进更新——批准才写入档案与 Notion 字段（正文只存本地）；字段框可先改</span></h2>
+<h2 id="pending">待你批（{{ props|length }}）<span class="note" style="text-transform:none;letter-spacing:0">面后录入 / 跟进更新——批准才写入档案；字段框可先改</span></h2>
 {% for p in props %}
 <div class="prop" style="border-left:3px solid var(--amber)">
   <div class="hd">{% if p.origin == 'scout.followup' %}<span class="pill amber">Scout · 跟进更新</span>{% elif p.origin == 'note.suggest' %}<span class="pill gray">记录 · 字段建议</span>{% else %}<span class="pill blue">Scribe · 面后录入</span>{% endif %}<b>{{ p.company }}</b>
@@ -253,7 +251,7 @@
   </script>
 </div>
 
-<h2 id="tl">时间线 <span class="note" style="text-transform:none;letter-spacing:0">按日分组 · 点标题展开 ｜ <span class="who ai">AI</span> 系统产出 · <span class="who h">人工</span> 你写的 ｜ 附件挂在事件上 ｜ 只存本地，Notion 原文走页顶 ↗</span></h2>
+<h2 id="tl">时间线 <span class="note" style="text-transform:none;letter-spacing:0">按日分组 · 点标题展开 ｜ <span class="who ai">AI</span> 系统产出 · <span class="who h">人工</span> 你写的 ｜ 附件挂在事件上</span></h2>
 <div class="tl2">
   {% for g in tl_groups %}
   <div class="tlg">
@@ -487,7 +485,7 @@ async function delRow(btn){
     return;
   }
   const out = await post('/api/row/archive', {page_id: PID},
-                         {ok: '已删除——Notion 垃圾桶可恢复，本地档案保留'});
+                         {ok: '已删除——公司档案保留'});
   if (out) setTimeout(()=>location='/pipeline', 600);
 }
 function saveEntry(btn){

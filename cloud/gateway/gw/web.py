@@ -178,6 +178,16 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         resp.delete_cookie(SESSION_COOKIE)
         return resp
 
+    @app.get("/_gw/balance")
+    async def balance(request: Request):
+        """侧栏额度显示：浏览器同源直接问网关，不经用户 machine。"""
+        email = current(request)
+        user = store.get(email) if email else None
+        if user is None:
+            return Response(status_code=401)
+        return {"balance_usd": round(max(user.balance_usd, 0), 4),
+                "credit_usd": round(user.credit_usd, 4), "spent_usd": round(user.spent_usd, 4)}
+
     @app.get("/_gw/account")
     async def account(request: Request):
         email = current(request)

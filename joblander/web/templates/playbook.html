@@ -11,7 +11,7 @@
 {% if cap and cap.dimensions %}
 <h2>能力画像 <span class="note" style="text-transform:none;letter-spacing:0">估于 {{ cap.built_at }} ｜ 市场侧：{{ cap.sources.jd_high_n if cap.sources.jd_high_n is defined else '—' }} 家{{ '自定义点名' if cap.sources.jd_mode == 'custom' else ' High 机会' }}的 JD ｜ 自身侧：{{ cap.sources.evidence_n }} 份复盘 + {{ cap.sources.gap_signals_n }} 条初筛差距 + 履历 ｜ <span style="color:var(--ink-2)">▬ 市场要求</span> · <span style="color:var(--accent-ink)">▮ 当前能力</span></span></h2>
 {% if cap.sources.jd_companies %}
-<div class="note" style="margin:-6px 0 4px">JD 语料：{% for c in cap.sources.jd_companies %}{{ c.company }}（{{ c.origin }}）{{ '｜' if not loop.last }}{% endfor %}——「无」的去公司页传 JD 或在 Notion 页面挂附件，重估即吃进。</div>
+<div class="note" style="margin:-6px 0 4px">JD 语料：{% for c in cap.sources.jd_companies %}{{ c.company }}（{{ c.origin }}）{{ '｜' if not loop.last }}{% endfor %}——「无」的去公司页传 JD，重估即吃进。</div>
 {% endif %}
 <details class="scopebox" {{ 'open' if scope.mode == 'custom' and not cap.sources.jd_companies }}>
   <summary class="note" style="cursor:pointer;margin:0">⚙ JD 策略：<b>{{ 'High 优先级机会（自动跟随作战室）' if scope.mode == 'high' else '自定义 ' ~ (scope.companies | length) ~ ' 家：' ~ (scope.companies | join('、')) }}</b> — 点开调整</summary>

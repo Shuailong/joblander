@@ -146,7 +146,14 @@ def test_company_stage_flow(client, tmp_path):
 
 
 def test_drill_page_and_run(client):
-    """练兵场：随机出题 302 定格到具体题；判题接口跑通正确/错误两路。"""
+    """练兵场：默认关（入口藏起、跑代码端点拒）；开启后随机出题 302 定格到具体题；
+    判题接口跑通正确/错误两路。"""
+    assert client.get("/drill", follow_redirects=False).status_code == 303
+    assert client.post("/api/drill/run", data={"id": "jump-game", "code": "print(1)"}
+                       ).status_code == 403
+    assert ">练兵场</a>" not in client.get("/pipeline").text
+    assert client.post("/api/settings/features", data={"name": "drill", "on": "1"}
+                       ).status_code == 200
     r = client.get("/drill", follow_redirects=False)
     assert r.status_code == 302 and "/drill?id=" in r.headers["location"]
     html = client.get("/drill?id=jump-game").text
@@ -338,9 +345,10 @@ def test_command_center_v3(client, tmp_path):
 
 
 def test_refresh_all_sources(client, tmp_path, monkeypatch):
-    """全量刷新：数据源行可见；手动端点各自打新鲜度时间戳；日历刷新写缓存。"""
+    """全量刷新：数据源行可见；没连任何外部源时不给刷新按钮（云端新用户点了只会报错）；
+    手动端点各自打新鲜度时间戳；日历刷新写缓存。"""
     html = client.get("/").text
-    assert "数据源：" in html and "全量刷新" in html and "refreshAll" in html
+    assert "数据源：" in html and "全量刷新" not in html
     r = client.post("/api/pull")
     assert r.status_code == 200
     state = json.loads((tmp_path / "ws" / "08-events" / "daemon-state.json").read_text())
@@ -357,6 +365,8 @@ def test_refresh_all_sources(client, tmp_path, monkeypatch):
     state = json.loads((tmp_path / "ws" / "08-events" / "daemon-state.json").read_text())
     assert state["calendar_cache"]["events"][0]["title"] == "Beta 一面"
     assert state.get("last.calendar_watch")
+    html = client.get("/").text
+    assert "全量刷新" in html and "Google 日历" in html and "Gmail 邮箱" not in html
 
 
 def test_company_entry_edit_api(client, tmp_path):
@@ -646,8 +656,8 @@ def test_visibility_batch(client):
     assert "叙事（1）" in pb                                          # 模式按类型分组
     assert client.get("/wsdoc/13-daily/2026-08-03-weekly.md").status_code == 200
     assert client.get("/wsdoc/01-profile/secret.md").status_code == 404   # 白名单外拒
-    sys_html = client.get("/system").text
-    assert "外部连接" in sys_html and "常驻作业" in sys_html
+    sys_html = client.get("/system").text                         # 旧地址跳到设置页
+    assert "外部连接" in sys_html and "常驻作业" in sys_html and "功能" in sys_html
 
 
 def test_offers_page_and_save(client, tmp_path):

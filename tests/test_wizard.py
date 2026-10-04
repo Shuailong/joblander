@@ -100,8 +100,9 @@ def test_web_flow_redirect_upload_basics_skip(cfg, monkeypatch, tmp_path):
     client = TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1")
 
     r = client.get("/", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/setup"
-    assert "上传一份旧简历" in client.get("/setup").text
+    assert r.status_code == 303 and r.headers["location"] == "/settings"
+    assert "上传一份旧简历" in client.get("/settings").text
+    assert client.get("/setup", follow_redirects=False).headers["location"] == "/settings"
 
     bad = client.post("/api/setup/resume", files={"file": ("cv.exe", b"x")})
     assert bad.status_code == 400
@@ -114,7 +115,7 @@ def test_web_flow_redirect_upload_basics_skip(cfg, monkeypatch, tmp_path):
     r = client.post("/api/setup/basics", data={"target_tc": "250000", "currency": "SGD",
                                                "redlines": "ProjectX\n\n"})
     assert r.status_code == 200
-    assert "ProjectX" in client.get("/setup").text      # 回显的是原词，不是转义后的正则
+    assert "ProjectX" in client.get("/settings").text      # 回显的是原词，不是转义后的正则
     assert client.get("/", follow_redirects=False).status_code == 200
 
 

@@ -17,19 +17,17 @@
       <a href="/sourcing" class="{{ 'on' if nav=='src' }}"><span class="ico">◎</span>新机会{% if leads_n %}<span class="cnt hot" title="{{ leads_n }} 条新线索待决策">{{ leads_n }}</span>{% endif %}</a>
       <a href="/pipeline" class="{{ 'on' if nav=='pipe' }}"><span class="ico">▦</span>作战室</a>
       <a href="/playbook" class="{{ 'on' if nav=='pb' }}"><span class="ico">♟</span>参谋部</a>
-      <a href="/drill" class="{{ 'on' if nav=='drill' }}"><span class="ico">⚔</span>练兵场</a>
+      {% if features.drill %}<a href="/drill" class="{{ 'on' if nav=='drill' }}"><span class="ico">⚔</span>练兵场</a>{% endif %}
       <a href="/arsenal" class="{{ 'on' if nav=='ars' }}"><span class="ico">▤</span>弹药库</a>
     </div>
     <div class="navgrp">系统</div>
     <div class="nav">
-      <a href="/system" class="{{ 'on' if nav=='sys' }}"><span class="ico">⚙</span>系统</a>
-      <a href="/setup" class="{{ 'on' if nav=='setup' }}"><span class="ico">✎</span>开始设置</a>
+      <a href="/settings" class="{{ 'on' if nav=='set' }}"><span class="ico">⚙</span>设置</a>
     </div>
     <div class="foot">
-      <div><span class="dot"></span>引擎在线（127.0.0.1）</div>
-      <div style="margin-top:4px">
-        <a href="#" onclick="post('/api/pull',{},{ok:'已同步 Notion',reload:true});return false" title="自动每 15 分钟拉一次">↻ 同步 Notion{% if notion_pulled %}<span style="opacity:.75">（{{ notion_pulled }}）</span>{% endif %}</a>
-      </div>
+      {% if cloud %}<div id="quota"><a href="/_gw/account">AI 额度…</a></div>
+      <div style="margin-top:4px"><a href="/auth/logout">退出登录</a></div>
+      {% else %}<div><span class="dot"></span>引擎在线（本机）</div>{% endif %}
     </div>
   </aside>
   <main class="main">
@@ -55,6 +53,23 @@
   </div>
 </dialog>
 
+{% if cloud %}
+<script>
+// 云端版：AI 额度来自网关（同源 /_gw/balance）；用完时顶部常驻提示，别等任务失败才知道
+fetch('/_gw/balance').then(r => r.ok ? r.json() : null).then(b => {
+  if (!b) return;
+  const q = document.getElementById('quota');
+  q.innerHTML = `<a href="/_gw/account">AI 额度 $${b.balance_usd.toFixed(2)}</a>`;
+  if (b.balance_usd <= 0.05) {
+    const bar = document.createElement('div');
+    bar.className = 'sentinel warn';
+    bar.style.margin = '0 0 12px';
+    bar.innerHTML = 'AI 额度已用完——生成类功能暂停。<a href="/_gw/account">查看用量</a>，或找邀请你的朋友加额度。';
+    document.querySelector('.main').prepend(bar);
+  }
+}).catch(() => {});
+</script>
+{% endif %}
 <script>
 function dlg(id){ document.getElementById(id).showModal(); }
 function gv(id){ return document.getElementById(id).value; }

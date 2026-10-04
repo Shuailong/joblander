@@ -184,3 +184,20 @@ def save_basics(cfg, target_tc: float, currency: str, redlines: list[str]) -> No
     update_config(cfg, patch)
     EventLog(_ws(cfg) / "08-events" / "event-log.jsonl").append(
         "setup.basics_saved", "human_direct", {"currency": currency, "redlines": len(words)})
+
+
+# ---------- 功能开关 ----------
+# 练兵场偏计算机岗，默认关；关着时代码执行端点直接拒（不只是藏入口）。
+# LinkedIn 抓取走免登录的公开职位接口（条款灰区），默认开、可关。
+FEATURES = {"drill": False, "linkedin": True}
+
+
+def features(cfg) -> dict[str, bool]:
+    raw = cfg.raw.get("features") or {}
+    return {k: bool(raw.get(k, default)) for k, default in FEATURES.items()}
+
+
+def set_feature(cfg, name: str, on: bool) -> None:
+    if name not in FEATURES:
+        raise ValueError(f"未知功能：{name}")
+    update_config(cfg, {"features": {name: on}})

@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}设置 · joblander{% endblock %}
+{% block main %}
+<div class="topbar"><span class="crumb"><b>设置</b></span><span class="sp"></span>
+  {% if not st.done and not st.skipped %}<button class="btn" onclick="post('/api/setup/skip',{},{ok:'已跳过，随时回这里补',then:()=>location='/'})">先跳过，随便看看</button>{% endif %}
+  {% if st.done %}<a class="btn pri" href="/">进入指挥中心 →</a>{% endif %}
+</div>
+{% if not st.done %}
+<h1>三步把 joblander 喂到能用</h1>
+<div class="sub">做完前两步就能生成定制简历、面试 brief 和 Offer 对比。所有内容只存在你自己的空间里。</div>
+{% else %}
+<h1>设置</h1>
+<div class="sub">你的材料、目标与红线、功能开关，以及系统运行状态。</div>
+{% endif %}
+
+<h2 id="start">开始设置</h2>
+<div class="card setup-step" style="margin-bottom:14px">
+  <h2>{{ '✅' if st.bank and st.profile else '①' }} 上传一份旧简历</h2>
+  {% if st.bank %}
+    <p>弹药库已生成。它是之后所有简历和 brief 的<b>唯一事实来源</b>——去逐段核对，补上简历里装不下的细节，写得越实，定制出来越好。</p>
+    <a class="btn" href="/arsenal">打开弹药库核对 →</a>
+    {% if not st.profile %}<div class="sentinel warn" style="margin-top:8px">没能从简历里认出姓名和联系方式——定制简历的抬头需要它，请在 workspace 的 03-materials/profile.json 补上。</div>{% endif %}
+  {% else %}
+    <p>系统会把简历拆成按公司/项目分段的「战绩弹药库」：只搬运简历里写了的事实，不补写、不美化。大约需要一分钟。</p>
+    <input type="file" id="su-file" accept=".pdf,.docx,.md,.txt,.html">
+    <div style="margin-top:8px"><button class="btn pri" onclick="const f=document.getElementById('su-file');if(!f.files.length){toast('先选一个简历文件');return}post('/api/setup/resume',{file:f.files[0]},{btn:this})">上传并生成弹药库</button></div>
+    <div class="note">扫描版 PDF 读不出文字；用 Word 或能选中文字的 PDF。</div>
+  {% endif %}
+</div>
+
+<div class="card setup-step" style="margin-bottom:14px">
+  <h2>{{ '✅' if st.policy else '②' }} 目标薪资与红线</h2>
+  <label>目标年度总包（base + bonus + equity）</label>
+  <div style="display:flex;gap:8px">
+    <input id="su-tc" type="number" min="0" step="1000" value="{{ quote.amount or '' }}" placeholder="例如 250000" style="max-width:200px">
+    <select id="su-cur" style="max-width:110px">
+      {% for c in currencies %}<option {{ 'selected' if c == (quote.currency or 'SGD') }}>{{ c }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="note">对外报价的锚点。Offer 对比按它算差距，屏幕上只显示百分比。</div>
+  <label style="margin-top:12px;display:block">红线词（可空，一行一个）</label>
+  <textarea id="su-red" rows="4" placeholder="不能出现在对外材料里的词：内部项目代号、绩效评级、现薪数字……">{{ redlines }}</textarea>
+  <div class="note">任何生成的简历、消息草稿里出现这些词都会被拦下。</div>
+  <div style="margin-top:8px"><button class="btn pri" onclick="post('/api/setup/basics',{target_tc:gv('su-tc'),currency:gv('su-cur'),redlines:gv('su-red')},{btn:this,ok:'已保存',reload:true})">保存</button></div>
+</div>
+
+<div class="card setup-step" style="margin-bottom:14px">
+  <h2>{{ '✅' if st.prefs else '③' }} 告诉系统你在找什么（可选）</h2>
+  <p>目标岗位、城市、关键词和排除项——「新机会」页的主动侦察按这个给线索打分。</p>
+  <a class="btn" href="/sourcing">去设置求职偏好 →</a>
+</div>
+
+
+<h2 id="features">功能</h2>
+<div class="card setup-step" style="margin-bottom:14px">
+  <div class="row"><div class="body"><b>LinkedIn 职位自动搜索</b>
+    <div class="meta">按求职偏好每晚搜一次 LinkedIn 公开职位（免登录接口），和 MCF 一起打分入池。接口随时可能被 LinkedIn 调整或限流。</div></div>
+    <label class="switch"><input type="checkbox" {{ 'checked' if features.linkedin }} onchange="post('/api/settings/features',{name:'linkedin',on:this.checked?1:0},{ok:this.checked?'已开启':'已关闭'})"><span></span></label></div>
+  <div class="row"><div class="body"><b>练兵场</b>
+    <div class="meta">算法题练习，可在线运行代码——偏软件工程岗位。开启后侧栏出现入口。</div></div>
+    <label class="switch"><input type="checkbox" {{ 'checked' if features.drill }} onchange="post('/api/settings/features',{name:'drill',on:this.checked?1:0},{ok:this.checked?'已开启':'已关闭',reload:true})"><span></span></label></div>
+</div>
+
+<h2 id="system">系统状态</h2>
+<details class="card" style="margin-bottom:14px"{{ ' open' if st.done }}>
+<summary style="cursor:pointer;font-weight:600">Agent、常驻作业与口径守卫 <span class="note" style="font-weight:400">Event Log {{ total_events }} 条{% if fails24 %} · <span style="color:var(--red)">24h 内 {{ fails24 }} 次作业失败</span>{% endif %}</span></summary>
+<div style="margin-top:12px">
+<div class="grid2" style="margin-bottom:12px">
+  <div class="card">
+    <h2 style="margin-top:0">外部连接</h2>
+    {% for c in creds %}
+    <div class="row"><span class="when">{{ '●' if c.ok else '○' }}</span>
+      <div class="body"><b>{{ c.label }}</b> <span class="pill {{ 'green' if c.ok else 'red' }}">{{ c.note }}</span></div></div>
+    {% endfor %}
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">常驻作业 {% if fails24 %}<span class="pill red">24h 内 {{ fails24 }} 次失败</span>{% else %}<span class="pill green">24h 零失败</span>{% endif %}</h2>
+    {% for j in jobs %}
+    <div class="row"><span class="when">{{ '●' if j.ok else '⚠' }}</span>
+      <div class="body">{{ j.label }}<div class="meta num">{{ j.last }}</div></div></div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h2 style="margin-top:0">能力层 <span class="note" style="font-weight:400">（状态以运行代码为准，不照设计文档报）</span></h2>
+    {% for nm, ds, st in [
+      ('Scout · 侦察','邮件/贴入/MCF → 抽取 + 三级查重（集团互斥）+ 夜扫初筛评分','live'),
+      ('Researcher · 调研','尽调员 ReAct 单成员（ADR-16）：可喂料可零输入，MCF 挂牌薪资自动入证据，来源分级','live'),
+      ('Analyst · 军师','策略纯函数：offer 快照在役（/offers）；城市换算已实现未接线','partial'),
+      ('Coordinator · 调度','排期缺口对账 + 日历确认写 + 排期参谋（邀约→规则对照+回复草稿，公司页 📅）','live'),
+      ('Prep · 参谋','brief = 全史+口径卡+Playbook（CLI/T-24h/页面三入口）+ 定制简历','live'),
+      ('Scribe · 书记','转写 → 录入+复盘提案 → 批准落 tracker/档案/Playbook；daemon 收件箱自动触发','live'),
+      ('Sentinel · 宪兵','规则层三型（pattern/precision/pair）横切简历/复盘/入池/审计；判断层 v0（LLM 按清单判定）内嵌复盘链 + CLI check','live')] %}
+    <div class="row"><div class="body"><b>{{ nm }}</b>
+      <span class="pill {{ 'green' if st.startswith('live') else 'amber' }}">{{ st }}</span>
+      <div class="meta">{{ ds }}</div></div></div>
+    {% endfor %}
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">口径守卫 · 你被保护着什么</h2>
+    <div class="note" style="margin-bottom:10px">规则层（正则，零成本）拦事实错误，词表在私有 config，改动后金标回归自动兜底。判断层 v0（LLM 按清单逐条判定 ok/attention）已内嵌复盘链与 CLI check，失败不阻塞（冷落安全）。</div>
+    {% for r in rules %}
+    <div class="row"><div class="body"><span class="num">{{ r.id }}</span>
+      <span class="pill {{ 'red' if r.get('action','block')=='block' else 'amber' }}">{{ '拦截' if r.get('action','block')=='block' else '提醒' }}</span>
+      <div class="meta">{{ r.get('why','') }}</div></div></div>
+    {% endfor %}
+    <details style="margin-top:10px"><summary class="note" style="cursor:pointer">判断层检查清单（{{ checks|length }} 条 · v0 在役于复盘链）</summary>
+    {% for c in checks %}<div class="row"><div class="body meta">{{ c }}</div></div>{% endfor %}</details>
+  </div>
+</div>
+
+<h2>事件分布</h2>
+<div class="card"><div style="display:flex;flex-wrap:wrap;gap:8px">
+  {% for k, v in kinds %}<span class="pill gray"><span class="num">{{ k }}</span>&nbsp;× {{ v }}</span>{% endfor %}
+</div></div>
+</div>
+</details>
+
+<style>
+.setup-step h2{margin:0 0 6px;font-size:15px;color:var(--ink);text-transform:none;letter-spacing:0}
+.setup-step p{margin:0 0 10px;color:var(--ink-2)}
+.setup-step input,.setup-step select,.setup-step textarea{width:100%;font:inherit;padding:6px 8px;border:1px solid var(--line-strong);border-radius:7px;background:var(--surface);color:var(--ink)}
+.setup-step label{font-size:12.5px;color:var(--ink-2)}
+.switch{position:relative;display:inline-block;width:38px;height:22px;flex:none;margin-left:12px}
+.switch input{opacity:0;width:0;height:0}
+.switch span{position:absolute;inset:0;background:var(--line-strong);border-radius:22px;transition:.2s;cursor:pointer}
+.switch span:before{content:"";position:absolute;width:16px;height:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.switch input:checked+span{background:var(--accent)}
+.switch input:checked+span:before{transform:translateX(16px)}
+.setup-step .row{display:flex;align-items:center}
+</style>
+{% endblock %}

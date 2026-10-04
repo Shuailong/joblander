@@ -324,20 +324,41 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         except Exception:
             pass
         kw.setdefault("notion_pulled", np)
+        from joblander import wizard
+        kw.setdefault("features", wizard.features(cfg))
+        kw.setdefault("cloud", bool(os.environ.get("JOBLANDER_GATEWAY_TOKEN")))
+        cred = cfg.workspace_dir / ".credentials"
+        kw.setdefault("conn", {"gmail": (cred / "gmail_token.json").exists(),
+                               "calendar": (cred / "calendar_token.json").exists()})
         return kw
 
     # ---------- 页面 ----------
 
-    @app.get("/setup", response_class=HTMLResponse)
-    def setup_page(request: Request):
+    @app.get("/setup")
+    def setup_moved():
+        return RedirectResponse("/settings", status_code=301)
+
+    @app.get("/settings", response_class=HTMLResponse)
+    def settings_page(request: Request):
+        """设置 = 开始设置三步 + 功能开关 + 系统状态（原「系统」页）。"""
         import re as _re
         from joblander import wizard
         pol = cfg.raw.get("policy") or {}
         rule = next((r for r in cfg.sentinel_rules if r.get("id") == "wizard-redlines"), None)
         redlines = [_re.sub(r"\\(.)", r"\1", p) for p in (rule or {}).get("patterns", [])]
-        return tpl.TemplateResponse(request, "setup.html", ctx(
-            "setup", st=wizard.status(cfg), quote=pol.get("quote_input") or {},
-            currencies=list(wizard.DEFAULT_FX), redlines="\n".join(redlines)))
+        return tpl.TemplateResponse(request, "settings.html", ctx(
+            "set", st=wizard.status(cfg), quote=pol.get("quote_input") or {},
+            currencies=list(wizard.DEFAULT_FX), redlines="\n".join(redlines),
+            features=wizard.features(cfg), **_system_ctx()))
+
+    @app.post("/api/settings/features")
+    def api_settings_features(name: str = Form(...), on: str = Form(...)):
+        from joblander import wizard
+        try:
+            wizard.set_feature(cfg, name, on in ("1", "true", "on"))
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        return {"ok": True}
 
     @app.post("/api/setup/resume")
     async def api_setup_resume(file: UploadFile = File(...)):
@@ -387,7 +408,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
     def dashboard(request: Request):
         from joblander import wizard
         if wizard.needs_setup(cfg):          # 新用户先过向导；跳过过一次就不再拦
-            return RedirectResponse("/setup", status_code=303)
+            return RedirectResponse("/settings", status_code=303)
         rows = _rows()
         today = datetime.now(SGT).strftime("%Y-%m-%d")
         active = [r for r in rows if r.get("Status") in ACTIVE]
@@ -642,8 +663,8 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         from fastapi.responses import RedirectResponse
         return RedirectResponse("/", status_code=302)
 
-    @app.get("/system", response_class=HTMLResponse)
-    def system(request: Request):
+    def _system_ctx() -> dict:
+        """设置页下半区「系统状态」的数据：常驻作业健康度、外部连接、口径规则、事件分布。"""
         log = _log()
         now = datetime.now(SGT)
         cutoff24 = (now - timedelta(hours=24)).isoformat()
@@ -656,7 +677,6 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                 fails24 += 1
         rules = cfg.sentinel_rules
         checks = cfg.raw.get("sentinel", {}).get("judgment_checks", [])
-        from joblander.applyops import notion_write_enabled
 
         state = {}
         spath = cfg.workspace_dir / "08-events" / "daemon-state.json"
@@ -674,15 +694,11 @@ def create_app(with_daemon: bool = True) -> FastAPI:
 
         jobs = []
         for key, label, limit in [("calendar_watch", "日历哨兵（今日场次 + T-24h/T-2h 弹药）", 70),
-                                  # daemon 写的是 last.notion_pull（首页「同步 Notion」也读它）；
-                                  # 这里原先查 last.notion_diff_pull——一个谁都不写的 key，
-                                  # 于是这行健康度在配置完好的情况下也永远显示「未跑」。
-                                  ("notion_pull", "Notion 回流 diff", 40),
                                   ("gmail_scan", "Gmail 扫描（含 Job Alert）", 70)]:
             last = state.get(f"last.{key}") or ""
             jobs.append({"label": label, "last": last[:16].replace("T", " ") or "未跑",
                          "ok": _age_ok(last, limit)})
-        for key, label in [("sourcing", "夜扫 MCF（02:30）"), ("morning", "晨报（08:15）"),
+        for key, label in [("sourcing", "夜扫新机会（02:30）"), ("morning", "晨报（08:15）"),
                            ("diary", "日记草稿（21:30）"), ("weekly", "周报（周日 20:00）")]:
             d = state.get(f"done.{key}") or ""
             jobs.append({"label": label, "last": d or "未跑", "ok": bool(d)})
@@ -693,15 +709,14 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             p = cfg.workspace_dir / ".credentials" / fn
             creds.append({"label": label, "ok": p.exists(),
                           "note": "已连接" if p.exists() else "未连接"})
-        creds.append({"label": "Notion API", "ok": bool(cfg.raw.get("notion", {}).get("token")),
-                      "note": "已配置" if cfg.raw.get("notion", {}).get("token") else "未配置"})
         creds.append({"label": "MyCareersFuture", "ok": True, "note": "公开 API，无需凭证"})
 
-        return tpl.TemplateResponse(request, "system.html", ctx(
-            "sys", total_events=n,
-            kinds=sorted(kinds.items(), key=lambda kv: -kv[1]),
-            rules=rules, checks=checks, notion_write=notion_write_enabled(cfg),
-            jobs=jobs, creds=creds, fails24=fails24))
+        return dict(total_events=n, kinds=sorted(kinds.items(), key=lambda kv: -kv[1]),
+                    rules=rules, checks=checks, jobs=jobs, creds=creds, fails24=fails24)
+
+    @app.get("/system")
+    def system_moved():
+        return RedirectResponse("/settings#system", status_code=301)
 
     @app.get("/briefs")
     def briefs_gone():
@@ -861,6 +876,9 @@ def create_app(with_daemon: bool = True) -> FastAPI:
     def drill_page(request: Request, id: str = "", skip: str = ""):
         from fastapi.responses import RedirectResponse
 
+        from joblander import wizard
+        if not wizard.features(cfg)["drill"]:
+            return RedirectResponse("/settings#features", status_code=303)
         from joblander.drill import get_problem, random_problem
         p = get_problem(id) if id else None
         if not p:
@@ -871,6 +889,9 @@ def create_app(with_daemon: bool = True) -> FastAPI:
 
     @app.post("/api/drill/run")
     def api_drill_run(id: str = Form(...), code: str = Form(...)):
+        from joblander import wizard
+        if not wizard.features(cfg)["drill"]:     # 关着就不跑任何代码——不只是藏入口
+            return JSONResponse({"error": "练兵场未开启（设置 → 功能）"}, status_code=403)
         from joblander.drill import run_drill
         out = run_drill(id, code)
         if not out.get("ok"):
