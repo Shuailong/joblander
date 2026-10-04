@@ -133,7 +133,7 @@ def _client(store, fly, upstream, email=None):
 def test_anonymous_sees_login_and_api_gets_401(store):
     c = _client(store, _fly([]), _upstream([]))
     assert "用 Google 登录" in c.get("/").text
-    assert c.get("/_gw/static/command-center.jpg").status_code == 200
+    assert c.get("/_gw/static/shots/command-center-zh-light.webp").status_code == 200
     assert c.post("/api/drill/run").status_code == 401
 
 
@@ -233,12 +233,12 @@ def test_search_charges_per_call_and_respects_budget(store):
 
 def test_gateway_pages_follow_language(store):
     c = _client(store, _fly([]), _upstream([]))
-    assert "Sign in with Google" in c.get("/", headers={"Accept-Language": "en-US"}).text
+    assert "Continue with Google" in c.get("/", headers={"Accept-Language": "en-US"}).text
     assert "用 Google 登录" in c.get("/", headers={"Accept-Language": "zh-CN"}).text
     r = c.get("/_gw/lang?to=en", follow_redirects=False)
     assert r.status_code == 302 and "jl_lang=en" in r.headers["set-cookie"]
     c.cookies.set("jl_lang", "en")
-    assert "Sign in with Google" in c.get("/", headers={"Accept-Language": "zh-CN"}).text
+    assert "Continue with Google" in c.get("/", headers={"Accept-Language": "zh-CN"}).text
     c.cookies.set("jl_state", "a")
     assert "Sign-in failed" in c.get("/auth/callback?code=c&state=b").text
     store.create("a@x.com", 2.0)

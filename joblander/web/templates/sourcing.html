@@ -19,8 +19,8 @@
     {% for g in (p.fit or {}).get('req_gaps') or [] %}
     <div class="meta" style="color:{{ 'var(--red)' if g.verdict=='不符' else 'var(--amber)' }}">{{ '⛔' if g.verdict=='不符' else '❓' }} {{ g.req }} — {{ g.note }}</div>
     {% endfor %}
-    {% for fl in (p.fit or {}).get('flags') or [] %}<div class="meta">⚠️ {{ fl }}</div>{% endfor %}
-    {% if p.lead.comp_mentions %}<div class="meta">💰 {{ p.lead.comp_mentions | join('；') }}</div>{% endif %}
+    {% for fl in (p.fit or {}).get('flags') or [] %}<div class="meta warnln">{{ icon("alert", 13) }}{{ fl }}</div>{% endfor %}
+    {% if p.lead.comp_mentions %}<div class="meta">{{ icon("coins", 13) }}{{ p.lead.comp_mentions | join('；') }}</div>{% endif %}
     {% if p.lead.market_ref %}<div class="meta">📊 {{ p.lead.market_ref }}</div>{% endif %}
   </div>
   <button class="btn pri" onclick="post('/api/proposal/apply',{file:'{{ p._file }}'},{btn:this,ok:{{ _('已入池')|jsq }},reload:true})" title="{{ _('tracker 建行（线索列）+ 建公司档案') }}">{{ _('批准入池') }}</button>
@@ -45,14 +45,14 @@
 <div class="sub">{{ _('每晚 02:30 按你的偏好搜 {src} 的新岗位 → 去重 → 对照弹药库打匹配分、初筛硬性要求 → 在这里等你决定入不入池。', src='MyCareersFuture' ~ (_(' 和 LinkedIn') if features.linkedin else '')) }}</div>
 
 {% if prefs.get('guessed') %}
-<div class="card" style="border-left:3px solid var(--amber);margin-bottom:16px">
+<div class="card tint-amber" style="margin-bottom:16px">
   <b>{{ _('下面这组搜索偏好是根据你的简历猜的') }}</b>
   <p style="margin:6px 0 10px;color:var(--ink-2)">{{ _('首轮搜索已经按它跑过了。核对一下关键词和地点——改准了，之后每晚的搜索和打分都会更准。') }}</p>
   <button class="btn" onclick="togPrefs(true);document.getElementById('prefs').scrollIntoView({behavior:'smooth'})">{{ _('✎ 核对偏好') }}</button>
 </div>
 {% endif %}
 {% if not prefs.get('keywords') %}
-<div class="card" style="border-left:3px solid var(--accent);margin-bottom:16px">
+<div class="card tint-accent" style="margin-bottom:16px">
   <b>{{ _('先告诉系统你在找什么') }}</b>
   <p style="margin:6px 0 10px;color:var(--ink-2)">{{ _('在下方「搜索偏好」填目标岗位关键词（比如 <span class="num">Product Manager, Data Engineer</span>）和地点，然后点「立即搜」。')|safe }}</p>
   <button class="btn pri" onclick="togPrefs(true);document.getElementById('prefs').scrollIntoView({behavior:'smooth'})">{{ _('✎ 填搜索偏好') }}</button>
@@ -76,7 +76,7 @@
   <button class="btn" onclick="selBy('all')">{{ _('全选') }}</button>
   <button class="btn" onclick="selBy('')">{{ _('清除') }}</button>
   <span class="sp"></span>
-  <button class="btn danger" onclick="batchReject(this)" title="{{ _('所选全部否决——只记账，可反悔') }}">{{ _('否决所选') }} (<span id="seln">0</span>)</button>
+  <button class="btn danger" onclick="batchReject(this)" title="{{ _('所选全部否决——只记账，可反悔') }}"><span>{{ _('否决所选') }} (<span id="seln">0</span>)</span></button>
 </div>
 {% for g in good %}{{ groupcard(g) }}{% endfor %}
 {% if low %}

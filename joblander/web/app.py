@@ -300,6 +300,8 @@ def create_app(with_daemon: bool = True) -> FastAPI:
     from joblander.web import i18n
     tpl.env.globals["_"] = i18n._
     tpl.env.filters["jsq"] = i18n.jsq
+    from joblander.web.icons import icon
+    tpl.env.globals["icon"] = icon
     # 静态资源版本号（进程启动时间戳）：改了 css/js 重启即生效，不吃浏览器缓存的旧文件
     tpl.env.globals["v"] = datetime.now(SGT).strftime("%m%d%H%M%S")
 

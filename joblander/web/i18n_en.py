@@ -1126,7 +1126,13 @@ EN: dict[str, str] = {' High 机会': ' high-priority leads',
  '🗑 清空重来': '🗑 Start over',
  '🗑 确认删除？': '🗑 Confirm delete?',
  '🤝 内推': '🤝 Referral',
- '🧭 我的复盘': '🧭 My debrief'}
+ '🧭 我的复盘': '🧭 My debrief',
+ '近 4 天场次': 'Next 4 days',
+ '现在就做（按序）': 'Do now (in order)',
+ '今日日记': "Today's diary",
+ '我的手记': 'My notes',
+ '无逾期': 'nothing overdue',
+ '无面试场次': 'No interviews'}
 
 
 

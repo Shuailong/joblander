@@ -1,168 +1,309 @@
-"""网关自己的几张页面：未登录首页、开通等待页、通用提示页。
+"""网关自己的几张页面：未登录首页（登录页）、开通等待页、通用提示页。
 
-和引擎 UI 同一套色板（--accent #0E6E62），深色模式跟随系统；截图来自虚构演示数据。
+与引擎 UI 同一套设计 token：暖灰阶 + 深青品牌面 + 薄荷高光；深色跟随系统或侧栏手动切换
+（同源 localStorage 键 jl_theme）。首页截图来自虚构演示数据，按主题与语言各一套。
 """
 
 from __future__ import annotations
 
+import html as _html
+
 from fastapi.responses import HTMLResponse
 
-_LIGHT = "--bg:#F6F7F8;--surface:#fff;--ink:#16191D;--ink-2:#5B636D;--ink-3:#9AA1AA;--line:#E6E8EB;" \
-         "--accent:#0E7C6E;--accent-ink:#0A6156;--accent-soft:#E3F2EF;--on-accent:#fff;--sky:#EAF1FA;--runway:#3a3f44"
-_DARK = "--bg:#0E1013;--surface:#15181C;--ink:#E7EAEE;--ink-2:#A2AAB4;--ink-3:#6B737D;--line:#23282E;" \
-        "--accent:#2EB39F;--accent-ink:#5ACDB9;--accent-soft:#12302B;--on-accent:#05211D;--sky:#1A2636;--runway:#4a5056"
+_LIGHT = ("--bg:#F4F6F3;--surface:#fff;--surface-2:#F9FAF8;--ink:#16201B;--ink-2:#56625B;--ink-3:#919B95;"
+          "--line:#E3E8E2;--line-strong:#D0D8D0;--accent:#0C7A68;--accent-ink:#09604F;--accent-soft:#E1F2EC;"
+          "--on-accent:#fff;--brand-bg:#0F2724;--brand-bg-2:#1B3F38;--mint:#7DE3C3;--red:#C2453A;"
+          "--shadow-lg:0 30px 80px rgba(20,40,30,.10),0 2px 6px rgba(20,40,30,.05)")
+_DARK = ("--bg:#0A0E0D;--surface:#111816;--surface-2:#151D1A;--ink:#E5ECE8;--ink-2:#A0ACA5;--ink-3:#66726B;"
+         "--line:#1E2825;--line-strong:#2B3632;--accent:#3DC9A6;--accent-ink:#72DDC2;--accent-soft:#0F2E27;"
+         "--on-accent:#04201A;--brand-bg:#0B1A18;--brand-bg-2:#143029;--red:#EC7D72;"
+         "--shadow-lg:0 30px 80px rgba(0,0,0,.5)")
 BASE_CSS = (":root{color-scheme:light;" + _LIGHT + "}"
             "@media (prefers-color-scheme: dark){:root:not([data-theme=light]){color-scheme:dark;" + _DARK + "}}"
             ":root[data-theme=dark]{color-scheme:dark;" + _DARK + "}" + """
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 "Inter",-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif;
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "Geist","Inter",-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif;
   -webkit-font-smoothing:antialiased}
 a{color:var(--accent-ink)}
-.btn{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:var(--on-accent);padding:11px 20px;
-  border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.15)}
+svg.i{flex:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--accent);color:var(--on-accent);padding:10px 18px;
+  border-radius:10px;text-decoration:none;font-weight:600;font-size:14.5px;border:0;cursor:pointer}
 .btn:hover{filter:brightness(1.06)}
-.box{max-width:460px;margin:12vh auto;padding:30px 28px;background:var(--surface);border:1px solid var(--line);border-radius:16px;
-  box-shadow:0 1px 2px rgba(16,24,40,.04),0 8px 28px rgba(16,24,40,.08)}
-.box h1{font-size:21px;margin:0 0 8px;letter-spacing:-.01em} .box p{color:var(--ink-2);margin:0 0 16px}
-table{width:100%;border-collapse:collapse;font-size:13px} td{padding:5px 0;border-bottom:1px solid var(--line)}
-.tbtn{all:unset;cursor:pointer;width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:var(--ink-2);border:1px solid var(--line)}
-.tbtn:hover{color:var(--ink)}
-@media (max-width:520px){.box{margin:16px}}
+.box{max-width:460px;margin:12vh auto;padding:32px 30px;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-lg)}
+.box h1{font-size:22px;margin:0 0 8px;letter-spacing:-.015em;font-weight:650} .box p{color:var(--ink-2);margin:0 0 16px}
+.box .logo{width:34px;height:34px;border-radius:9px;display:block;margin-bottom:18px}
+table{width:100%;border-collapse:collapse;font-size:13px} td{padding:6px 0;border-bottom:1px solid var(--line)}
+.tbtn{all:unset;cursor:pointer;height:30px;min-width:30px;padding:0 9px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;
+  gap:6px;border-radius:8px;color:var(--ink-2);border:1px solid var(--line);font-size:12.5px;font-weight:500;text-decoration:none;background:var(--surface)}
+.tbtn:hover{color:var(--ink);border-color:var(--line-strong)}
+@media (max-width:520px){.box{margin:16px;padding:26px 22px}}
 """)
 
+FONTS = ('<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+         '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap">')
 # 与引擎同一个 localStorage 键（同源），首帧前生效
 THEME_HEAD = ("<script>try{var t=localStorage.getItem('jl_theme');if(t==='light'||t==='dark')"
-              "document.documentElement.dataset.theme=t}catch(e){}</script>"
-              '<link rel="preconnect" href="https://fonts.googleapis.com">'
-              '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">')
+              "document.documentElement.dataset.theme=t}catch(e){}</script>" + FONTS)
 THEME_TOGGLE_JS = ("function jlTheme(){var r=document.documentElement,dark=r.dataset.theme?r.dataset.theme==='dark':"
                    "matchMedia('(prefers-color-scheme: dark)').matches;var t=dark?'light':'dark';r.dataset.theme=t;"
                    "try{localStorage.setItem('jl_theme',t)}catch(e){}}")
+LOGO = "/_gw/static/logo.svg"
+
+# 线性图标（Lucide 风格，ISC 许可），继承 currentColor
+_PATHS = {
+    "radar": '<path d="M19.07 4.93A10 10 0 0 0 6.99 3.34"/><path d="M4 6h.01"/><path d="M2.29 9.62A10 10 0 1 0 21.31 8.35"/>'
+             '<path d="M16.24 7.76A6 6 0 1 0 8.23 16.67"/><path d="M12 18h.01"/><path d="M17.99 11.66A6 6 0 0 1 15.77 16.67"/>'
+             '<circle cx="12" cy="12" r="2"/><path d="m13.41 10.59 5.66-5.66"/>',
+    "layers": '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9'
+              'a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/>'
+              '<path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
+    "book": '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13'
+            'a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+    "scale": '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/>'
+             '<path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>',
+    "check": '<path d="M20 6 9 17l-5-5"/>',
+    "moon": '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+    "sun": '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/>'
+           '<path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/>'
+           '<path d="m19.07 4.93-1.41 1.41"/>',
+    "globe": '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+    "github": '<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5'
+              '-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65'
+              '-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/>',
+    "plane": '<path d="M2 22h20"/><path d="M3.77 10.77 2 9l2-4.5 1.1.55c.55.28.9.84.9 1.45s.35 1.17.9 1.45L8 8.5l3-6'
+             ' 1.05.53a2 2 0 0 1 1.09 1.52l.72 5.4a2 2 0 0 0 1.09 1.52l4.4 2.2c.42.22.78.55 1.01.96l.6 1.03'
+             'c.49.88-.06 1.98-1.06 2.1l-1.18.15c-.47.06-.95-.02-1.37-.24L4.29 11.15a2 2 0 0 1-.52-.38Z"/>',
+}
+GOOGLE_G = ('<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3'
+            'C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24'
+            's8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0'
+            ' 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2'
+            'l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5'
+            'H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>')
+
+
+def icon(name: str, size: int = 16, width: float = 1.9) -> str:
+    return (f'<svg class="i" width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+            f'stroke-width="{width}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{_PATHS[name]}</svg>')
 
 
 def _doc(title: str, body: str, extra_css: str = "", head: str = "", lang: str = "zh") -> HTMLResponse:
     return HTMLResponse(f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">{THEME_HEAD}{head}<title>{title}</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛬</text></svg>">
+<link rel="icon" href="{LOGO}" type="image/svg+xml">
 <style>{BASE_CSS}{extra_css}</style></head><body>{body}</body></html>""")
 
 
 def simple(title: str, body: str, refresh: int = 0, lang: str = "zh") -> HTMLResponse:
     head = f'<meta http-equiv="refresh" content="{refresh}">' if refresh else ""
-    return _doc(title, f'<div class="box">{body}</div>', head=head, lang=lang)
+    return _doc(title, f'<div class="box"><a href="/"><img class="logo" src="{LOGO}" alt="joblander"></a>{body}</div>',
+                head=head, lang=lang)
 
 
-# ---------- 未登录首页 ----------
+# ---------- 未登录首页：左品牌主视觉 + 右登录卡，下方是产品截图 ----------
 
 LANDING_CSS = """
-.wrap{max-width:1040px;margin:0 auto;padding:0 20px}
-nav{display:flex;align-items:center;gap:10px;padding:18px 0}
-nav b{font-size:17px;letter-spacing:-.01em}
-.mark{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;font:700 14px/1 inherit;color:var(--on-accent);
-  background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 55%,#3767A6))} nav .sp{flex:1} nav a.in{font-weight:600;text-decoration:none}
-.hero{display:grid;grid-template-columns:1.05fr 1fr;gap:40px;align-items:center;padding:48px 0 40px}
-.hero h1{font-size:44px;line-height:1.12;margin:0 0 16px;letter-spacing:-.025em;font-weight:700}
-.hero h1 em{font-style:normal;color:var(--accent)}
-.hero p.lead{font-size:17px;color:var(--ink-2);margin:0 0 26px}
-.hero .note{font-size:13px;color:var(--ink-3);margin-top:12px}
-.shot{border-radius:14px;border:1px solid var(--line);box-shadow:0 18px 50px -20px rgba(0,0,0,.35);width:100%;display:block}
-.feat{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:10px 0 44px}
-.feat div{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
-.feat b{display:block;margin:6px 0 4px} .feat span{font-size:13.5px;color:var(--ink-2)}
-.feat i{font-style:normal;font-size:22px}
-.how{display:grid;grid-template-columns:1fr 1.1fr;gap:36px;align-items:center;padding:20px 0 56px}
-.how ol{padding-left:20px;margin:0} .how li{margin-bottom:10px;color:var(--ink-2)} .how li b{color:var(--ink)}
-footer{border-top:1px solid var(--line);padding:22px 0 40px;font-size:13px;color:var(--ink-3)}
-@media (max-width:860px){.hero,.how{grid-template-columns:1fr}.feat{grid-template-columns:1fr 1fr}.hero h1{font-size:30px}}
-@media (max-width:480px){.feat{grid-template-columns:1fr}}
+.signin{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);min-height:100vh}
+.hero{position:relative;color:#E8F2EE;padding:36px 72px 30px;display:flex;flex-direction:column;overflow:hidden;
+  background:radial-gradient(ellipse at 12% 8%,var(--brand-bg-2) 0,transparent 48%),
+             radial-gradient(ellipse at 95% 100%,color-mix(in srgb,var(--brand-bg-2) 70%,transparent) 0,transparent 52%),var(--brand-bg)}
+.hero:after{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
+  background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
+  background-size:44px 44px;mask-image:radial-gradient(ellipse at 30% 30%,#000 0,transparent 70%)}
+.hero>*{position:relative;z-index:1}
+.brand{display:flex;align-items:center;gap:11px;color:#fff;text-decoration:none;font-weight:650;font-size:19px;letter-spacing:-.02em}
+.brand img{width:32px;height:32px;border-radius:9px;box-shadow:0 4px 18px rgba(125,227,195,.25)}
+.brand i{font-style:normal;color:var(--mint)}
+.pitch{margin:auto 0;padding:36px 0 28px;max-width:600px}
+.eyebrow{font-size:12px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--mint);margin-bottom:16px}
+.pitch h1{font-size:44px;line-height:1.1;letter-spacing:-.025em;font-weight:650;margin:0 0 18px;color:#fff}
+.pitch .lead{font-size:15.5px;line-height:1.65;color:rgba(232,242,238,.68);margin:0 0 30px;max-width:540px}
+.feats{display:grid;grid-template-columns:1fr 1fr;gap:20px 28px;margin-bottom:32px}
+.feat{display:flex;gap:13px}
+.feat .ic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;flex:none;color:var(--mint);
+  background:rgba(125,227,195,.08);border:1px solid rgba(125,227,195,.2)}
+.feat b{display:block;color:#fff;font-size:14px;font-weight:600;margin:1px 0 3px}
+.feat span{font-size:13px;line-height:1.5;color:rgba(232,242,238,.58)}
+.preview{max-width:440px;border-radius:16px;padding:18px 20px 16px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.09);
+  box-shadow:0 30px 60px rgba(0,0,0,.28);backdrop-filter:blur(6px)}
+.preview .hd{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;color:rgba(232,242,238,.6);margin-bottom:12px}
+.preview .tag{font-size:10.5px;letter-spacing:.02em;text-transform:none;color:#0B3B34;background:var(--mint);border-radius:999px;padding:2px 9px}
+.lead-row{display:flex;align-items:center;gap:12px;padding:7px 0;border-top:1px solid rgba(255,255,255,.07)}
+.lead-row:first-of-type{border-top:0}
+.lead-row .fit{font:600 12px/1 "Geist",sans-serif;width:38px;height:24px;border-radius:7px;display:grid;place-items:center;flex:none;
+  color:#0B3B34;background:var(--mint)}
+.lead-row .fit.f4{background:rgba(125,227,195,.55)}.lead-row .fit.f3{background:rgba(255,255,255,.14);color:#E8F2EE}
+.lead-row b{display:block;font-size:13.5px;font-weight:600;color:#fff;line-height:1.3}
+.lead-row span{font-size:12px;color:rgba(232,242,238,.55)}
+.stats{display:flex;gap:26px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07)}
+.stats div{font-size:11.5px;color:rgba(232,242,238,.55)} .stats b{display:block;font-size:18px;color:#fff;font-weight:650;letter-spacing:-.01em}
+html[lang=zh] .eyebrow{letter-spacing:.2em}
+.hero .fine{font-size:12.5px;color:rgba(232,242,238,.45)} .hero .fine a{color:rgba(232,242,238,.7)}
+.side{display:grid;place-items:center;padding:40px 28px;background:var(--bg)}
+.card{width:100%;max-width:410px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:26px 32px 26px;box-shadow:var(--shadow-lg)}
+.card .top{display:flex;justify-content:flex-end;gap:8px;margin-bottom:38px}
+.card h2{font-size:26px;font-weight:650;letter-spacing:-.02em;margin:0 0 6px}
+.card .sub{color:var(--ink-2);font-size:14.5px;margin:0 0 26px}
+.gbtn{display:flex;align-items:center;justify-content:center;gap:11px;height:48px;border-radius:11px;border:1px solid var(--line-strong);
+  background:var(--surface);color:var(--ink);font-weight:600;font-size:15px;text-decoration:none;transition:background .15s,border-color .15s,box-shadow .15s}
+.gbtn:hover{background:var(--surface-2);border-color:var(--ink-3);box-shadow:0 2px 10px rgba(0,0,0,.06)}
+.mcta{display:none}
+.invite{margin:14px 0 0;font-size:12.5px;color:var(--ink-3);text-align:center;line-height:1.55}
+.card hr{border:0;border-top:1px solid var(--line);margin:24px 0 18px}
+.checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:11px}
+.checks li{display:flex;gap:11px;align-items:flex-start;font-size:13.5px;color:var(--ink-2);line-height:1.45}
+.checks .ck{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--accent-soft);color:var(--accent);margin-top:-1px}
+.card .foot{display:flex;justify-content:center;gap:18px;margin-top:22px;font-size:13px}
+.card .foot a{display:inline-flex;align-items:center;gap:6px;color:var(--ink-3);text-decoration:none} .card .foot a:hover{color:var(--ink)}
+.inside{max-width:1180px;margin:0 auto;padding:90px 28px 40px}
+.inside .eyebrow{color:var(--accent);text-align:center;margin-bottom:10px}
+.inside h2{text-align:center;font-size:32px;letter-spacing:-.022em;font-weight:650;margin:0 0 10px}
+.inside .lead{text-align:center;color:var(--ink-2);max-width:620px;margin:0 auto 48px;font-size:15.5px}
+.shot{margin:0 0 64px}
+.shot figcaption{display:flex;gap:14px;align-items:baseline;max-width:820px;margin:0 auto 18px;text-align:center;justify-content:center;flex-wrap:wrap}
+.shot figcaption b{font-size:17px;letter-spacing:-.01em} .shot figcaption span{color:var(--ink-2);font-size:14.5px}
+.frame{border-radius:14px;overflow:hidden;border:1px solid var(--line);box-shadow:var(--shadow-lg);background:var(--surface)}
+.frame .bar{height:30px;display:flex;align-items:center;gap:6px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.frame .bar i{width:9px;height:9px;border-radius:50%;background:var(--line-strong)}
+.frame img{display:block;width:100%;height:auto}
+.frame img.dk{display:none}
+@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .frame img.lt{display:none}:root:not([data-theme=light]) .frame img.dk{display:block}}
+:root[data-theme=dark] .frame img.lt{display:none} :root[data-theme=dark] .frame img.dk{display:block}
+footer{border-top:1px solid var(--line);padding:24px 28px 40px;text-align:center;font-size:13px;color:var(--ink-3)}
+@media (max-width:1100px){.hero{padding:36px 40px}.pitch h1{font-size:38px}}
+@media (max-width:900px){.signin{grid-template-columns:1fr}.hero{padding:28px 22px 34px}.pitch{padding:36px 0 8px}
+  .pitch h1{font-size:32px}.feats{grid-template-columns:1fr;gap:16px}.preview,.hero .fine{display:none}
+  .mcta{display:flex;margin:-8px 0 30px;border:0;background:#fff;color:#16201B}
+  .side{padding:28px 16px 8px}.card{padding:22px 22px}.card .top{margin-bottom:20px}.inside{padding:56px 16px 20px}.inside h2{font-size:26px}}
 """
 
-
 LANDING_TEXT = {
- "zh": dict(title="joblander · 求职作战室", login="登录", switch='<a href="/_gw/lang?to=en">English</a>',
-   h1="把求职当成一场<br><em>有作战室的战役</em>来打",
-   lead="岗位自动找上门、简历按 JD 定制、面试前有弹药、谈薪有底线——一个替你盯全局的 AI 参谋，你只负责拍板。",
-   cta="用 Google 登录，开始使用 →", note="内测邀请制 · 新用户送 AI 试用额度 · 你的数据只在你自己的独立空间里",
-   alt1="指挥中心：今天该做什么、什么逾期了、什么在等你批准",
-   feats=[("◎", "新机会自动找", "每晚按你的偏好搜 LinkedIn 与 MyCareersFuture，对照你的履历打匹配分、初筛硬性要求。"),
-          ("▤", "弹药库 → 定制简历", "上传旧简历拆成战绩库，之后每份简历都从这里取材、按 JD 重写，不编造一个字。"),
-          ("♟", "面前有 brief，面后有复盘", "公司尽调、面试 brief、复盘归档，跨公司沉淀成你的应答 Playbook。"),
-          ("⚖", "Offer 对比与红线", "期权按流动性折价比较；不能说的词、不能漂移的数字，系统替你守着。")],
-   alt2="新机会：按匹配度排好的待决策岗位", how="三分钟上手",
-   steps=[("用 Google 登录", "系统为你开一个独立空间，大约一分钟。"),
-          ("上传一份旧简历", "自动拆成弹药库，并猜出你想找的岗位、替你先搜一轮。"),
-          ("填目标与红线", "目标总包、不能碰的词。"),
-          ("每天早上看一眼", "新机会已打好分，该跟进的已排好，点批准就行。")],
-   promise="系统只起草、从不替你对外发送任何东西：每一个发出去的字都要你过目。",
-   foot='joblander 是开源项目（<a href="https://github.com/Shuailong/joblander">GitHub</a>）· <a href="https://ailayoff.me">ailayoff.me</a> · 截图为虚构演示数据'),
- "en": dict(title="joblander · your job-search war room", login="Sign in", switch='<a href="/_gw/lang?to=zh">中文</a>',
-   h1="Run your job search like<br><em>a campaign with a war room</em>",
-   lead="Roles find you, resumes are tailored to each JD, you walk into every interview prepared and negotiate with a floor — an AI chief of staff watches the whole board, you make the calls.",
-   cta="Sign in with Google →", note="Invite-only beta · free AI credit for new users · your data lives in your own private space",
-   alt1="Command Center: what to do now, what is overdue, what awaits your approval",
-   feats=[("◎", "Leads that find you", "Nightly searches of LinkedIn and MyCareersFuture, scored against your background with hard requirements screened."),
-          ("▤", "Arsenal → tailored resumes", "Your resume becomes a bank of achievements; every tailored resume draws from it — nothing invented."),
-          ("♟", "Briefs before, debriefs after", "Company research, interview briefs and debriefs that build into your personal answer playbook."),
-          ("⚖", "Offers and red lines", "Equity discounted by liquidity; words you must not say and numbers that must not drift are guarded for you.")],
-   alt2="New Leads: roles ranked by fit, awaiting your decision", how="Up and running in three minutes",
-   steps=[("Sign in with Google", "we set up a private space for you in about a minute."),
-          ("Upload an existing resume", "it becomes your Arsenal, and we guess the roles you want and run a first search."),
-          ("Set targets and red lines", "your target comp and the words you never want to see."),
-          ("Glance at it each morning", "new leads are scored and follow-ups lined up — just approve.")],
-   promise="joblander only drafts — it never sends anything on your behalf. Every word that goes out is yours to approve.",
-   foot='joblander is open source (<a href="https://github.com/Shuailong/joblander">GitHub</a>) · <a href="https://ailayoff.me">ailayoff.me</a> · screenshots use fictional demo data'),
+ "zh": dict(title="joblander · 求职作战室", switch=("en", "English"),
+   eyebrow="求职作战室 · 你的 AI 参谋", h1="把求职当成一场<br>有作战室的战役",
+   lead="岗位自动找上门、简历按 JD 定制、面试前有弹药、谈薪有底线——AI 参谋替你盯全局，你只负责拍板。",
+   feats=[("radar", "新机会自动找", "每晚搜 LinkedIn 与 MyCareersFuture，按你的履历打匹配分。"),
+          ("layers", "弹药库 → 定制简历", "旧简历拆成战绩库，每份简历按 JD 重写，不编造一个字。"),
+          ("book", "面前 brief，面后复盘", "公司尽调、面试 brief、复盘，沉淀成你的应答 Playbook。"),
+          ("scale", "Offer 对比与红线", "期权按流动性折价比较；不能说的词，系统替你守着。")],
+   pv_hd="新机会 · 今晨", pv_tag="示例", pv_rows=[("5/5", "Senior PM, Cross-border", "Atlas Remit · LinkedIn"),
+                                                ("4/5", "Lead PM, Card Issuing", "Pinecrest Bank · MCF"),
+                                                ("3/5", "PM, Claims Automation", "Northwind Insure · MCF")],
+   pv_stats=[("8", "活跃战线"), ("3", "本周面试"), ("1", "Offer")],
+   fine='开源项目 · <a href="https://github.com/Shuailong/joblander">GitHub</a> · <a href="https://ailayoff.me">ailayoff.me</a>',
+   welcome="欢迎", sub="登录进入你的作战室。", google="用 Google 登录",
+   invite="内测邀请制：请用被邀请的 Google 账号登录。新用户送 AI 试用额度。",
+   checks=["独立空间：你的数据只在你自己的实例里", "只起草、从不替你对外发送任何东西", "不碰邮箱密码，不存任何银行或招聘网站登录"],
+   feedback="反馈", theme="切换深浅色",
+   in_eyebrow="看看里面", in_h2="每天早上，一眼看清整场战役", in_lead="截图来自虚构演示数据——公司、人名、数字都是编的。",
+   shots=[("command-center", "指挥中心", "今天该做什么、什么逾期了、什么在等你批准。"),
+          ("sourcing", "新机会", "每晚自动搜来的岗位，按匹配度排好，一键入池或否决。"),
+          ("pipeline", "作战室", "每家公司在哪一关，拖一下就推进。")],
+   foot='joblander 是开源项目（<a href="https://github.com/Shuailong/joblander">GitHub</a>）· <a href="https://ailayoff.me">ailayoff.me</a>'),
+ "en": dict(title="joblander · your job-search war room", switch=("zh", "中文"),
+   eyebrow="Job search · with an AI chief of staff", h1="Your job-search<br>war room",
+   lead="Roles find you, resumes are tailored to each JD, you walk into every interview prepared and negotiate with a floor. The AI watches the whole board; you make the calls.",
+   feats=[("radar", "Leads that find you", "Nightly LinkedIn and MyCareersFuture searches, scored against your background."),
+          ("layers", "Arsenal → tailored resumes", "Your resume becomes a bank of wins; each JD gets a rewrite, nothing invented."),
+          ("book", "Briefs and debriefs", "Company research, interview briefs and debriefs that build your playbook."),
+          ("scale", "Offers and red lines", "Equity discounted by liquidity; words you must never say are guarded.")],
+   pv_hd="New leads · this morning", pv_tag="Sample", pv_rows=[("5/5", "Senior PM, Cross-border", "Atlas Remit · LinkedIn"),
+                                                              ("4/5", "Lead PM, Card Issuing", "Pinecrest Bank · MCF"),
+                                                              ("3/5", "PM, Claims Automation", "Northwind Insure · MCF")],
+   pv_stats=[("8", "Active"), ("3", "Interviews this week"), ("1", "Offer")],
+   fine='Open source · <a href="https://github.com/Shuailong/joblander">GitHub</a> · <a href="https://ailayoff.me">ailayoff.me</a>',
+   welcome="Welcome", sub="Sign in to your war room.", google="Continue with Google",
+   invite="Invite-only beta: sign in with the Google account you were invited with. New users get free AI credit.",
+   checks=["Your own private space — your data stays in your instance", "Drafts only — it never sends anything on your behalf",
+           "No email passwords, no bank or job-site logins stored"],
+   feedback="Feedback", theme="Toggle theme",
+   in_eyebrow="A look inside", in_h2="Every morning, the whole campaign at a glance",
+   in_lead="Screenshots use a fictional demo dataset — companies, people and numbers are invented.",
+   shots=[("command-center", "Command Center", "What to do now, what's overdue, what's waiting for your approval."),
+          ("sourcing", "New Leads", "Roles found overnight, ranked by fit — add to pipeline or reject in one click."),
+          ("pipeline", "War Room", "Where every company stands; drag a card to move it forward.")],
+   foot='joblander is open source (<a href="https://github.com/Shuailong/joblander">GitHub</a>) · <a href="https://ailayoff.me">ailayoff.me</a>'),
 }
 
 
 def landing(lang: str = "zh") -> HTMLResponse:
-    t = LANDING_TEXT["en" if lang == "en" else "zh"]
-    feats = "".join(f"<div><i>{i}</i><b>{h}</b><span>{d}</span></div>" for i, h, d in t["feats"])
-    steps = "".join(f"<li><b>{h}</b>——{d}</li>" if lang != "en" else f"<li><b>{h}</b> — {d}</li>"
-                    for h, d in t["steps"])
-    body = f"""<div class="wrap">
-<nav><span class="mark">jl</span><b>joblander</b><span class="sp"></span>
-  <button class="tbtn" onclick="jlTheme()" title="Theme" aria-label="Theme">◐</button>
-  <span style="margin:0 16px;font-size:14px">{t['switch']}</span><a class="in" href="/auth/login">{t['login']}</a></nav>
+    lg = "en" if lang == "en" else "zh"
+    t = LANDING_TEXT[lg]
+    feats = "".join(f'<div class="feat"><span class="ic">{icon(i, 18)}</span><div><b>{h}</b><span>{d}</span></div></div>'
+                    for i, h, d in t["feats"])
+    rows = "".join(f'<div class="lead-row"><span class="fit f{f[0]}">{f}</span><div><b>{p}</b><span>{c}</span></div></div>'
+                   for f, p, c in t["pv_rows"])
+    stats = "".join(f"<div><b>{n}</b>{k}</div>" for n, k in t["pv_stats"])
+    checks = "".join(f'<li><span class="ck">{icon("check", 12, 2.6)}</span>{x}</li>' for x in t["checks"])
+    shots = "".join(
+        f'<figure class="shot"><figcaption><b>{h}</b><span>{d}</span></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div>'
+        f'<img class="lt" src="/_gw/static/shots/{k}-{lg}-light.webp" alt="{_html.escape(h)}" loading="lazy" width="1440" height="900">'
+        f'<img class="dk" src="/_gw/static/shots/{k}-{lg}-dark.webp" alt="{_html.escape(h)}" loading="lazy" width="1440" height="900">'
+        f'</div></figure>' for k, h, d in t["shots"])
+    to, label = t["switch"]
+    gh = "https://github.com/Shuailong/joblander/issues"
+    body = f"""<div class="signin">
 <section class="hero">
-  <div>
+  <a class="brand" href="/"><img src="{LOGO}" alt=""><span>joblander<i>.</i></span></a>
+  <div class="pitch">
+    <div class="eyebrow">{t['eyebrow']}</div>
     <h1>{t['h1']}</h1>
     <p class="lead">{t['lead']}</p>
-    <a class="btn" href="/auth/login">{t['cta']}</a>
-    <div class="note">{t['note']}</div>
+    <a class="gbtn mcta" href="/auth/login">{GOOGLE_G}{t['google']}</a>
+    <div class="feats">{feats}</div>
+    <div class="preview" aria-hidden="true"><div class="hd">{t['pv_hd']}<span class="tag">{t['pv_tag']}</span></div>{rows}
+      <div class="stats">{stats}</div></div>
   </div>
-  <img class="shot" src="/_gw/static/command-center.jpg" alt="{t['alt1']}">
+  <div class="fine">{t['fine']}</div>
 </section>
-<section class="feat">{feats}</section>
-<section class="how">
-  <img class="shot" src="/_gw/static/sourcing.jpg" alt="{t['alt2']}">
-  <div>
-    <h2 style="margin-top:0">{t['how']}</h2>
-    <ol>{steps}</ol>
-    <p style="color:var(--ink-3);font-size:13px;margin-top:16px">{t['promise']}</p>
+<section class="side">
+  <div class="card">
+    <div class="top"><a class="tbtn" href="/_gw/lang?to={to}">{icon('globe', 14)}{label}</a>
+      <button class="tbtn" onclick="jlTheme()" title="{t['theme']}" aria-label="{t['theme']}">{icon('moon', 14)}</button></div>
+    <h2>{t['welcome']}</h2>
+    <p class="sub">{t['sub']}</p>
+    <a class="gbtn" href="/auth/login">{GOOGLE_G}{t['google']}</a>
+    <p class="invite">{t['invite']}</p>
+    <hr>
+    <ul class="checks">{checks}</ul>
+    <div class="foot"><a href="{gh}" target="_blank" rel="noopener">{icon('github', 14)}GitHub</a>
+      <a href="{gh}" target="_blank" rel="noopener">{t['feedback']}</a></div>
   </div>
+</section>
+</div>
+<section class="inside">
+  <div class="eyebrow">{t['in_eyebrow']}</div>
+  <h2>{t['in_h2']}</h2>
+  <p class="lead">{t['in_lead']}</p>
+  {shots}
 </section>
 <footer>{t['foot']}</footer>
-</div><script>{THEME_TOGGLE_JS}</script>"""
-    return _doc(t["title"], body, LANDING_CSS, lang=lang)
+<script>{THEME_TOGGLE_JS}</script>"""
+    return _doc(t["title"], body, LANDING_CSS, lang=lg)
 
 
 # ---------- 开通等待页：飞机进近 + 真实进度 ----------
 
 WAIT_CSS = """
 .stage{max-width:520px;margin:9vh auto 0;padding:0 16px;text-align:center}
-.scene{position:relative;height:210px;border-radius:16px;overflow:hidden;
-  background:linear-gradient(var(--sky),var(--surface));border:1px solid var(--line)}
-.cloud{position:absolute;font-size:30px;opacity:.55;animation:drift linear infinite}
-.c1{top:22px;animation-duration:14s}.c2{top:64px;font-size:22px;animation-duration:20s;animation-delay:-8s}
-.c3{top:36px;font-size:18px;animation-duration:26s;animation-delay:-15s}
-@keyframes drift{from{transform:translateX(560px)}to{transform:translateX(-80px)}}
-.runway{position:absolute;left:0;right:0;bottom:0;height:34px;background:var(--runway)}
-.runway:after{content:"";position:absolute;left:0;right:0;top:15px;height:4px;
-  background:repeating-linear-gradient(90deg,#fff 0 26px,transparent 26px 52px);
-  animation:dash 0.9s linear infinite;opacity:.85}
+.scene{position:relative;height:220px;border-radius:18px;overflow:hidden;box-shadow:var(--shadow-lg);
+  background:radial-gradient(ellipse at 20% 0%,var(--brand-bg-2) 0,transparent 60%),var(--brand-bg)}
+.scene:before{content:"";position:absolute;inset:0;opacity:.6;
+  background-image:radial-gradient(rgba(255,255,255,.5) 1px,transparent 1.2px);background-size:46px 46px;background-position:10px 6px;
+  mask-image:linear-gradient(#000,transparent 70%)}
+.cloud{position:absolute;height:14px;border-radius:999px;background:rgba(255,255,255,.08);animation:drift linear infinite}
+.cloud:before{content:"";position:absolute;left:22%;top:-9px;width:46%;height:20px;border-radius:999px;background:inherit}
+.c1{top:40px;width:90px;animation-duration:14s}.c2{top:86px;width:64px;animation-duration:20s;animation-delay:-8s}
+.c3{top:58px;width:48px;animation-duration:26s;animation-delay:-15s}
+@keyframes drift{from{transform:translateX(560px)}to{transform:translateX(-120px)}}
+.runway{position:absolute;left:0;right:0;bottom:0;height:36px;background:rgba(255,255,255,.06);border-top:1px solid rgba(255,255,255,.08)}
+.runway:after{content:"";position:absolute;left:0;right:0;top:16px;height:3px;
+  background:repeating-linear-gradient(90deg,var(--mint) 0 24px,transparent 24px 52px);
+  animation:dash 0.9s linear infinite;opacity:.55}
 @keyframes dash{to{background-position:-52px 0}}
-.plane{position:absolute;font-size:46px;left:50%;bottom:30px;margin-left:-23px;
-  animation:approach 4.2s cubic-bezier(.35,.0,.25,1) infinite}
+.plane{position:absolute;left:50%;bottom:30px;margin-left:-24px;color:var(--mint);line-height:0;
+  filter:drop-shadow(0 6px 14px rgba(125,227,195,.35));animation:approach 4.2s cubic-bezier(.35,.0,.25,1) infinite}
+
 @keyframes approach{
   0%{transform:translate(-230px,-130px) rotate(-6deg);opacity:0}
   10%{opacity:1}
@@ -170,17 +311,18 @@ WAIT_CSS = """
   72%{transform:translate(18px,0)}
   88%{transform:translate(40px,0);opacity:1}
   100%{transform:translate(60px,0);opacity:0}}
-.puff{position:absolute;left:50%;bottom:30px;width:10px;height:10px;border-radius:50%;
-  background:var(--ink-3);opacity:0;animation:puff 4.2s infinite}
+.puff{position:absolute;left:50%;bottom:34px;width:10px;height:10px;border-radius:50%;
+  background:rgba(255,255,255,.5);opacity:0;animation:puff 4.2s infinite}
 @keyframes puff{0%,60%{opacity:0;transform:scale(.4)}64%{opacity:.5}80%{opacity:0;transform:scale(2.4) translateX(-14px)}100%{opacity:0}}
-h1{font-size:22px;margin:24px 0 6px} .quip{color:var(--ink-2);min-height:26px;transition:opacity .4s}
-.steps{list-style:none;padding:0;margin:22px auto 0;max-width:300px;text-align:left}
-.steps li{display:flex;gap:10px;align-items:center;padding:6px 0;color:var(--ink-3)}
-.steps li .d{width:18px;height:18px;border-radius:50%;border:2px solid var(--line);flex:none;display:grid;place-items:center;font-size:11px}
-.steps li.done{color:var(--ink)} .steps li.done .d{background:var(--accent);border-color:var(--accent);color:#fff}
+h1{font-size:23px;margin:28px 0 6px;letter-spacing:-.015em;font-weight:650} .quip{color:var(--ink-2);min-height:26px;transition:opacity .4s}
+.steps{list-style:none;padding:16px 20px;margin:22px auto 0;max-width:330px;text-align:left;background:var(--surface);
+  border:1px solid var(--line);border-radius:14px}
+.steps li{display:flex;gap:11px;align-items:center;padding:6px 0;color:var(--ink-3);font-size:14px}
+.steps li .d{width:18px;height:18px;border-radius:50%;border:2px solid var(--line-strong);flex:none;display:grid;place-items:center;font-size:11px}
+.steps li.done{color:var(--ink)} .steps li.done .d{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .steps li.cur{color:var(--ink);font-weight:600} .steps li.cur .d{border-color:var(--accent);border-top-color:transparent;animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.err{color:#C2453A;font-size:13px;margin-top:14px}
+.err{color:var(--red);font-size:13px;margin-top:14px}
 @media (prefers-reduced-motion: reduce){.plane,.cloud,.runway:after,.puff,.steps li.cur .d{animation:none}.plane{transform:none}}
 """
 
@@ -230,10 +372,13 @@ def waiting(first_time: bool, lang: str = "zh") -> HTMLResponse:
     js = (f"const QUIPS = {_json.dumps(t['quips'], ensure_ascii=False)};"
           f"const LANDED = {_json.dumps(t['landed'], ensure_ascii=False)};"
           f"const RETRYING = {_json.dumps(t['retrying'], ensure_ascii=False)};" + WAIT_JS)
+    plane = _PATHS["plane"].split("/>", 1)[1]          # 去掉地平线，只留机身
     body = f"""<div class="stage">
 <div class="scene" aria-hidden="true">
-  <span class="cloud c1">☁️</span><span class="cloud c2">☁️</span><span class="cloud c3">☁️</span>
-  <div class="runway"></div><span class="puff"></span><span class="plane">🛬</span>
+  <span class="cloud c1"></span><span class="cloud c2"></span><span class="cloud c3"></span>
+  <div class="runway"></div><span class="puff"></span>
+  <span class="plane"><svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" fill-opacity=".18" stroke="currentColor"
+    stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">{plane}</svg></span>
 </div>
 <h1 id="title">{title}</h1>
 <div class="quip" id="quip">{t['quips'][0]}</div>

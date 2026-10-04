@@ -9,14 +9,14 @@
   {%- if cal_days and cal_days[0].events %} ｜ {{ _('今天 {n} 场', n=cal_days[0].events|length) }}{% endif %}
   {%- if overdue or due %} ｜ {{ _('{n} 件要动', n=(overdue|length) + (due|length)) }}{% endif %}
   {%- if pending %} ｜ {{ _('{n} 单等你批', n=pending|length) }}{% endif %}
-  {%- if not overdue %} ｜ {{ _('无逾期 ✅') }}{% endif %}</div>
+  {%- if not overdue %} ｜ {{ _('无逾期') }}{% endif %}</div>
 <div class="note" style="margin:-14px 0 16px">{{ _('数据源：') }}
   {%- if conn.calendar %} {{ _('Google 日历') }} {{ fresh.get('calendar') or '—' }}（↻30min）｜{% endif %}
   {%- if conn.gmail %} Gmail {{ fresh.get('gmail') or '—' }}（↻30min）｜{% endif %}
   {{ _('战线・公司档案・提案・日记 = 实时') }} ｜ MCF{{ ' + LinkedIn' if features.linkedin }} {{ _('每晚 02:30 进') }}<a href="/sourcing">{{ _('新机会') }}</a></div>
 
-<h2 style="margin-top:14px">{{ _('📅 近 4 天场次') }}</h2>
-<div class="card{% if cal_days[0].events %}" style="border-left:3px solid var(--blue){% endif %}">
+<h2 style="margin-top:14px">{{ icon('calendar', 15) }}{{ _('近 4 天场次') }}</h2>
+<div class="card{% if cal_days[0].events %} tint-blue{% endif %}">
   {% for d in cal_days %}
   <div class="row"><span class="when">{{ d.label }}<br><span class="note" style="margin:0">{{ d.date[5:] }} {{ d.wd }}</span></span>
     <div class="body">
@@ -25,20 +25,20 @@
         <b>{{ e.title }}</b>
         {% if e.kind == 'interview' %}<span class="pill teal">{{ _('面试') }}</span>{% endif %}
         <span class="note">{{ e.start[11:16] }}–{{ (e.end or '')[11:16] }}</span></div>
-      {% else %}<span class="note">{{ _('无面试场次 ✅') }}{% if cal_stale %}　{{ _('（日历缓存等 daemon 刷新，最长 30 分钟）') }}{% endif %}</span>{% endfor %}
+      {% else %}<span class="note">{{ _('无面试场次') }}{% if cal_stale %}　{{ _('（日历缓存等 daemon 刷新，最长 30 分钟）') }}{% endif %}</span>{% endfor %}
     </div></div>
   {% endfor %}
 </div>
 
 {% if overdue or due or pending %}
-<div class="card" style="border-left:3px solid var(--accent);margin-top:12px">
-  <h2 style="margin-top:0">{{ _('▸ 现在就做（按序）') }}</h2>
-  {% for r in overdue[:2] %}<div class="row"><span class="when">🔴</span><div class="body"><b>{{ r.Company }}</b>：{{ r.get('Next Steps') or _('推进') }}（{{ _('逾期') }} {{ r.get('Follow-up Reminder') }}）</div><a class="btn" href="/company/{{ r.notion_page_id }}">{{ _('打开档案') }}</a></div>{% endfor %}
-  {% for r in due[:2] %}<div class="row"><span class="when">🟡</span><div class="body"><b>{{ r.Company }}</b>：{{ r.get('Next Steps') or _('推进') }}</div><a class="btn" href="/company/{{ r.notion_page_id }}">{{ _('打开档案') }}</a></div>{% endfor %}
-  {% for p in scribe_pending %}<div class="row"><span class="when">✍</span><div class="body"><b>{{ p.company }}</b>：{{ _({'scout.followup':'跟进更新','note.suggest':'字段建议','calendar.sync':'日历同步'}.get(p.origin or '', '面后录入')) }}{{ _('等你批（改/批都在档案页）') }}</div><a class="btn pri" href="/company/{{ p.notion_page_id }}#pending">{{ _('去批') }}</a></div>{% endfor %}
+<div class="card tint-accent" style="margin-top:12px">
+  <h2 style="margin-top:0">{{ icon('zap', 15) }}{{ _('现在就做（按序）') }}</h2>
+  {% for r in overdue[:2] %}<div class="row"><span class="when"><span class="sdot red"></span></span><div class="body"><b>{{ r.Company }}</b>{{ '：' if lang != 'en' else ': ' }}{{ r.get('Next Steps') or _('推进') }} <span class="pill red">{{ _('逾期') }} {{ (r.get('Follow-up Reminder') or '')[5:] }}</span></div><a class="btn" href="/company/{{ r.notion_page_id }}">{{ _('打开档案') }}</a></div>{% endfor %}
+  {% for r in due[:2] %}<div class="row"><span class="when"><span class="sdot amber"></span></span><div class="body"><b>{{ r.Company }}</b>{{ '：' if lang != 'en' else ': ' }}{{ r.get('Next Steps') or _('推进') }}</div><a class="btn" href="/company/{{ r.notion_page_id }}">{{ _('打开档案') }}</a></div>{% endfor %}
+  {% for p in scribe_pending %}<div class="row"><span class="when"><span class="sdot blue"></span></span><div class="body"><b>{{ p.company }}</b>{{ '：' if lang != 'en' else ': ' }}{{ _({'scout.followup':'跟进更新','note.suggest':'字段建议','calendar.sync':'日历同步'}.get(p.origin or '', '面后录入')) }}{{ _('等你批（改/批都在档案页）') }}</div><a class="btn pri" href="/company/{{ p.notion_page_id }}#pending">{{ _('去批') }}</a></div>{% endfor %}
   {% for p in cal_pending %}
-  <div class="row"><span class="when">🗓</span>
-    <div class="body"><b>{{ p.company }}</b>：{{ _('作战室排了面试，但日历接下来 7 天没这场') }}
+  <div class="row"><span class="when"><span class="sdot blue"></span></span>
+    <div class="body"><b>{{ p.company }}</b>{{ '：' if lang != 'en' else ': ' }}{{ _('作战室排了面试，但日历接下来 7 天没这场') }}
       <div class="meta">{{ _('来源：tracker↔日历每周对账（{n}）——补上时间就能建入 Google 日历，或否决', n=p.note) }}</div>
       <details style="margin-top:6px"><summary class="note" style="cursor:pointer;margin:0">{{ _('补时间建入日历') }}</summary>
         <form class="amend" data-file="{{ p._file }}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
@@ -52,7 +52,7 @@
       </details>
     </div></div>
   {% endfor %}
-  {% if diary_pending %}<div class="row"><span class="when">📓</span><div class="body">{{ _('日记草稿就绪——在下方改两句，定稿进参谋部日报') }}</div><a class="btn" href="#diary">{{ _('去定稿') }}</a></div>{% endif %}
+  {% if diary_pending %}<div class="row"><span class="when"><span class="sdot accent"></span></span><div class="body">{{ _('日记草稿就绪——在下方改两句，定稿进参谋部日报') }}</div><a class="btn" href="#diary">{{ _('去定稿') }}</a></div>{% endif %}
 </div>
 {% endif %}
 
@@ -62,21 +62,21 @@
   <div class="card stat {{ 'alert' if pending else 'ok' }}"><div class="k">{{ pending|length }}</div><div class="t">{{ _('待批提案（长在各自属地）') }}</div></div>
 </div>
 
-{% if overdue %}<h2>🔴 {{ _('逾期') }}</h2><div class="card">
+{% if overdue %}<h2><span class="sdot red"></span>{{ _('逾期') }}</h2><div class="card">
   {% for r in overdue %}<div class="row"><span class="when">{{ (r.get('Follow-up Reminder') or '')[5:] }}</span>
     <div class="body"><b><a href="/company/{{ r.notion_page_id }}">{{ r.Company }}</a></b>
       {% if r.Priority %}<span class="pill {{ {'High':'red','Medium':'amber','Low':'blue'}[r.Priority] }}">{{ r.Priority }}</span>{% endif %}
       <div class="meta">{{ r.get('Next Steps') or '—' }}</div></div></div>{% endfor %}
 </div>{% endif %}
 
-{% if due %}<h2>🟡 {{ _('今日到期') }}</h2><div class="card">
+{% if due %}<h2><span class="sdot amber"></span>{{ _('今日到期') }}</h2><div class="card">
   {% for r in due %}<div class="row"><span class="when">{{ _('今天') }}</span>
     <div class="body"><b><a href="/company/{{ r.notion_page_id }}">{{ r.Company }}</a></b>
       {% if r.Priority %}<span class="pill {{ {'High':'red','Medium':'amber','Low':'blue'}[r.Priority] }}">{{ r.Priority }}</span>{% endif %}
       <div class="meta">{{ r.get('Next Steps') or '—' }}</div></div></div>{% endfor %}
 </div>{% endif %}
 
-<h2>{{ _('High 战线') }}</h2><div class="card">
+<h2>{{ icon('flag', 15) }}{{ _('High 战线') }}</h2><div class="card">
   {% for r in high %}<div class="row"><span class="when">{{ (r.get('Follow-up Reminder') or '—')[5:] }}</span>
     <div class="body"><b><a href="/company/{{ r.notion_page_id }}">{{ r.Company }}</a></b>
       <span class="pill teal">{{ r.Status }}</span>
@@ -84,7 +84,7 @@
   {% else %}<div class="note">{{ _('无 High 行') }}</div>{% endfor %}
 </div>
 
-<h2 id="diary">{{ _('📓 今日日记') }} <span class="note" style="text-transform:none;letter-spacing:0">{{ _('素材=各公司档案今天的战线事件；数据同步、评估重算这类系统动作不入日记。定稿落参谋部日报。') }}</span></h2>
+<h2 id="diary">{{ icon('notebook', 15) }}{{ _('今日日记') }} <span class="note" style="text-transform:none;letter-spacing:0">{{ _('素材=各公司档案今天的战线事件；数据同步、评估重算这类系统动作不入日记。定稿落参谋部日报。') }}</span></h2>
 {% if battles %}
 <div class="card" style="margin-bottom:10px">
   {% for b in battles %}<div class="row"><span class="when">{{ {'interview':'🎯','call':'📞','email':'✉️','note':'📝','transcript':'🎙','intake':'📥','offer':'🏁'}.get(b.kind,'•') }}</span>
@@ -112,7 +112,7 @@
 {% endif %}
 
 <div class="card" style="margin-top:10px">
-  <h2 style="margin-top:0">{{ _('🖊 我的手记') }} <span class="note" style="text-transform:none;letter-spacing:0">{{ _('你自己的总结与感受——与 AI 生成的部分分开存放，永不被自动覆盖') }}</span></h2>
+  <h2 style="margin-top:0">{{ icon('pen', 15) }}{{ _('我的手记') }} <span class="note" style="text-transform:none;letter-spacing:0">{{ _('你自己的总结与感受——与 AI 生成的部分分开存放，永不被自动覆盖') }}</span></h2>
   <textarea id="my-notes" style="min-height:100px" placeholder="{{ _('今天的感受、判断、要提醒自己的话……') }}">{{ my_notes }}</textarea>
   <div style="margin-top:8px"><button class="btn pri" onclick="post('/api/daily/notes',{name:'{{ daily_name }}',text:gv('my-notes')},{btn:this,ok:{{ _('手记已存进日报')|jsq }},reload:true})">{{ _('保存手记') }}</button></div>
 </div>

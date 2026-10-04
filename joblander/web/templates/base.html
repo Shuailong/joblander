@@ -9,41 +9,41 @@
 try { var t = localStorage.getItem('jl_theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/static/app.css?v={{ v }}">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛬</text></svg>">
+<link rel="icon" href="/static/logo.svg?v={{ v }}" type="image/svg+xml">
 {% if lang == 'en' %}<script>window.I18N = {{ i18n_js|tojson }};</script>{% endif %}
 <script src="/static/app.js?v={{ v }}" defer></script>
 </head>
 <body>
 <div class="frame">
   <aside class="side">
-    <a class="brand" href="/" style="color:inherit"><span class="glyph">jl</span><b>joblander</b></a>
+    <a class="brand" href="/"><img class="logo" src="/static/logo.svg?v={{ v }}" alt="" width="28" height="28"><b>joblander<i>.</i></b></a>
     <div class="nav">
-      <a href="/" class="{{ 'on' if nav=='dash' }}"><span class="ico">◈</span>{{ _('指挥中心') }}{% if pending_n %}<span class="cnt hot" title="{{ _('{n} 单更新提案等你批（公司页/指挥中心）', n=pending_n) }}">{{ pending_n }}</span>{% endif %}</a>
-      <a href="/sourcing" class="{{ 'on' if nav=='src' }}"><span class="ico">◎</span>{{ _('新机会') }}{% if leads_n %}<span class="cnt hot" title="{{ _('{n} 条新线索待决策', n=leads_n) }}">{{ leads_n }}</span>{% endif %}</a>
-      <a href="/pipeline" class="{{ 'on' if nav=='pipe' }}"><span class="ico">▦</span>{{ _('作战室') }}</a>
-      <a href="/playbook" class="{{ 'on' if nav=='pb' }}"><span class="ico">♟</span>{{ _('参谋部') }}</a>
-      {% if features.drill %}<a href="/drill" class="{{ 'on' if nav=='drill' }}"><span class="ico">⚔</span>{{ _('练兵场') }}</a>{% endif %}
-      <a href="/arsenal" class="{{ 'on' if nav=='ars' }}"><span class="ico">▤</span>{{ _('弹药库') }}</a>
+      <a href="/" class="{{ 'on' if nav=='dash' }}">{{ icon("dashboard", cls="ico") }}{{ _('指挥中心') }}{% if pending_n %}<span class="cnt hot" title="{{ _('{n} 单更新提案等你批（公司页/指挥中心）', n=pending_n) }}">{{ pending_n }}</span>{% endif %}</a>
+      <a href="/sourcing" class="{{ 'on' if nav=='src' }}">{{ icon("radar", cls="ico") }}{{ _('新机会') }}{% if leads_n %}<span class="cnt hot" title="{{ _('{n} 条新线索待决策', n=leads_n) }}">{{ leads_n }}</span>{% endif %}</a>
+      <a href="/pipeline" class="{{ 'on' if nav=='pipe' }}">{{ icon("kanban", cls="ico") }}{{ _('作战室') }}</a>
+      <a href="/playbook" class="{{ 'on' if nav=='pb' }}">{{ icon("book", cls="ico") }}{{ _('参谋部') }}</a>
+      {% if features.drill %}<a href="/drill" class="{{ 'on' if nav=='drill' }}">{{ icon("swords", cls="ico") }}{{ _('练兵场') }}</a>{% endif %}
+      <a href="/arsenal" class="{{ 'on' if nav=='ars' }}">{{ icon("layers", cls="ico") }}{{ _('弹药库') }}</a>
     </div>
     <div class="navgrp">{{ _('系统') }}</div>
     <div class="nav">
-      <a href="/settings" class="{{ 'on' if nav=='set' }}"><span class="ico">⚙</span>{{ _('设置') }}</a>
+      <a href="/settings" class="{{ 'on' if nav=='set' }}">{{ icon("settings", cls="ico") }}{{ _('设置') }}</a>
     </div>
     <div class="foot">
       <div class="theme-sw" role="group" aria-label="{{ _('主题') }}">
-        <button type="button" data-t="light" title="{{ _('浅色') }}" aria-label="{{ _('浅色') }}">☀</button>
-        <button type="button" data-t="auto" title="{{ _('跟随系统') }}" aria-label="{{ _('跟随系统') }}">◐</button>
-        <button type="button" data-t="dark" title="{{ _('深色') }}" aria-label="{{ _('深色') }}">☾</button>
+        <button type="button" data-t="light" title="{{ _('浅色') }}" aria-label="{{ _('浅色') }}">{{ icon("sun", 14) }}</button>
+        <button type="button" data-t="auto" title="{{ _('跟随系统') }}" aria-label="{{ _('跟随系统') }}">{{ icon("monitor", 14) }}</button>
+        <button type="button" data-t="dark" title="{{ _('深色') }}" aria-label="{{ _('深色') }}">{{ icon("moon", 14) }}</button>
       </div>
-      <div>{% if cloud %}<a href="#" onclick="dlg('dlg-feedback');return false">✉ {{ _('反馈') }}</a>{% else %}<a href="https://github.com/Shuailong/joblander/issues" target="_blank">✉ {{ _('反馈') }}</a>{% endif %}</div>
-      {% if cloud %}<div id="quota" class="hide-sm"><a href="/_gw/account">{{ _('AI 额度…') }}</a></div>
-      <div class="hide-sm"><a href="/auth/logout">{{ _('退出登录') }}</a></div>
-      {% else %}<div class="hide-sm"><span class="dot"></span>{{ _('引擎在线（本机）') }}</div>{% endif %}
+      {% if cloud %}<a class="fl" href="#" onclick="dlg('dlg-feedback');return false">{{ icon("message", 15) }}{{ _('反馈') }}</a>{% else %}<a class="fl" href="https://github.com/Shuailong/joblander/issues" target="_blank">{{ icon("message", 15) }}{{ _('反馈') }}</a>{% endif %}
+      {% if cloud %}<a class="fl hide-sm" id="quota" href="/_gw/account">{{ icon("coins", 15) }}<span>{{ _('AI 额度…') }}</span></a>
+      <a class="fl hide-sm" href="/auth/logout">{{ icon("logout", 15) }}{{ _('退出登录') }}</a>
+      {% else %}<div class="fl hide-sm"><span class="dot"></span>{{ _('引擎在线（本机）') }}</div>{% endif %}
     </div>
   </aside>
-  <main class="main">
+  <main class="main{{ ' wide' if nav == 'pipe' }}">
     {% block main %}{% endblock %}
   </main>
 </div>
@@ -100,7 +100,7 @@ async function sendFeedback(btn){
 fetch('/_gw/balance').then(r => r.ok ? r.json() : null).then(b => {
   if (!b) return;
   const q = document.getElementById('quota');
-  q.innerHTML = `<a href="/_gw/account">${ {{ _('AI 额度')|jsq }} } $${b.balance_usd.toFixed(2)}</a>`;
+  q.querySelector('span').textContent = `${ {{ _('AI 额度')|jsq }} } $${b.balance_usd.toFixed(2)}`;
   if (b.balance_usd <= 0.05) {
     const bar = document.createElement('div');
     bar.className = 'sentinel warn';

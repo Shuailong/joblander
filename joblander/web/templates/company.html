@@ -123,7 +123,7 @@
 {% if props %}
 <h2 id="pending">{{ _('待你批（') }}{{ props|length }}）<span class="note" style="text-transform:none;letter-spacing:0">{{ _('面后录入 / 跟进更新——批准才写入档案；字段框可先改') }}</span></h2>
 {% for p in props %}
-<div class="prop" style="border-left:3px solid var(--amber)">
+<div class="prop tint-amber">
   <div class="hd">{% if p.origin == 'scout.followup' %}<span class="pill amber">{{ _('Scout · 跟进更新') }}</span>{% elif p.origin == 'note.suggest' %}<span class="pill gray">{{ _('记录 · 字段建议') }}</span>{% else %}<span class="pill blue">{{ _('Scribe · 面后录入') }}</span>{% endif %}<b>{{ p.company }}</b>
     <span class="src">{{ p._file.split('/')[-1] }}</span></div>
   <div class="bd">
