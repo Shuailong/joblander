@@ -121,6 +121,12 @@ class Store:
             sets.append("volume_id=?"); args.append(volume_id)
         self.db.execute(f"UPDATE users SET {', '.join(sets)} WHERE email=?", (*args, email.lower()))
 
+    def clear_machine(self, email: str) -> None:
+        """重置后回到「新用户」：机器与卷的记录清空、换一把网关口令；额度与用量原样保留
+        （否则重置一下就能反复白拿试用额度）。"""
+        self.db.execute("UPDATE users SET status='new', machine_id=NULL, volume_id=NULL, error=NULL, "
+                        "gateway_token=? WHERE email=?", (secrets.token_urlsafe(32), email.lower()))
+
     # ---------- 额度 ----------
 
     def _grant(self, email: str, amount: float, reason: str) -> None:

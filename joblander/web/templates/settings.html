@@ -75,6 +75,29 @@
     <label class="switch"><input type="checkbox" {{ 'checked' if features.drill }} onchange="post('/api/settings/features',{name:'drill',on:this.checked?1:0},{ok:this.checked?{{ _('已开启')|jsq }}:{{ _('已关闭')|jsq }},reload:true})"><span></span></label></div>
 </div>
 
+{% if cloud %}
+<h2 id="danger">{{ _('危险操作') }}</h2>
+<div class="card setup-step" style="margin-bottom:14px;border-color:var(--red)">
+  <div class="row"><div class="body"><b>{{ _('重置账户，从头开始') }}</b>
+    <div class="meta">{{ _('删除你的整个空间——弹药库、简历、公司档案、偏好、所有记录——然后像新用户一样重新开通。删除后无法恢复。AI 额度不受影响。') }}</div></div></div>
+  <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+    <input id="reset-confirm" placeholder="{{ _('输入 RESET 确认') }}" style="max-width:200px">
+    <button class="btn danger" onclick="resetAccount(this)">{{ _('删除并重新开始') }}</button>
+  </div>
+</div>
+<script>
+async function resetAccount(btn){
+  if (gv('reset-confirm').trim() !== 'RESET') { toast({{ _('请输入 RESET 确认')|jsq }}); return; }
+  btn.disabled = true;
+  const fd = new FormData(); fd.append('confirm', 'RESET');
+  const r = await fetch('/_gw/reset', {method: 'POST', body: fd});
+  const out = r.ok ? await r.json() : {error: r.status};
+  if (out.ok) { toast({{ _('正在重置——马上带你重新开始')|jsq }}); setTimeout(() => location.replace('/'), 800); }
+  else { btn.disabled = false; toast({{ _('重置失败：')|jsq }} + (out.error || '')); }
+}
+</script>
+{% endif %}
+
 {% if advanced %}
 <h2 id="system">系统状态</h2>
 <details class="card" style="margin-bottom:14px"{{ ' open' if st.done }}>

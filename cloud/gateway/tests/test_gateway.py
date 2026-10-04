@@ -244,3 +244,30 @@ def test_gateway_pages_follow_language(store):
     store.create("a@x.com", 2.0)
     c2 = _client(store, _fly([]), _upstream([]), "a@x.com")
     assert "Setting up your private space" in c2.get("/", headers={"Accept-Language": "en"}).text
+
+
+def test_reset_destroys_and_reprovisions(store):
+    import time
+    store.create("a@x.com", 2.0)
+    store.charge("a@x.com", "m-pro", 0, 0, 0.5)
+    store.set_status("a@x.com", "ready", machine_id="m_old", volume_id="vol_old")
+    old_token = store.get("a@x.com").gateway_token
+    calls = []
+    c = _client(store, _fly(calls), _upstream([]), "a@x.com")
+    assert c.post("/_gw/reset", data={"confirm": "nope"}).json() == {"error": "confirm"}
+    assert c.post("/_gw/reset", data={"confirm": "RESET"},
+                  headers={"Origin": "https://evil.example"}).status_code == 403
+    assert store.get("a@x.com").machine_id == "m_old"            # 前两次都没动
+    assert c.post("/_gw/reset", data={"confirm": "RESET"},
+                  headers={"Origin": "https://app.test"}).json() == {"ok": True}
+    for _ in range(50):
+        if store.get("a@x.com").status == "new":
+            break
+        time.sleep(0.02)
+    u = store.get("a@x.com")
+    assert (u.status, u.machine_id, u.volume_id) == ("new", None, None)
+    assert u.gateway_token != old_token
+    assert u.spent_usd == 0.5 and u.credit_usd == 2.0              # 额度不随重置回血
+    assert ("DELETE", "/v1/apps/users/machines/m_old", None) in calls
+    assert ("DELETE", "/v1/apps/users/volumes/vol_old", None) in calls
+    assert "准备独立空间" in c.get("/").text                        # 下次访问 = 新用户开通

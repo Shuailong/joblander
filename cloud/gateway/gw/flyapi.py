@@ -60,5 +60,26 @@ class Fly:
     async def update_machine(self, machine_id: str, config: dict) -> None:
         await self._call("POST", f"/machines/{machine_id}", json={"config": config})
 
+    async def destroy_machine(self, machine_id: str) -> None:
+        try:
+            await self._call("DELETE", f"/machines/{machine_id}", params={"force": "true"})
+        except FlyError as e:
+            if "404" not in str(e):          # 已经没了 = 目的达成
+                raise
+
+    async def delete_volume(self, volume_id: str, tries: int = 10) -> None:
+        """machine 销毁是异步的：卷在完全解挂前删不掉，退避重试。"""
+        import asyncio
+        for i in range(tries):
+            try:
+                await self._call("DELETE", f"/volumes/{volume_id}")
+                return
+            except FlyError as e:
+                if "404" in str(e):
+                    return
+                if i == tries - 1:
+                    raise
+                await asyncio.sleep(min(2 * (i + 1), 10))
+
     def address(self, machine_id: str) -> str:
         return f"{machine_id}.vm.{self.app}.internal"

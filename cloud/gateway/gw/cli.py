@@ -4,6 +4,7 @@
   grant <email> <usd> [原因]   给额度（充值落地前，手工给朋友加额度也走这里）
   users                        列出用户、状态、余额
   upgrade <image>              把全部用户 machine 换到新镜像（数据在卷上，不受影响）
+  reset <email>                销毁该用户的 machine 与卷（数据不可恢复），下次登录按新用户重新开通
 """
 
 from __future__ import annotations
@@ -38,6 +39,8 @@ def main(argv: list[str]) -> None:
                   f"余额 ${u.balance_usd:7.2f}  已用 ${u.spent_usd:.2f}  {u.error or ''}")
     elif cmd == "upgrade":
         asyncio.run(_upgrade(store, args[0]))
+    elif cmd == "reset":
+        asyncio.run(_reset(store, args[0]))
     else:
         print(__doc__)
 
@@ -59,3 +62,17 @@ async def _upgrade(store: Store, image: str) -> None:
 
 if __name__ == "__main__":
     main(sys.argv[1:])
+
+
+async def _reset(store: Store, email: str) -> None:
+    u = store.get(email)
+    if u is None:
+        raise SystemExit(f"{email} 不存在")
+    fly = Fly(os.environ["FLY_API_TOKEN"], os.environ.get("USER_APP", "joblander-users"),
+              os.environ.get("FLY_REGION", "sin"))
+    if u.machine_id:
+        await fly.destroy_machine(u.machine_id)
+    if u.volume_id:
+        await fly.delete_volume(u.volume_id)
+    store.clear_machine(email)
+    print(f"{email}: 已重置，下次登录重新开通（额度保留 ${store.get(email).balance_usd:.2f}）")

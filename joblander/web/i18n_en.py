@@ -262,6 +262,12 @@ EN: dict[str, str] = {' High 机会': ' high-priority leads',
  '出炉': 'Generated',
  '出调研报告（约 1-2 分钟）': 'Generate report (~1–2 minutes)',
  '初筛': 'Screening',
+ '删除你的整个空间——弹药库、简历、公司档案、偏好、所有记录——然后像新用户一样重新开通。删除后无法恢复。AI 额度不受影响。': 'Deletes your entire space — Arsenal, '
+                                                                   'resumes, company files, preferences, '
+                                                                   'every record — and sets you up again as '
+                                                                   'a new user. This cannot be undone. Your '
+                                                                   'AI credit is not affected.',
+ '删除并重新开始': 'Delete and start over',
  '删除本段（先点一次确认）': 'Delete section (click once to confirm)',
  '删除（移入回收站可恢复；自动挖掘不会拉回）': "Delete (moved to trash; auto-discovery won't bring it back)",
  '判题完成': 'Judged',
@@ -269,6 +275,7 @@ EN: dict[str, str] = {' High 机会': ' high-priority leads',
  '动机': 'Motivation',
  '匹配': 'Fit',
  '半自动': 'Manual',
+ '危险操作': 'Danger zone',
  '历史报告': 'Past reports',
  '历史（': 'History (',
  '原则：': 'Principle:',
@@ -652,6 +659,7 @@ EN: dict[str, str] = {' High 机会': ' high-priority leads',
  '标题（事件/人名）': 'Title (event / person)',
  '校准当前能力：': 'Calibrate current level:',
  '模式与问题库': 'Patterns & question bank',
+ '正在重置——马上带你重新开始': 'Resetting — taking you back to the start',
  '段内部使用规则不在此展示，生成简历 / brief / 策略时照常生效。': 'internal rule sections not shown here; they still apply when '
                                          'generating resumes, briefs and strategy.',
  '段标题': 'Section title',
@@ -806,6 +814,7 @@ EN: dict[str, str] = {' High 机会': ' high-priority leads',
  '评估完成': 'Assessment done',
  '评分依据 · 弹药库': 'Scored against · Arsenal',
  '评分器实际吃到 {n} 字符（上限 12,000，超出截断）。': 'The scorer reads {n} characters (capped at 12,000).',
+ '请输入 RESET 确认': 'Type RESET to confirm',
  '读不出简历文字——可能是扫描版，换一份能选中文字的版本': "Couldn't read any text — it may be a scanned file; use a version with "
                                 'selectable text',
  '调研档案（': 'Research file (',
@@ -910,6 +919,7 @@ EN: dict[str, str] = {' High 机会': ' high-priority leads',
  '转写 → 录入提案': 'Transcript → proposal',
  '转写全文（可空，若传文件）': 'Transcript (optional if you upload a file)',
  '轮次': 'Round',
+ '输入 RESET 确认': 'Type RESET to confirm',
  '输入框有内容=发给教练（教练判断：明确说出版才生成）；空着点=直接出新版（吃已攒的全部意见，一次生成，不自动改稿）。想看招聘方视角反馈，出版后点「🔍 评审这版」；版本只增不覆盖': 'With text: '
                                                                                              'sends to the '
                                                                                              'coach (it only '
@@ -961,6 +971,8 @@ EN: dict[str, str] = {' High 机会': ' high-priority leads',
  '邮件': 'Email',
  '重估能力画像': 'Re-assess capability profile',
  '重置': 'Reset',
+ '重置失败：': 'Reset failed: ',
+ '重置账户，从头开始': 'Reset your account and start over',
  '重跑「评估匹配」即出 JD 定制雷达（轴从该 JD 提炼，不套通用模板）。': 'Re-run "Assess fit" for a JD-specific radar (axes are drawn from '
                                           'this JD).',
  '链接': 'a link',

@@ -105,3 +105,15 @@ def test_lead_text_follows_language():
     card = {"id": "1", "title": "PM", "company": "A", "location": "SG", "posted": "2026-10-01", "url": "u"}
     assert S.linkedin_to_lead(card, lang="en")["highlight"] == "LinkedIn listing 2026-10-01"
     assert S.linkedin_to_lead(card)["highlight"] == "LinkedIn 挂牌 2026-10-01"
+
+
+def test_reset_zone_only_in_cloud(client, monkeypatch):
+    c, _ = client
+    assert "/_gw/reset" not in c.get("/settings").text          # 本地版没有网关，不给这个按钮
+    monkeypatch.setenv("JOBLANDER_GATEWAY_TOKEN", "t")
+    from joblander.web.app import create_app
+    from fastapi.testclient import TestClient
+    c2 = TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1",
+                    headers={"X-Joblander-Gateway": "t"})
+    html = c2.get("/settings", headers={"Accept-Language": "en"}).text
+    assert "/_gw/reset" in html and "Danger zone" in html

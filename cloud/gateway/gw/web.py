@@ -134,6 +134,22 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         finally:
             provisioning.pop(email, None)
 
+    async def reset(email: str) -> None:
+        """一键重置：销毁 machine 与卷（数据不可恢复），账号回到新用户状态。"""
+        user = store.get(email)
+        try:
+            if user.machine_id:
+                await fly.destroy_machine(user.machine_id)
+            if user.volume_id:
+                await fly.delete_volume(user.volume_id)
+            store.clear_machine(email)
+        except Exception as e:                                  # noqa: BLE001
+            store.set_status(email, "failed", error=f"reset: {e}"[:500])
+        finally:
+            provisioning.pop(email, None)
+
+    app.state.reset = reset                                      # 管理命令复用同一条路径
+
     def kick_provision(user: User) -> None:
         if user.email in provisioning:
             return
@@ -197,9 +213,28 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             return Response(status_code=401)
         if user.status in ("new", "failed") and email not in provisioning:
             kick_provision(user)
-        stage = (3 if user.status == "ready" else 2 if user.machine_id
-                 else 1 if user.volume_id else 0)
+        stage = (3 if user.status == "ready" else 0 if user.status == "resetting"
+                 else 2 if user.machine_id else 1 if user.volume_id else 0)
         return {"status": user.status, "stage": stage}
+
+    @app.post("/_gw/reset")
+    async def reset_account(request: Request):
+        email = current(request)
+        user = store.get(email) if email else None
+        if user is None:
+            return Response(status_code=401)
+        # 写操作：浏览器跨站提交一定带 Origin，必须是本站；再要一次手打确认
+        origin = request.headers.get("origin") or ""
+        if origin and origin != f"https://{settings.public_host}":
+            return Response(status_code=403)
+        form = await request.form()
+        if (form.get("confirm") or "").strip() != "RESET":
+            return {"error": "confirm"}
+        if email in provisioning:
+            return {"error": "busy"}
+        store.set_status(email, "resetting")
+        provisioning[email] = asyncio.create_task(reset(email))
+        return {"ok": True}
 
     @app.get("/_gw/balance")
     async def balance(request: Request):
@@ -248,7 +283,8 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
                 kick_provision(user)
             if request.method != "GET" or path.startswith("api/"):
                 return Response(status_code=503)
-            return pages.waiting(first_time=not user.machine_id, lang=lang(request))
+            return pages.waiting(first_time=not user.machine_id or user.status == "resetting",
+                                 lang=lang(request))
 
         url = f"http://{fly.address(user.machine_id)}:8899/{path}"
         headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP}
