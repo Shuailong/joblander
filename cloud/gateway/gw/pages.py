@@ -193,13 +193,13 @@ LANDING_TEXT = {
    fine='开源项目 · <a href="https://github.com/Shuailong/joblander">GitHub</a> · <a href="https://ailayoff.me">ailayoff.me</a>',
    welcome="欢迎", sub="登录进入你的作战室。", google="用 Google 登录",
    invite="内测邀请制：请用被邀请的 Google 账号登录。新用户送 AI 试用额度。",
-   checks=["独立空间：你的数据只在你自己的实例里", "只起草、从不替你对外发送任何东西", "不碰邮箱密码，不存任何银行或招聘网站登录"],
-   feedback="反馈", theme="切换深浅色",
+   checks=["资料存在你独立的加密空间（新加坡）", "AI 经 OpenAI API 处理，不用于训练模型", "只起草、从不替你发送；随时导出或彻底删除"],
+   feedback="反馈", privacy="隐私说明", theme="切换深浅色",
    in_eyebrow="看看里面", in_h2="每天早上，一眼看清整场战役", in_lead="截图来自虚构演示数据——公司、人名、数字都是编的。",
    shots=[("command-center", "指挥中心", "今天该做什么、什么逾期了、什么在等你批准。"),
           ("sourcing", "新机会", "每晚自动搜来的岗位，按匹配度排好，一键入池或否决。"),
           ("pipeline", "作战室", "每家公司在哪一关，拖一下就推进。")],
-   foot='joblander 是开源项目（<a href="https://github.com/Shuailong/joblander">GitHub</a>）· <a href="https://ailayoff.me">ailayoff.me</a>'),
+   foot='joblander 是开源项目（<a href="https://github.com/Shuailong/joblander">GitHub</a>）· <a href="/_gw/privacy">隐私说明</a> · <a href="https://ailayoff.me">ailayoff.me</a>'),
  "en": dict(title="joblander · your job-search war room", switch=("zh", "中文"),
    eyebrow="Job search · with an AI chief of staff", h1="Your job-search<br>war room",
    lead="Roles find you, resumes are tailored to each JD, you walk into every interview prepared and negotiate with a floor. The AI watches the whole board; you make the calls.",
@@ -214,15 +214,15 @@ LANDING_TEXT = {
    fine='Open source · <a href="https://github.com/Shuailong/joblander">GitHub</a> · <a href="https://ailayoff.me">ailayoff.me</a>',
    welcome="Welcome", sub="Sign in to your war room.", google="Continue with Google",
    invite="Invite-only beta: sign in with the Google account you were invited with. New users get free AI credit.",
-   checks=["Your own private space — your data stays in your instance", "Drafts only — it never sends anything on your behalf",
-           "No email passwords, no bank or job-site logins stored"],
-   feedback="Feedback", theme="Toggle theme",
+   checks=["Stored in your own encrypted space (Singapore)", "AI via the OpenAI API — never used for training",
+           "Drafts only, never sends; export or delete anytime"],
+   feedback="Feedback", privacy="Privacy", theme="Toggle theme",
    in_eyebrow="A look inside", in_h2="Every morning, the whole campaign at a glance",
    in_lead="Screenshots use a fictional demo dataset — companies, people and numbers are invented.",
    shots=[("command-center", "Command Center", "What to do now, what's overdue, what's waiting for your approval."),
           ("sourcing", "New Leads", "Roles found overnight, ranked by fit — add to pipeline or reject in one click."),
           ("pipeline", "War Room", "Where every company stands; drag a card to move it forward.")],
-   foot='joblander is open source (<a href="https://github.com/Shuailong/joblander">GitHub</a>) · <a href="https://ailayoff.me">ailayoff.me</a>'),
+   foot='joblander is open source (<a href="https://github.com/Shuailong/joblander">GitHub</a>) · <a href="/_gw/privacy">Privacy</a> · <a href="https://ailayoff.me">ailayoff.me</a>'),
 }
 
 
@@ -267,6 +267,7 @@ def landing(lang: str = "zh") -> HTMLResponse:
     <hr>
     <ul class="checks">{checks}</ul>
     <div class="foot"><a href="{gh}" target="_blank" rel="noopener">{icon('github', 14)}GitHub</a>
+      <a href="/_gw/privacy">{t['privacy']}</a>
       <a href="{gh}" target="_blank" rel="noopener">{t['feedback']}</a></div>
   </div>
 </section>
@@ -406,6 +407,8 @@ MSG = {
  "no_usage": ("还没有用量", "No usage yet"),
  "back": ("← 返回", "← Back"),
  "logout": ("退出登录", "Sign out"),
+ "export_acct": ("导出账户记录", "Export account records"),
+ "privacy": ("隐私说明", "Privacy"),
  "unreachable_t": ("暂时连不上", "Temporarily unavailable"),
  "unreachable": ("<h1>你的空间暂时没响应</h1><p>可能正在重启，几秒后自动重试。</p>",
                  "<h1>Your space isn't responding</h1><p>It may be restarting — retrying in a few seconds.</p>"),
@@ -422,3 +425,229 @@ def lang_of(cookie: str | None, accept_language: str | None) -> str:
         return cookie
     first = (accept_language or "").split(",")[0].strip().lower()
     return "en" if first.startswith("en") else "zh"
+
+
+# ---------- 隐私说明 + 首次登录同意 ----------
+
+PRIVACY_VERSION = "2026-10-05"
+
+PRIVACY_CSS = """
+.doc{max-width:760px;margin:0 auto;padding:40px 22px 80px}
+.doc .top{display:flex;align-items:center;gap:10px;margin-bottom:28px}
+.doc .top img{width:30px;height:30px;border-radius:8px}.doc .top b{font-size:17px;letter-spacing:-.02em}
+.doc .top .sp{flex:1}
+.doc h1{font-size:30px;letter-spacing:-.02em;font-weight:650;margin:0 0 6px}
+.doc .ver{color:var(--ink-3);font-size:13px;margin-bottom:26px}
+.doc .tldr{background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 25%,var(--line));border-radius:14px;padding:16px 20px;margin-bottom:30px}
+.doc .tldr ul{margin:6px 0 0;padding-left:20px} .doc .tldr li{margin:3px 0}
+.doc h2{font-size:18px;letter-spacing:-.01em;margin:30px 0 8px}
+.doc p,.doc li{color:var(--ink-2)} .doc li b,.doc p b{color:var(--ink)}
+.doc table{font-size:14px;margin:8px 0} .doc td,.doc th{padding:8px 10px 8px 0;vertical-align:top;text-align:left;border-bottom:1px solid var(--line)}
+.doc th{font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em}
+.consent{max-width:520px}
+.consent ul{padding-left:20px;margin:0 0 18px} .consent li{color:var(--ink-2);margin:4px 0}
+.consent label{display:flex;gap:10px;align-items:flex-start;font-size:14px;margin:6px 0 18px;cursor:pointer}
+.consent input{margin-top:4px;accent-color:var(--accent)}
+.consent .row{display:flex;gap:10px;align-items:center}
+.consent button:disabled{opacity:.45;cursor:not-allowed}
+.consent .no{color:var(--ink-3);font-size:14px}
+"""
+
+_PRIV = {
+ "zh": dict(title="隐私说明 · joblander", h1="隐私说明", ver="版本 " + PRIVACY_VERSION + " · 内测阶段，非商业运营",
+  tldr=["你的资料存在<b>只属于你的独立机器与加密磁盘</b>上（新加坡）。",
+        "AI 处理经 <b>OpenAI API</b>：不用于训练模型，OpenAI 最多保留 30 天用于滥用监测。",
+        "系统<b>只起草、从不替你对外发送</b>任何东西；不卖数据、不投广告。",
+        "你可以随时<b>导出全部数据</b>或<b>彻底删除账户</b>（设置页）。"],
+  body="""
+<h2>谁在运营</h2>
+<p>joblander 是一个开源项目（<a href="https://github.com/Shuailong/joblander">GitHub</a>），云端版由项目作者个人运营，
+目前邀请制内测、不收费。下文的「我」指运营者。</p>
+
+<h2>收集哪些数据</h2>
+<ul>
+<li><b>账户</b>：Google 登录只取你的<b>邮箱地址</b>（权限范围 openid + email），看不到你的邮件、日历或通讯录。</li>
+<li><b>你提供的内容</b>：简历、战绩库、目标薪资与红线、公司档案、面试笔记、你贴进来的邀约或 JD。</li>
+<li><b>系统生成的内容</b>：匹配评估、尽调报告、面试 brief、定制简历、日记与周报。</li>
+<li><b>用量记录</b>：每次 AI 调用的模型、token 数、费用与时间（用于额度计费）。</li>
+<li><b>反馈</b>：你主动提交的反馈内容、所在页面和浏览器标识。</li>
+<li><b>技术日志</b>：请求时间、状态码、IP 地址，用于排障与防滥用；不记录页面路径与内容。</li>
+</ul>
+
+<h2>存在哪里</h2>
+<p>托管在 Fly.io <b>新加坡</b>区域。每个用户一台独立机器、一块<b>静态加密</b>的独立磁盘；
+用户之间在网络层隔离，一个用户无法访问另一个用户的空间。账户与用量记录存在网关数据库（同区域、加密磁盘）。
+平台每天自动快照磁盘，快照保留 5 天，用于故障恢复。</p>
+
+<h2>交给谁处理</h2>
+<table>
+<tr><th>服务</th><th>用途</th><th>涉及的数据</th></tr>
+<tr><td>Fly.io</td><td>服务器与存储</td><td>全部（存储于新加坡）</td></tr>
+<tr><td>OpenAI</td><td>AI 生成与评估</td><td>处理当次任务所需的简历片段、JD、笔记。API 数据默认不用于训练；可能保留至多 30 天用于滥用监测；处理地在美国</td></tr>
+<tr><td>Tavily</td><td>公司尽调的网页搜索</td><td>搜索词（公司名、岗位关键词），不含你的简历</td></tr>
+<tr><td>Google</td><td>登录</td><td>邮箱地址</td></tr>
+<tr><td>Resend</td><td>把你的反馈转发到运营者邮箱</td><td>仅你提交的反馈与你的邮箱</td></tr>
+</table>
+<p>LinkedIn 与 MyCareersFuture 只用于读取<b>公开</b>岗位信息，不会把你的任何数据发给它们。</p>
+
+<h2>不做什么</h2>
+<ul>
+<li>不出售、不出租你的数据，不做广告。</li>
+<li>不用你的数据训练模型。</li>
+<li>不替你对外发送任何邮件或消息——每一个发出去的字都由你自己发。</li>
+<li>不要求、也不保存任何邮箱密码、银行或招聘网站登录。</li>
+</ul>
+
+<h2>运营者能看到什么</h2>
+<p>作为服务器管理员，我在技术上<b>能够</b>访问存储你数据的机器。我的承诺：<b>不查看你的内容</b>；
+只在你为排障明确请求并同意时，或法律要求时才访问，并告知你。账户与用量汇总（邮箱、额度、花费）我会看到，用于运营。</p>
+
+<h2>你的权利</h2>
+<ul>
+<li><b>查看与更正</b>：所有内容都在界面里，可直接修改。</li>
+<li><b>导出</b>：设置页「导出我的全部数据」——你空间里的全部文件打包下载，外加账户与用量记录。</li>
+<li><b>重置</b>：清空空间、保留账户，重新开始。</li>
+<li><b>彻底删除</b>：设置页「删除账户」——立即销毁你的机器与磁盘，并删除网关里的账户、用量、反馈与邀请记录。
+平台快照在至多 5 天内过期删除；OpenAI 侧至多 30 天。删除后无法恢复。</li>
+<li><b>撤回同意</b>：等同于删除账户。</li>
+</ul>
+
+<h2>关于你记录的他人信息</h2>
+<p>面试笔记里可能出现招聘方、面试官的姓名等信息。请只记录求职所需的内容；这些信息与你的其他数据同等保护，并随删除一并清除。</p>
+
+<h2>安全措施</h2>
+<ul>
+<li>全程 HTTPS；会话 cookie 签名、仅 HTTPS、不可被脚本读取。</li>
+<li>每台用户机器只接受网关带专属口令的请求；用户机器没有公网入口。</li>
+<li>磁盘静态加密；AI 调用经计量代理，用户机器上不保存真实的 OpenAI 密钥。</li>
+<li>访问日志不记录页面路径与内容。</li>
+</ul>
+
+<h2>数据泄露</h2>
+<p>如发生可能影响你的安全事件，我会尽快通知受影响的用户，并按适用法律（如新加坡 PDPA）向主管机关报告。</p>
+
+<h2>联系与变更</h2>
+<p>问题或请求：登录后用侧栏「反馈」，或在 <a href="https://github.com/Shuailong/joblander/issues">GitHub Issues</a> 留言（勿在公开 issue 里贴个人信息）。
+本说明如有实质变更，会在你下次登录时请你重新确认。</p>
+"""),
+ "en": dict(title="Privacy · joblander", h1="Privacy notice", ver="Version " + PRIVACY_VERSION + " · invite-only beta, non-commercial",
+  tldr=["Your data lives on <b>a machine and encrypted disk of your own</b> (Singapore).",
+        "AI processing goes through the <b>OpenAI API</b>: not used for training; OpenAI may keep it up to 30 days for abuse monitoring.",
+        "joblander <b>only drafts — it never sends anything on your behalf</b>. No selling data, no ads.",
+        "You can <b>export everything</b> or <b>delete your account completely</b> at any time (Settings)."],
+  body="""
+<h2>Who runs this</h2>
+<p>joblander is open source (<a href="https://github.com/Shuailong/joblander">GitHub</a>). The cloud version is run personally by the
+project's author as a free, invite-only beta. "I" below means the operator.</p>
+
+<h2>What is collected</h2>
+<ul>
+<li><b>Account</b>: Google sign-in only shares your <b>email address</b> (scopes openid + email) — not your mail, calendar or contacts.</li>
+<li><b>What you provide</b>: resume, achievement bank, target pay and red lines, company files, interview notes, invitations or JDs you paste.</li>
+<li><b>What the system generates</b>: fit assessments, research reports, interview briefs, tailored resumes, diaries and weekly reports.</li>
+<li><b>Usage records</b>: model, tokens, cost and time of each AI call (for credit metering).</li>
+<li><b>Feedback</b>: what you submit, the page you were on and your browser's user agent.</li>
+<li><b>Technical logs</b>: request time, status code and IP address for troubleshooting and abuse prevention; page paths and content are not logged.</li>
+</ul>
+
+<h2>Where it is stored</h2>
+<p>Hosted on Fly.io in <b>Singapore</b>. Each user gets a dedicated machine and a dedicated disk <b>encrypted at rest</b>;
+users are isolated at the network level and cannot reach each other's space. Account and usage records live in the gateway database
+(same region, encrypted disk). The platform snapshots disks daily and keeps snapshots for 5 days for disaster recovery.</p>
+
+<h2>Who processes it</h2>
+<table>
+<tr><th>Service</th><th>Purpose</th><th>Data involved</th></tr>
+<tr><td>Fly.io</td><td>Servers and storage</td><td>Everything (stored in Singapore)</td></tr>
+<tr><td>OpenAI</td><td>AI generation and assessment</td><td>Resume excerpts, JDs and notes needed for the task at hand. API data is not used for training by default; may be retained up to 30 days for abuse monitoring; processed in the US</td></tr>
+<tr><td>Tavily</td><td>Web search for company research</td><td>Search terms (company names, role keywords) — not your resume</td></tr>
+<tr><td>Google</td><td>Sign-in</td><td>Email address</td></tr>
+<tr><td>Resend</td><td>Forwarding your feedback to the operator</td><td>Only the feedback you submit and your email</td></tr>
+</table>
+<p>LinkedIn and MyCareersFuture are only used to read <b>public</b> job listings; none of your data is sent to them.</p>
+
+<h2>What I don't do</h2>
+<ul>
+<li>No selling or renting your data, no advertising.</li>
+<li>No training models on your data.</li>
+<li>No sending emails or messages on your behalf — everything that goes out, you send yourself.</li>
+<li>No asking for or storing email passwords, bank or job-site logins.</li>
+</ul>
+
+<h2>What the operator can see</h2>
+<p>As the server administrator I am technically <b>able</b> to access the machine holding your data. My commitment: <b>I don't look at your content</b>.
+I access it only when you explicitly ask for help troubleshooting and agree, or when the law requires it — and I'll tell you.
+I do see account and usage summaries (email, credit, spend) to run the service.</p>
+
+<h2>Your rights</h2>
+<ul>
+<li><b>Access and correction</b>: everything is in the interface and can be edited directly.</li>
+<li><b>Export</b>: Settings → "Export all my data" downloads every file in your space, plus your account and usage records.</li>
+<li><b>Reset</b>: wipe your space but keep the account, and start over.</li>
+<li><b>Delete completely</b>: Settings → "Delete account" immediately destroys your machine and disk and deletes your account, usage, feedback and invite records from the gateway.
+Platform snapshots expire within 5 days; OpenAI within 30 days. Deletion cannot be undone.</li>
+<li><b>Withdrawing consent</b>: same as deleting your account.</li>
+</ul>
+
+<h2>Other people's information you record</h2>
+<p>Interview notes may include names of recruiters or interviewers. Please record only what your job search needs; this information is protected
+like the rest of your data and is erased when you delete your account.</p>
+
+<h2>Security measures</h2>
+<ul>
+<li>HTTPS everywhere; session cookies are signed, HTTPS-only and not readable by scripts.</li>
+<li>Each user machine only accepts gateway requests carrying its own token; user machines have no public entry point.</li>
+<li>Disks encrypted at rest; AI calls go through a metering proxy, so no real OpenAI key is stored on user machines.</li>
+<li>Access logs do not record page paths or content.</li>
+</ul>
+
+<h2>Breaches</h2>
+<p>If a security incident may affect you, I'll notify affected users as soon as possible and report to authorities as required by applicable law (such as Singapore's PDPA).</p>
+
+<h2>Contact and changes</h2>
+<p>Questions or requests: use "Feedback" in the sidebar after signing in, or open a <a href="https://github.com/Shuailong/joblander/issues">GitHub issue</a>
+(don't post personal information in public issues). If this notice changes materially, you'll be asked to confirm again at your next sign-in.</p>
+"""),
+}
+
+_CONSENT = {
+ "zh": dict(title="使用前请确认 · joblander", h1="使用前请确认",
+   lead="开通你的空间之前，请花一分钟看一下数据怎么处理：",
+   check="我已阅读并同意<a href=\"/_gw/privacy\" target=\"_blank\">隐私说明</a>",
+   go="同意并继续", no="不同意，退出"),
+ "en": dict(title="Before you start · joblander", h1="Before you start",
+   lead="Before we set up your space, here's how your data is handled:",
+   check="I have read and agree to the <a href=\"/_gw/privacy\" target=\"_blank\">privacy notice</a>",
+   go="Agree and continue", no="Decline and sign out"),
+}
+
+
+def privacy(lang: str = "zh") -> HTMLResponse:
+    lg = "en" if lang == "en" else "zh"
+    t = _PRIV[lg]
+    to, label = ("zh", "中文") if lg == "en" else ("en", "English")
+    tldr = "".join(f"<li>{x}</li>" for x in t["tldr"])
+    body = f"""<div class="doc">
+<div class="top"><a href="/"><img src="{LOGO}" alt=""></a><b>joblander</b><span class="sp"></span>
+  <a class="tbtn" href="/_gw/privacy?lang={to}">{icon('globe', 14)}{label}</a>
+  <button class="tbtn" onclick="jlTheme()" aria-label="Theme">{icon('moon', 14)}</button></div>
+<h1>{t['h1']}</h1><div class="ver">{t['ver']}</div>
+<div class="tldr"><ul>{tldr}</ul></div>
+{t['body']}
+</div><script>{THEME_TOGGLE_JS}</script>"""
+    return _doc(t["title"], body, PRIVACY_CSS, lang=lg)
+
+
+def consent(lang: str = "zh") -> HTMLResponse:
+    lg = "en" if lang == "en" else "zh"
+    t, p = _CONSENT[lg], _PRIV[lg]
+    pts = "".join(f"<li>{x}</li>" for x in p["tldr"])
+    body = f"""<div class="box consent"><img class="logo" src="{LOGO}" alt="">
+<h1>{t['h1']}</h1><p>{t['lead']}</p><ul>{pts}</ul>
+<form method="post" action="/_gw/consent">
+  <label><input type="checkbox" id="ok" onchange="document.getElementById('go').disabled=!this.checked">
+    <span>{t['check']}</span></label>
+  <div class="row"><button class="btn" id="go" disabled>{t['go']}</button>
+    <a class="no" href="/auth/logout">{t['no']}</a></div>
+</form></div>"""
+    return _doc(t["title"], body, PRIVACY_CSS, lang=lg)

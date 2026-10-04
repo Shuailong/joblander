@@ -17,4 +17,4 @@ sentinel:
 YAML
 fi
 joblander onboard
-exec joblander web --host "${JOBLANDER_HOST:-::}" --port "${PORT:-8899}"
+exec joblander web --host "${JOBLANDER_HOST:-::}" --port "${PORT:-8899}" --no-access-log

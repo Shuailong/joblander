@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
-                               RedirectResponse)
+                               RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -398,6 +398,32 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             return JSONResponse({"error": "unsupported language"}, status_code=400)
         update_config(cfg, {"ui_lang": lang})
         return {"ok": True}
+
+    @app.get("/api/export")
+    def api_export():
+        """导出我的全部数据：workspace 全部文件 + 配置（密钥类字段抹掉），打成一个 zip。"""
+        import io
+        import zipfile
+
+        import yaml
+
+        def scrub(v):
+            if isinstance(v, dict):
+                return {k: ("<redacted>" if any(w in str(k).lower() for w in ("key", "secret", "token", "password"))
+                            else scrub(x)) for k, x in v.items()}
+            return [scrub(x) for x in v] if isinstance(v, list) else v
+
+        buf = io.BytesIO()
+        ws = Path(cfg.workspace_dir)
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("config.yaml", yaml.safe_dump(scrub(cfg.raw), allow_unicode=True, sort_keys=False))
+            if ws.is_dir():
+                for f in sorted(ws.rglob("*")):
+                    if f.is_file() and not f.is_symlink():
+                        z.write(f, "workspace/" + f.relative_to(ws).as_posix())
+        name = f"joblander-data-{datetime.now(SGT):%Y%m%d}.zip"
+        return Response(buf.getvalue(), media_type="application/zip",
+                        headers={"content-disposition": f'attachment; filename="{name}"'})
 
     @app.post("/api/settings/features")
     def api_settings_features(name: str = Form(...), on: str = Form(...)):

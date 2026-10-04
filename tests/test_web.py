@@ -1139,3 +1139,16 @@ def test_arsenal_delete_and_reorder(client):
                       data={"idx": internal_idx,
                             "title": ars.load_sections(cfg)["sections"][internal_idx]["title"]})
     assert bad.status_code == 400 and "内部规则段" in bad.json()["error"]
+
+
+def test_export_all_data_zip(client):
+    import io
+    import zipfile
+    r = client.get("/api/export")
+    assert r.status_code == 200 and "attachment" in r.headers["content-disposition"]
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    names = z.namelist()
+    assert "workspace/09-projections/tracker.json" in names
+    assert "Acme AI" in z.read("workspace/09-projections/tracker.json").decode()
+    conf = z.read("config.yaml").decode()
+    assert "fake" not in conf and "<redacted>" in conf          # notion token 抹掉

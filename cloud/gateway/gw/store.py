@@ -60,6 +60,8 @@ class User:
     credit_usd: float
     spent_usd: float
     error: str | None
+    consented_at: float | None = None
+    privacy_version: str | None = None
 
     @property
     def balance_usd(self) -> float:
@@ -72,6 +74,11 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        for col in ("consented_at REAL", "privacy_version TEXT"):    # 旧库就地加列
+            try:
+                self.db.execute(f"ALTER TABLE users ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
         self.lock = threading.Lock()
 
     def _user(self, row) -> User | None:
@@ -175,3 +182,29 @@ class Store:
         return [dict(r) for r in self.db.execute(
             "SELECT model, prompt_tokens, completion_tokens, cost_usd, at FROM usage "
             "WHERE email=? ORDER BY id DESC LIMIT ?", (email.lower(), limit))]
+
+    # ---------- 隐私：同意、导出、彻底删除 ----------
+
+    def consent(self, email: str, version: str) -> None:
+        self.db.execute("UPDATE users SET consented_at=?, privacy_version=? WHERE email=?",
+                        (time.time(), version, email.lower()))
+
+    def export(self, email: str) -> dict:
+        """网关这边关于此人的全部记录（口令与 key 哈希不导出——那是系统凭据，不是个人数据）。"""
+        e = email.lower()
+        u = self.db.execute("SELECT email, status, credit_usd, spent_usd, created_at, consented_at, "
+                            "privacy_version FROM users WHERE email=?", (e,)).fetchone()
+        q = lambda sql: [dict(r) for r in self.db.execute(sql, (e,))]          # noqa: E731
+        return {"account": dict(u) if u else None,
+                "invited": self.is_invited(e),
+                "grants": q("SELECT amount_usd, reason, at FROM grants WHERE email=? ORDER BY id"),
+                "usage": q("SELECT model, prompt_tokens, completion_tokens, cost_usd, at FROM usage "
+                           "WHERE email=? ORDER BY id"),
+                "feedback": q("SELECT message, page, lang, user_agent, at FROM feedback WHERE email=? ORDER BY id")}
+
+    def delete_user(self, email: str) -> None:
+        """彻底删除：账户、邀请、额度流水、用量、反馈一并删掉。机器与卷由调用方先销毁。"""
+        e = email.lower()
+        with self.lock:
+            for t in ("usage", "grants", "feedback", "invites", "users"):
+                self.db.execute(f"DELETE FROM {t} WHERE email=?", (e,))

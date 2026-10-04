@@ -56,7 +56,7 @@ async def serve() -> None:
     web, meter = build()
     # 公网口给 Fly 入口代理（走 IPv4）；计量口只给私网（6PN 是 IPv6）——绑 :: 在 Fly 上是 v6-only
     servers = [uvicorn.Server(uvicorn.Config(web, host="0.0.0.0", port=8080, proxy_headers=True,
-                                             forwarded_allow_ips="*")),
+                                             forwarded_allow_ips="*", access_log=False)),
                uvicorn.Server(uvicorn.Config(meter, host="::", port=8081))]
     await asyncio.gather(*(s.serve() for s in servers))
 

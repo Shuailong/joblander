@@ -75,6 +75,17 @@
     <label class="switch"><input type="checkbox" {{ 'checked' if features.drill }} onchange="post('/api/settings/features',{name:'drill',on:this.checked?1:0},{ok:this.checked?{{ _('已开启')|jsq }}:{{ _('已关闭')|jsq }},reload:true})"><span></span></label></div>
 </div>
 
+<h2 id="data">{{ _('数据与隐私') }}</h2>
+<div class="card setup-step" style="margin-bottom:14px">
+  <div class="row"><div class="body"><b>{{ _('导出我的全部数据') }}</b>
+    <div class="meta">{{ _('弹药库、简历、公司档案、笔记、报告、偏好——你空间里的全部文件打包成一个 zip 下载。') }}{% if cloud %}{{ _('账户、额度与用量记录另存为 JSON。') }}{% endif %}</div></div></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+    <a class="btn" href="/api/export">{{ _('下载全部数据（zip）') }}</a>
+    {% if cloud %}<a class="btn" href="/_gw/export">{{ _('下载账户记录（JSON）') }}</a>
+    <a class="btn" href="/_gw/privacy" target="_blank">{{ _('隐私说明') }}</a>{% endif %}
+  </div>
+</div>
+
 {% if cloud %}
 <h2 id="danger">{{ _('危险操作') }}</h2>
 <div class="card setup-step" style="margin-bottom:14px;border-color:var(--red)">
@@ -85,7 +96,24 @@
     <button class="btn danger" onclick="resetAccount(this)">{{ _('删除并重新开始') }}</button>
   </div>
 </div>
+<div class="card setup-step" style="margin-bottom:14px;border-color:var(--red)">
+  <div class="row"><div class="body"><b>{{ _('删除账户') }}</b>
+    <div class="meta">{{ _('彻底删除：立即销毁你的空间，并删除账户、额度与用量、反馈和邀请记录。之后无法再登录，除非重新被邀请。平台备份快照至多 5 天内过期，OpenAI 侧至多 30 天。建议先导出数据。') }}</div></div></div>
+  <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+    <input id="delete-confirm" placeholder="{{ _('输入 DELETE 确认') }}" style="max-width:200px">
+    <button class="btn danger" onclick="deleteAccount(this)">{{ _('永久删除账户') }}</button>
+  </div>
+</div>
 <script>
+async function deleteAccount(btn){
+  if (gv('delete-confirm').trim() !== 'DELETE') { toast({{ _('请输入 DELETE 确认')|jsq }}); return; }
+  btn.disabled = true;
+  const fd = new FormData(); fd.append('confirm', 'DELETE');
+  const r = await fetch('/_gw/delete', {method: 'POST', body: fd});
+  const out = r.ok ? await r.json() : {error: r.status};
+  if (out.ok) { toast({{ _('账户正在删除——再见，祝求职顺利')|jsq }}); setTimeout(() => location.replace('/auth/logout'), 1200); }
+  else { btn.disabled = false; toast({{ _('删除失败：')|jsq }} + (out.error || '')); }
+}
 async function resetAccount(btn){
   if (gv('reset-confirm').trim() !== 'RESET') { toast({{ _('请输入 RESET 确认')|jsq }}); return; }
   btn.disabled = true;

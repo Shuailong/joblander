@@ -11,13 +11,14 @@ import hashlib
 import hmac
 import html
 import json
+import logging
 import secrets
 import time
 from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 
 from gw import pages
@@ -94,6 +95,19 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
     provisioning: dict[str, asyncio.Task] = {}
     redirect_uri = f"https://{settings.public_host}/auth/callback"
 
+    log = logging.getLogger("uvicorn.error")
+
+    @app.middleware("http")
+    async def redacted_access_log(request: Request, call_next):
+        """访问日志只记方法、路由大类、状态码、IP——URL 里可能有公司名与文档名，不进日志。"""
+        t0 = time.time()
+        resp = await call_next(request)
+        p = request.url.path
+        kind = next((k for k in ("/_gw/static", "/_gw/", "/auth/", "/api/", "/static/") if p.startswith(k)), "page")
+        ip = request.client.host if request.client else "-"
+        log.info("%s %s %s %dms %s", request.method, kind, resp.status_code, (time.time() - t0) * 1000, ip)
+        return resp
+
     def current(request: Request) -> str | None:
         return read_session(settings.session_secret, request.cookies.get(SESSION_COOKIE))
 
@@ -156,6 +170,29 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
 
     app.state.reset = reset                                      # 管理命令复用同一条路径
 
+    async def delete(email: str) -> None:
+        """彻底删除：先销毁 machine 与卷，成功后再删网关里关于此人的全部记录。"""
+        user = store.get(email)
+        try:
+            if user.machine_id:
+                await fly.destroy_machine(user.machine_id)
+            if user.volume_id:
+                await fly.delete_volume(user.volume_id)
+            store.delete_user(email)
+        except Exception as e:                                  # noqa: BLE001  删不干净就别删记录，留着重试
+            store.set_status(email, "failed", error=f"delete: {e}"[:500])
+        finally:
+            provisioning.pop(email, None)
+
+    app.state.delete = delete
+
+    def needs_consent(user: User) -> bool:
+        return user.privacy_version != pages.PRIVACY_VERSION
+
+    def same_origin(request: Request) -> bool:
+        origin = request.headers.get("origin") or ""
+        return not origin or origin == f"https://{settings.public_host}"
+
     def kick_provision(user: User) -> None:
         if user.email in provisioning:
             return
@@ -217,6 +254,8 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         user = store.get(email) if email else None
         if user is None:
             return Response(status_code=401)
+        if needs_consent(user):
+            return {"status": "consent", "stage": 0}
         if user.status in ("new", "failed") and email not in provisioning:
             kick_provision(user)
         stage = (3 if user.status == "ready" else 0 if user.status == "resetting"
@@ -271,6 +310,47 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             pass
         return {"ok": True}
 
+    @app.get("/_gw/privacy")
+    async def privacy_page(request: Request, lang_q: str = Query("", alias="lang")):
+        return pages.privacy(lang_q if lang_q in ("zh", "en") else lang(request))
+
+    @app.post("/_gw/consent")
+    async def give_consent(request: Request):
+        email = current(request)
+        if not email or store.get(email) is None:
+            return Response(status_code=401)
+        if not same_origin(request):
+            return Response(status_code=403)
+        store.consent(email, pages.PRIVACY_VERSION)
+        return RedirectResponse("/", status_code=303)
+
+    @app.get("/_gw/export")
+    async def export(request: Request):
+        """网关侧记录（账户、额度、用量、反馈）；空间里的文件由引擎 /api/export 打包。"""
+        email = current(request)
+        if not email or store.get(email) is None:
+            return Response(status_code=401)
+        body = json.dumps(store.export(email), ensure_ascii=False, indent=1)
+        return Response(body, media_type="application/json", headers={
+            "content-disposition": 'attachment; filename="joblander-account.json"'})
+
+    @app.post("/_gw/delete")
+    async def delete_account(request: Request):
+        email = current(request)
+        user = store.get(email) if email else None
+        if user is None:
+            return Response(status_code=401)
+        if not same_origin(request):
+            return Response(status_code=403)
+        form = await request.form()
+        if (form.get("confirm") or "").strip() != "DELETE":
+            return {"error": "confirm"}
+        if email in provisioning:
+            return {"error": "busy"}
+        store.set_status(email, "deleting")
+        provisioning[email] = asyncio.create_task(delete(email))
+        return {"ok": True}
+
     @app.get("/_gw/balance")
     async def balance(request: Request):
         """侧栏额度显示：浏览器同源直接问网关，不经用户 machine。"""
@@ -299,6 +379,8 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         return _page(t, f"<h1>{t}</h1><p>{html.escape(user.email)}</p><p>{bal}</p>"
                      f"<table>{rows or empty}</table>"
                      f'<p style="margin-top:16px"><a href="/">{pages.msg("back", lg)}</a> · '
+                     f'<a href="/_gw/export">{pages.msg("export_acct", lg)}</a> · '
+                     f'<a href="/_gw/privacy">{pages.msg("privacy", lg)}</a> · '
                      f'<a href="/auth/logout">{pages.msg("logout", lg)}</a></p>', lang=lg)
 
     # ---------- 其余一切：转发到这个人自己的 machine ----------
@@ -312,6 +394,12 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             return pages.landing(lang(request))
         user = store.get(email)
         if user is None:                                        # 会话在、人被删了
+            return RedirectResponse("/auth/logout", status_code=302)
+        if needs_consent(user):                                 # 先看隐私说明并同意，才开通 / 继续使用
+            if request.method != "GET" or path.startswith("api/"):
+                return Response(status_code=403)
+            return pages.consent(lang(request))
+        if user.status == "deleting":
             return RedirectResponse("/auth/logout", status_code=302)
         if user.status != "ready":
             if user.status in ("new", "failed") and email not in provisioning:

@@ -123,10 +123,13 @@ def _upstream(seen: list):
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
-def _client(store, fly, upstream, email=None):
+def _client(store, fly, upstream, email=None, consent=True):
     c = TestClient(create_web_app(SETTINGS, store, fly, upstream), base_url="https://app.test")
     if email:
         c.cookies.set("jl_session", make_session("s", email))
+        if consent and store.get(email):
+            from gw.pages import PRIVACY_VERSION
+            store.consent(email, PRIVACY_VERSION)
     return c
 
 
@@ -354,3 +357,84 @@ def test_feedback_kept_when_email_not_configured(store):
     assert c.post("/_gw/feedback", data={"message": "works offline"}).json() == {"ok": True}
     f = store.list_feedback()[0]
     assert f["message"] == "works offline" and f["emailed"] == 0
+
+
+# ---------- 隐私：同意、导出、彻底删除 ----------
+
+def test_privacy_page_is_public_and_landing_links_it(store):
+    c = _client(store, _fly([]), _upstream([]))
+    r = c.get("/_gw/privacy")
+    assert r.status_code == 200 and "OpenAI" in r.text and "30 天" in r.text
+    assert "Privacy notice" in c.get("/_gw/privacy?lang=en").text
+    assert "/_gw/privacy" in c.get("/").text
+
+
+def test_no_provisioning_before_consent(store):
+    import time
+    store.create("a@x.com", 2.0)
+    calls = []
+    c = _client(store, _fly(calls), _upstream([]), "a@x.com", consent=False)
+    r = c.get("/")
+    assert "/_gw/consent" in r.text and "准备独立空间" not in r.text
+    assert c.get("/api/whatever").status_code == 403
+    assert c.get("/_gw/status").json()["status"] == "consent"
+    time.sleep(0.05)
+    assert calls == [] and store.get("a@x.com").status == "new"        # 没同意就不开卷、不开机器
+    assert c.post("/_gw/consent", headers={"Origin": "https://evil.example"}).status_code == 403
+    r = c.post("/_gw/consent", headers={"Origin": "https://app.test"}, follow_redirects=False)
+    assert r.status_code == 303 and store.get("a@x.com").privacy_version
+    assert "准备独立空间" in c.get("/").text                             # 同意后才开通
+
+
+def test_export_has_records_but_no_credentials(store):
+    store.create("a@x.com", 2.0)
+    store.charge("a@x.com", "m-pro", 10, 5, 0.01)
+    store.add_feedback("a@x.com", "hello", "/", "zh", "ua")
+    c = _client(store, _fly([]), _upstream([]), "a@x.com")
+    r = c.get("/_gw/export")
+    assert "attachment" in r.headers["content-disposition"]
+    data = r.json()
+    assert data["account"]["email"] == "a@x.com" and len(data["usage"]) == 1
+    assert data["feedback"][0]["message"] == "hello"
+    raw = r.text
+    u = store.get("a@x.com")
+    assert u.gateway_token not in raw and u.meter_key_hash not in raw
+
+
+def test_delete_destroys_machine_and_all_records(store):
+    import time
+    store.invite("a@x.com")
+    store.create("a@x.com", 2.0)
+    store.charge("a@x.com", "m-pro", 0, 0, 0.5)
+    store.add_feedback("a@x.com", "hi", "/", "zh", "ua")
+    store.set_status("a@x.com", "ready", machine_id="m_old", volume_id="vol_old")
+    store.create("b@x.com", 2.0)
+    calls = []
+    c = _client(store, _fly(calls), _upstream([]), "a@x.com")
+    assert c.post("/_gw/delete", data={"confirm": "RESET"}).json() == {"error": "confirm"}
+    assert c.post("/_gw/delete", data={"confirm": "DELETE"},
+                  headers={"Origin": "https://evil.example"}).status_code == 403
+    assert c.post("/_gw/delete", data={"confirm": "DELETE"},
+                  headers={"Origin": "https://app.test"}).json() == {"ok": True}
+    for _ in range(50):
+        if store.get("a@x.com") is None:
+            break
+        time.sleep(0.02)
+    assert store.get("a@x.com") is None and not store.is_invited("a@x.com")
+    for t in ("usage", "grants", "feedback"):
+        assert store.db.execute(f"SELECT COUNT(*) FROM {t} WHERE email='a@x.com'").fetchone()[0] == 0
+    assert store.get("b@x.com") is not None                              # 别人不受影响
+    assert ("DELETE", "/v1/apps/users/machines/m_old", None) in calls
+    assert ("DELETE", "/v1/apps/users/volumes/vol_old", None) in calls
+    assert c.get("/", follow_redirects=False).headers["location"] == "/auth/logout"
+
+
+def test_access_log_has_no_paths(store, caplog):
+    import logging
+    store.create("a@x.com", 2.0)
+    store.set_status("a@x.com", "ready", machine_id="m_1")
+    c = _client(store, _fly([]), _upstream([]), "a@x.com")
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+        c.get("/wsdoc/18-companies/SecretCo/brief.md")
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "GET page 200" in text and "SecretCo" not in text
