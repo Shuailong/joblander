@@ -339,8 +339,9 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         return RedirectResponse("/settings", status_code=301)
 
     @app.get("/settings", response_class=HTMLResponse)
-    def settings_page(request: Request):
-        """设置 = 开始设置三步 + 功能开关 + 系统状态（原「系统」页）。"""
+    def settings_page(request: Request, advanced: str = ""):
+        """设置 = 开始设置三步 + 功能开关。系统状态（Agent / 常驻作业 / 事件分布）不是给
+        用户看的，只在 ?advanced=1 时出现（原「系统」页的旧地址带着它跳过来）。"""
         import re as _re
         from joblander import wizard
         pol = cfg.raw.get("policy") or {}
@@ -349,7 +350,8 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         return tpl.TemplateResponse(request, "settings.html", ctx(
             "set", st=wizard.status(cfg), quote=pol.get("quote_input") or {},
             currencies=list(wizard.DEFAULT_FX), redlines="\n".join(redlines),
-            features=wizard.features(cfg), **_system_ctx()))
+            features=wizard.features(cfg), advanced=bool(advanced),
+            **(_system_ctx() if advanced else {})))
 
     @app.post("/api/settings/features")
     def api_settings_features(name: str = Form(...), on: str = Form(...)):
@@ -384,8 +386,14 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         if len(text.strip()) < 200:
             return JSONResponse({"error": "读不出简历文字——可能是扫描版，换一份能选中文字的版本"},
                                 status_code=400)
-        tid = start_task("setup", "从简历生成弹药库",
-                         lambda: wizard.bootstrap_from_resume(cfg, _llm("pro"), text))
+        def run():
+            out = wizard.bootstrap_from_resume(cfg, _llm("pro"), text)
+            if out.get("prefs_guessed"):          # 偏好是刚猜的：替他跑首轮，进门池子就不空
+                from joblander.sourcing import source_all
+                start_task("sourcing", "首次搜新机会",
+                           lambda: source_all(cfg, _llm("flash"), days=7, first_run=True))
+            return out
+        tid = start_task("setup", "从简历生成弹药库", run)
         return {"ok": True, "task": tid, "label": "从简历生成弹药库"}
 
     @app.post("/api/setup/basics")
@@ -718,7 +726,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
 
     @app.get("/system")
     def system_moved():
-        return RedirectResponse("/settings#system", status_code=301)
+        return RedirectResponse("/settings?advanced=1#system", status_code=301)
 
     @app.get("/briefs")
     def briefs_gone():
@@ -1445,6 +1453,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             if k in form:
                 patch[k] = [s.strip() for s in form[k].replace("，", ",").split(",")
                             if s.strip()]
+        patch["guessed"] = False                 # 他亲手存过一次，就不再是「猜的」
         save_prefs(cfg, patch)
         return {"ok": True}
 

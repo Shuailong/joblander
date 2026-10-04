@@ -37,7 +37,7 @@ def cfg(tmp_path):
 
 def test_bootstrap_writes_numbered_bank_and_profile(cfg):
     out = wizard.bootstrap_from_resume(cfg, MockLLM([LLM_OUT]), RESUME)
-    assert out == {"items": 2, "profile": True}
+    assert out == {"items": 2, "profile": True, "prefs_guessed": False}   # 没给 prefs_guess 就不猜
     bank = wizard.bank_path(cfg).read_text(encoding="utf-8")
     # 编号全库连续：教练归档 / brief 引用 / 幻觉编号检查都靠 ### A<n>.
     assert "### A1. 支付路由重构" in bank and "### A2. 对账系统迁移" in bank
@@ -145,3 +145,57 @@ def test_concurrent_bootstrap_spends_once(cfg, monkeypatch):
     assert llm.calls == []
     wizard.bootstrap_from_resume(cfg, llm, RESUME)              # 锁释放后照常
     assert len(llm.calls) == 1
+
+
+GUESS_OUT = json.loads(LLM_OUT) | {"prefs_guess": {
+    "intent": "资深后端，支付方向", "keywords": ["Senior Backend Engineer", "Payments Engineer", "", "x", "y"],
+    "locations": [], "exclude": ["Intern"]}}
+
+
+def test_bootstrap_guesses_prefs_once(cfg):
+    from joblander.sourcing import load_prefs
+    out = wizard.bootstrap_from_resume(cfg, MockLLM([json.dumps(GUESS_OUT, ensure_ascii=False)]), RESUME)
+    assert out["prefs_guessed"] is True
+    p = load_prefs(cfg)
+    assert p["keywords"] == ["Senior Backend Engineer", "Payments Engineer", "x", "y"]   # 空词剔除、最多 4
+    assert p["locations"] == ["Singapore"] and p["exclude"] == ["Intern"] and p["guessed"] is True
+    st = wizard.status(cfg)
+    assert st["prefs"] and st["prefs_guessed"]
+
+
+def test_guess_never_overwrites_user_prefs(cfg):
+    from joblander.sourcing import load_prefs, save_prefs
+    save_prefs(cfg, {"keywords": ["My Own Title"]})
+    out = wizard.bootstrap_from_resume(cfg, MockLLM([json.dumps(GUESS_OUT, ensure_ascii=False)]), RESUME)
+    assert out["prefs_guessed"] is False and load_prefs(cfg)["keywords"] == ["My Own Title"]
+
+
+def test_upload_triggers_first_search_and_saving_clears_guess(cfg, monkeypatch):
+    monkeypatch.setattr("joblander.web.app.load_config", lambda: cfg)
+    monkeypatch.setenv("JOBLANDER_TASKS_SYNC", "1")
+    monkeypatch.setattr("joblander.llm.from_config",
+                        lambda c, tier="pro": MockLLM([json.dumps(GUESS_OUT, ensure_ascii=False)]))
+    runs = []
+    monkeypatch.setattr("joblander.sourcing.source_all",
+                        lambda c, llm, days=2, first_run=False: runs.append((days, first_run)) or {})
+    from joblander.web.app import TASKS, create_app
+    TASKS.clear()
+    client = TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1")
+    r = client.post("/api/setup/resume", files={"file": ("cv.txt", RESUME.encode(), "text/plain")})
+    assert r.status_code == 200
+    assert runs == [(7, True)]                                     # 首轮：近 7 天、收窄
+    assert "根据你的简历猜的" in client.get("/sourcing").text
+    client.post("/api/sourcing/prefs", data={"keywords": "Staff Engineer"})
+    from joblander.sourcing import load_prefs
+    assert load_prefs(cfg)["guessed"] is False
+    assert "根据你的简历猜的" not in client.get("/sourcing").text
+
+
+def test_first_run_narrows_search(tmp_path, monkeypatch):
+    from joblander import sourcing as S
+    seen = {}
+    monkeypatch.setattr(S, "source_mcf", lambda cfg, llm, days=2, **kw: seen.update(mcf=(days, kw)) or [])
+    monkeypatch.setattr(S, "source_linkedin", lambda cfg, llm, days=2, **kw: seen.update(li=(days, kw)) or [])
+    S.source_all(None, None, days=7, first_run=True)
+    assert seen == {"mcf": (7, {"limit_per_kw": 10, "max_keywords": 3}),
+                    "li": (7, {"max_keywords": 3})}

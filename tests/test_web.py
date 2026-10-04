@@ -657,8 +657,10 @@ def test_visibility_batch(client):
     assert "叙事（1）" in pb                                          # 模式按类型分组
     assert client.get("/wsdoc/13-daily/2026-08-03-weekly.md").status_code == 200
     assert client.get("/wsdoc/01-profile/secret.md").status_code == 404   # 白名单外拒
-    sys_html = client.get("/system").text                         # 旧地址跳到设置页
+    sys_html = client.get("/system").text                         # 旧地址跳到设置页高级视图
     assert "外部连接" in sys_html and "常驻作业" in sys_html and "功能" in sys_html
+    plain = client.get("/settings").text                         # 默认不给用户看系统内部
+    assert "常驻作业" not in plain and "事件分布" not in plain and "功能" in plain
 
 
 def test_offers_page_and_save(client, tmp_path):

@@ -10,7 +10,7 @@
 <div class="sub">做完前两步就能生成定制简历、面试 brief 和 Offer 对比。所有内容只存在你自己的空间里。</div>
 {% else %}
 <h1>设置</h1>
-<div class="sub">你的材料、目标与红线、功能开关，以及系统运行状态。</div>
+<div class="sub">你的材料、目标与红线，以及可选功能。</div>
 {% endif %}
 
 <h2 id="start">开始设置</h2>
@@ -45,9 +45,17 @@
 </div>
 
 <div class="card setup-step" style="margin-bottom:14px">
-  <h2>{{ '✅' if st.prefs else '③' }} 告诉系统你在找什么（可选）</h2>
-  <p>目标岗位、城市、关键词和排除项——「新机会」页的主动侦察按这个给线索打分。</p>
+  <h2>{{ '✅' if st.prefs and not st.prefs_guessed else '③' }} 告诉系统你在找什么</h2>
+  {% if st.prefs_guessed %}
+  <p>已根据你的简历猜了一组目标岗位和城市，并替你跑了第一轮搜索。去「新机会」核对一下——改准了，之后每晚的搜索和打分都会更准。</p>
+  <a class="btn" href="/sourcing">看首轮结果、核对偏好 →</a>
+  {% elif st.prefs %}
+  <p>目标岗位、城市、关键词和排除项——每晚的搜索和打分按这个来。</p>
+  <a class="btn" href="/sourcing">修改求职偏好 →</a>
+  {% else %}
+  <p>上传简历后系统会先猜一组目标岗位并替你搜一轮；也可以直接去填。</p>
   <a class="btn" href="/sourcing">去设置求职偏好 →</a>
+  {% endif %}
 </div>
 
 
@@ -61,6 +69,7 @@
     <label class="switch"><input type="checkbox" {{ 'checked' if features.drill }} onchange="post('/api/settings/features',{name:'drill',on:this.checked?1:0},{ok:this.checked?'已开启':'已关闭',reload:true})"><span></span></label></div>
 </div>
 
+{% if advanced %}
 <h2 id="system">系统状态</h2>
 <details class="card" style="margin-bottom:14px"{{ ' open' if st.done }}>
 <summary style="cursor:pointer;font-weight:600">Agent、常驻作业与口径守卫 <span class="note" style="font-weight:400">Event Log {{ total_events }} 条{% if fails24 %} · <span style="color:var(--red)">24h 内 {{ fails24 }} 次作业失败</span>{% endif %}</span></summary>
@@ -117,6 +126,7 @@
 </div></div>
 </div>
 </details>
+{% endif %}
 
 <style>
 .setup-step h2{margin:0 0 6px;font-size:15px;color:var(--ink);text-transform:none;letter-spacing:0}

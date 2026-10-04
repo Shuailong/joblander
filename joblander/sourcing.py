@@ -299,10 +299,13 @@ class _Run:
         return self.outs
 
 
-def source_mcf(cfg, llm, days: int = 2, limit_per_kw: int = 20) -> list[Path]:
+def source_mcf(cfg, llm, days: int = 2, limit_per_kw: int = 20,
+               max_keywords: int = 0) -> list[Path]:
     """按偏好关键词抓 MCF 新岗 → 查重 → fit 评估 → 入池提案。幂等（uuid 去重）。"""
     run = _Run(cfg, llm, "mcf", days)
     keywords = run.prefs.get("keywords") or []
+    if max_keywords:
+        keywords = keywords[:max_keywords]
     if not keywords:
         run.log.append("sourcing.mcf_skipped", "joblander.sourcing", {"reason": "no_keywords"})
         return []
@@ -403,12 +406,15 @@ def linkedin_to_lead(card: dict[str, str], detail: dict[str, Any] | None = None)
     return lead
 
 
-def source_linkedin(cfg, llm, days: int = 2, pages_per_kw: int = 1) -> list[Path]:
+def source_linkedin(cfg, llm, days: int = 2, pages_per_kw: int = 1,
+                    max_keywords: int = 0) -> list[Path]:
     """按偏好关键词 × 首选地点抓 LinkedIn 公开职位 → 与 MCF 同一条查重/评分/入池管线。"""
     import time
     from joblander.wizard import features
     run = _Run(cfg, llm, "linkedin", days)
     keywords = run.prefs.get("keywords") or []
+    if max_keywords:
+        keywords = keywords[:max_keywords]
     if not features(cfg)["linkedin"] or not keywords:
         return []
     loc = (run.prefs.get("locations") or ["Singapore"])[0]
@@ -439,12 +445,16 @@ def source_linkedin(cfg, llm, days: int = 2, pages_per_kw: int = 1) -> list[Path
     return run.finish(keywords)
 
 
-def source_all(cfg, llm, days: int = 2) -> dict[str, int]:
-    """夜扫与「立即搜」的统一入口：各渠道互不拖累。"""
+def source_all(cfg, llm, days: int = 2, *, first_run: bool = False) -> dict[str, int]:
+    """夜扫与「立即搜」的统一入口：各渠道互不拖累。
+    first_run（向导刚猜完偏好时替他跑的首轮）：看近 7 天让池子不空，但每源每词收窄、
+    最多 3 个词——每条入池都要一次评分调用，花的是他的试用额度。"""
     out = {}
+    kw = ({"mcf": {"limit_per_kw": 10, "max_keywords": 3}, "linkedin": {"max_keywords": 3}}
+          if first_run else {"mcf": {}, "linkedin": {}})
     for name, fn in (("mcf", source_mcf), ("linkedin", source_linkedin)):
         try:
-            out[name] = len(fn(cfg, llm, days=days))
+            out[name] = len(fn(cfg, llm, days=days, **kw[name]))
         except Exception as e:                       # noqa: BLE001
             out[name] = 0
             from joblander.eventlog import EventLog

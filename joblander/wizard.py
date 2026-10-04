@@ -31,9 +31,16 @@ BANK_SYSTEM = """你把一份旧简历拆成「战绩弹药库」初稿。弹药
 - 数字、公司名、职位名、时间逐字照抄。
 - 按公司/项目/教育分段（sections），每段若干条战绩（items）：headline 是一句话概括，detail 是原文里的支撑细节（可多行）。
 - 另抽出身份信息：姓名 + 联系方式（邮箱/电话/LinkedIn/GitHub/个人网站等，有链接的给 href，邮箱用 mailto:）。
+- 再给一份「求职偏好」的最佳猜测（prefs_guess），用来替他跑第一轮岗位搜索，他之后会改：
+  - intent：一句话求职意向（中文），按最近一段经历的方向与级别推断
+  - keywords：2–4 个英文岗位名，就是招聘网站上会挂的 job title（如 "Product Manager"、"Data Engineer"），
+    贴合他最近的方向与资历；不要技能词、不要公司名
+  - locations：1–2 个城市（英文），按简历里最近的工作地点；看不出就给 ["Singapore"]
+  - exclude：明显不合适的标题词（如资深候选人排除 "Intern"、"Junior"），没有就空数组
 只输出 JSON：
 {"profile": {"name": "...", "contact": [{"text": "...", "href": "..."}]},
- "sections": [{"title": "公司 · 职位 · 起止时间", "items": [{"headline": "...", "detail": "..."}]}]}"""
+ "sections": [{"title": "公司 · 职位 · 起止时间", "items": [{"headline": "...", "detail": "..."}]}],
+ "prefs_guess": {"intent": "...", "keywords": ["..."], "locations": ["..."], "exclude": ["..."]}}"""
 
 RED_LINE_SECTION = """## 【⚠️ 素材使用注意】
 
@@ -64,9 +71,12 @@ def status(cfg) -> dict[str, Any]:
         has_profile = False
     pol = cfg.raw.get("policy") or {}
     has_policy = bool(pol.get("quote_tc_sgd")) and bool(pol.get("fx"))
-    has_prefs = (_ws(cfg) / "02-targets" / "sourcing-prefs.yaml").exists()
+    from joblander.sourcing import load_prefs
+    prefs = load_prefs(cfg)
+    has_prefs = bool(prefs.get("keywords"))
     st = {"bank": has_bank, "profile": has_profile, "policy": has_policy,
           "sentinel": bool(cfg.sentinel_rules), "prefs": has_prefs,
+          "prefs_guessed": bool(prefs.get("guessed")),
           "skipped": _ws(cfg).joinpath(*SKIP_MARK).exists()}
     st["done"] = has_bank and has_profile and has_policy
     return st
@@ -151,10 +161,31 @@ def _bootstrap(cfg, llm, text: str) -> dict[str, Any]:
         atomic_write_text(profile_path(cfg), json.dumps(
             {"name": str(prof["name"]).strip(), "contact": contact}, ensure_ascii=False, indent=1))
         wrote_profile = True
+    prefs_guessed = _guess_prefs(cfg, raw.get("prefs_guess") or {})
     n_items = len(re.findall(r"^### A\d+\.", bank_md, flags=re.M))
     EventLog(_ws(cfg) / "08-events" / "event-log.jsonl").append(
-        "setup.bank_bootstrapped", "agent:wizard", {"items": n_items, "profile": wrote_profile})
-    return {"items": n_items, "profile": wrote_profile}
+        "setup.bank_bootstrapped", "agent:wizard",
+        {"items": n_items, "profile": wrote_profile, "prefs_guessed": prefs_guessed})
+    return {"items": n_items, "profile": wrote_profile, "prefs_guessed": prefs_guessed}
+
+
+def _guess_prefs(cfg, guess: dict) -> bool:
+    """简历推断的搜索偏好：只在他还没填过关键词时写入，并打 guessed 标——页面据此提示
+    「这是猜的，核对一下」；他一保存就摘标。返回是否写入（写入了才值得替他跑首轮搜索）。"""
+    from joblander.sourcing import load_prefs, save_prefs
+
+    if load_prefs(cfg).get("keywords"):
+        return False
+    clean = lambda xs, n: [str(x).strip() for x in (xs or []) if str(x).strip()][:n]
+    keywords = clean(guess.get("keywords"), 4)
+    if not keywords:
+        return False
+    save_prefs(cfg, {"intent": str(guess.get("intent") or "").strip(),
+                     "keywords": keywords,
+                     "locations": clean(guess.get("locations"), 2) or ["Singapore"],
+                     "exclude": clean(guess.get("exclude"), 6),
+                     "guessed": True})
+    return True
 
 
 def save_basics(cfg, target_tc: float, currency: str, redlines: list[str]) -> None:

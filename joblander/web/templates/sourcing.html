@@ -44,6 +44,13 @@
 <h1>新机会</h1>
 <div class="sub">每晚 02:30 按你的偏好搜 MyCareersFuture{{ ' 和 LinkedIn' if features.linkedin }} 的新岗位 → 去重 → 对照弹药库打匹配分、初筛硬性要求 → 在这里等你决定入不入池。</div>
 
+{% if prefs.get('guessed') %}
+<div class="card" style="border-left:3px solid var(--amber);margin-bottom:16px">
+  <b>下面这组搜索偏好是根据你的简历猜的</b>
+  <p style="margin:6px 0 10px;color:var(--ink-2)">首轮搜索已经按它跑过了。核对一下关键词和地点——改准了，之后每晚的搜索和打分都会更准。</p>
+  <button class="btn" onclick="togPrefs(true);document.getElementById('prefs').scrollIntoView({behavior:'smooth'})">✎ 核对偏好</button>
+</div>
+{% endif %}
 {% if not prefs.get('keywords') %}
 <div class="card" style="border-left:3px solid var(--accent);margin-bottom:16px">
   <b>先告诉系统你在找什么</b>
