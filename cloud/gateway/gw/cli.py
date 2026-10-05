@@ -1,6 +1,9 @@
 """管理命令（在网关 machine 上跑：fly ssh console -a joblander-gw -C "python -m gw.cli ..."）
 
-  invite <email>...            加进邀请名单
+  invite <email>...            加进邀请名单（同时从被拦名单移除）
+  uninvite <email>...          移出邀请名单（已开通的账户不受影响；要删账户用 reset 或用户自己删除）
+  blocked                      没被邀请就来登录、被拦下的人（首次被拦会邮件通知管理员）
+  dismiss <email>...           从被拦名单里清掉（不认识的人）
   grant <email> <usd> [原因]   给额度（充值落地前，手工给朋友加额度也走这里）
   users                        列出用户、状态、余额
   upgrade <image>              把全部用户 machine 换到新镜像（数据在卷上，不受影响）
@@ -27,6 +30,20 @@ def main(argv: list[str]) -> None:
         for e in args:
             store.invite(e)
         print(f"已邀请 {len(args)} 人")
+    elif cmd == "uninvite":
+        for e in args:
+            print(f"{e}: {'已移出' if store.uninvite(e) else '本来就不在邀请名单'}"
+                  f"{'（账户仍在）' if store.get(e) else ''}")
+    elif cmd == "blocked":
+        import time as _t
+        rows = store.waitlist()
+        for w in rows:
+            print(f"{w['email']:36} {w['attempts']:3} 次  首次 {_t.strftime('%m-%d %H:%M', _t.localtime(w['first_at']))}"
+                  f"  最近 {_t.strftime('%m-%d %H:%M', _t.localtime(w['last_at']))}  [{w['lang'] or '-'}]")
+        print(f"共 {len(rows)} 人" if rows else "没有被拦的人")
+    elif cmd == "dismiss":
+        for e in args:
+            print(f"{e}: {'已清掉' if store.dismiss(e) else '不在被拦名单'}")
     elif cmd == "grant":
         email, usd, *reason = args
         if store.get(email) is None:

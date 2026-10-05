@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS users (
   created_at     REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS invites (email TEXT PRIMARY KEY, created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS waitlist (                -- 没邀请就来登录的人（被拦下）
+  email TEXT PRIMARY KEY, attempts INTEGER NOT NULL, first_at REAL NOT NULL, last_at REAL NOT NULL,
+  lang TEXT
+);
 CREATE TABLE IF NOT EXISTS usage (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL, model TEXT NOT NULL,
@@ -90,10 +94,29 @@ class Store:
 
     def invite(self, email: str) -> None:
         self.db.execute("INSERT OR IGNORE INTO invites VALUES (?, ?)", (email.lower(), time.time()))
+        self.db.execute("DELETE FROM waitlist WHERE email=?", (email.lower(),))
 
     def is_invited(self, email: str) -> bool:
         return self.db.execute("SELECT 1 FROM invites WHERE email=?",
                                (email.lower(),)).fetchone() is not None
+
+    def uninvite(self, email: str) -> bool:
+        return self.db.execute("DELETE FROM invites WHERE email=?", (email.lower(),)).rowcount > 0
+
+    def record_blocked(self, email: str, lang: str = "") -> bool:
+        """记下一次被拦的登录；返回 True 表示此人第一次被拦（该通知管理员了）。"""
+        e, now = email.lower(), time.time()
+        with self.lock:
+            first = self.db.execute("SELECT 1 FROM waitlist WHERE email=?", (e,)).fetchone() is None
+            self.db.execute("INSERT INTO waitlist VALUES (?, 1, ?, ?, ?) ON CONFLICT(email) DO UPDATE SET "
+                            "attempts=attempts+1, last_at=excluded.last_at, lang=excluded.lang", (e, now, now, lang))
+        return first
+
+    def waitlist(self) -> list[dict]:
+        return [dict(r) for r in self.db.execute("SELECT * FROM waitlist ORDER BY last_at DESC")]
+
+    def dismiss(self, email: str) -> bool:
+        return self.db.execute("DELETE FROM waitlist WHERE email=?", (email.lower(),)).rowcount > 0
 
     # ---------- 用户 ----------
 
@@ -206,5 +229,5 @@ class Store:
         """彻底删除：账户、邀请、额度流水、用量、反馈一并删掉。机器与卷由调用方先销毁。"""
         e = email.lower()
         with self.lock:
-            for t in ("usage", "grants", "feedback", "invites", "users"):
+            for t in ("usage", "grants", "feedback", "invites", "waitlist", "users"):
                 self.db.execute(f"DELETE FROM {t} WHERE email=?", (e,))

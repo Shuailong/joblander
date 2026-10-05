@@ -26,3 +26,21 @@ async def send_feedback(http: httpx.AsyncClient, api_key: str, to: str, *, sende
         "subject": f"[joblander feedback] {message.strip().splitlines()[0][:60]}",
         "html": body})
     return r.status_code < 300
+
+
+async def send_blocked(http: httpx.AsyncClient, api_key: str, to: str, *, sender: str,
+                       user: str, lang: str) -> bool:
+    """没在邀请名单的人来登录：通知管理员一次（reply-to 是对方，邀请完可以直接回信）。"""
+    if not (api_key and to):
+        return False
+    cmd = f'fly ssh console -a joblander-gw -C "python -m gw.cli invite {user}"'
+    body = (f"<p><b>{html.escape(user)}</b> tried to sign in but isn't on the invite list (UI: {html.escape(lang)}).</p>"
+            f"<p>To let them in:</p><pre style='background:#F4F6F3;padding:10px;border-radius:6px'>"
+            f"{html.escape(cmd)}</pre>"
+            f"<p style='color:#6F6D64;font-size:12px'>Not someone you know? "
+            f"<code>python -m gw.cli dismiss {html.escape(user)}</code> clears the record. "
+            f"Repeat attempts won't email again — see <code>gw.cli blocked</code>.</p>")
+    r = await http.post(RESEND_URL, headers={"Authorization": f"Bearer {api_key}"}, json={
+        "from": sender, "to": [to], "reply_to": user,
+        "subject": f"[joblander] {user} wants in", "html": body})
+    return r.status_code < 300

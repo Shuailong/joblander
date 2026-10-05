@@ -230,6 +230,13 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             return failed(request, "unverified", retry=False)
         if email not in settings.admins and not store.is_invited(email) and not store.get(email):
             lg = lang(request)
+            if store.record_blocked(email, lg):
+                try:
+                    from gw.notify import send_blocked
+                    await send_blocked(google, settings.resend_api_key, settings.feedback_to,
+                                       sender=settings.feedback_from, user=email, lang=lg)
+                except Exception:                               # noqa: BLE001  通知失败不影响提示页
+                    pass
             t = pages.msg("beta", lg)
             return _page(t, f"<h1>{t}</h1><p>{pages.msg('not_invited', lg, email=html.escape(email))}</p>",
                          lang=lg)

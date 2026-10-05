@@ -200,6 +200,33 @@ def test_uninvited_login_is_refused(store, monkeypatch):
     assert r.status_code == 302 and store.get("stranger@x.com").credit_usd == 2.0
 
 
+def test_blocked_login_notifies_admin_once_and_invite_clears_it(store, monkeypatch):
+    mails = []
+    def google(req: httpx.Request):
+        if "resend" in req.url.host:
+            mails.append(json.loads(req.content))
+            return httpx.Response(200, json={"id": "e1"})
+        if "token" in req.url.path:
+            return httpx.Response(200, json={"access_token": "at"})
+        return httpx.Response(200, json={"email": "Friend@x.com", "email_verified": True})
+    import gw.web as W
+    orig = httpx.AsyncClient
+    monkeypatch.setattr(W.httpx, "AsyncClient",
+                        lambda *a, **k: orig(transport=httpx.MockTransport(google)))
+    s = Settings(**{**SETTINGS.__dict__, "feedback_to": "boss@x.com", "resend_api_key": "re_x"})
+    c = TestClient(create_web_app(s, store, _fly([]), _upstream([])), base_url="https://app.test")
+    for _ in range(3):
+        c.cookies.set("jl_state", "st")
+        assert "已经收到通知" in c.get("/auth/callback?code=c&state=st", follow_redirects=False).text
+    assert len(mails) == 1                                       # 只在第一次被拦时发
+    assert mails[0]["to"] == ["boss@x.com"] and mails[0]["reply_to"] == "friend@x.com"
+    assert "gw.cli invite friend@x.com" in mails[0]["html"]
+    assert [(w["email"], w["attempts"]) for w in store.waitlist()] == [("friend@x.com", 3)]
+    store.invite("friend@x.com")
+    assert store.waitlist() == []
+    assert store.uninvite("friend@x.com") and not store.is_invited("friend@x.com")
+
+
 def test_bad_state_is_refused(store):
     c = _client(store, _fly([]), _upstream([]))
     c.cookies.set("jl_state", "a")
