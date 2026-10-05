@@ -222,6 +222,25 @@ class Store:
             "SELECT model, prompt_tokens, completion_tokens, cost_usd, at FROM usage "
             "WHERE email=? ORDER BY id DESC LIMIT ?", (email.lower(), limit))]
 
+    # ---------- 管理后台 ----------
+
+    def admin_snapshot(self, since: float) -> dict:
+        """后台要的全部数字：账户汇总（不含口令与 key 哈希）、since 以来的逐条用量、名单、反馈、发放记录。"""
+        q = lambda sql, *a: [dict(r) for r in self.db.execute(sql, a)]            # noqa: E731
+        return {
+            "users": q("SELECT u.email, u.status, u.lang, u.credit_usd, u.spent_usd, u.created_at, u.consented_at, "
+                       "u.privacy_version, u.machine_id, u.error, u.low_notified_at, "
+                       "MAX(g.at) AS last_at, COUNT(g.id) AS calls FROM users u "
+                       "LEFT JOIN usage g ON g.email = u.email GROUP BY u.email ORDER BY last_at DESC, u.created_at DESC"),
+            "usage": q("SELECT email, model, prompt_tokens, completion_tokens, cost_usd, at FROM usage "
+                       "WHERE at >= ? ORDER BY at", since),
+            "waitlist": self.waitlist(),
+            "pending_invites": q("SELECT i.email, i.created_at FROM invites i LEFT JOIN users u ON u.email = i.email "
+                                 "WHERE u.email IS NULL ORDER BY i.created_at DESC"),
+            "feedback": self.list_feedback(20),
+            "grants": q("SELECT email, amount_usd, reason, at FROM grants ORDER BY id DESC LIMIT 20"),
+        }
+
     # ---------- 隐私：同意、导出、彻底删除 ----------
 
     def consent(self, email: str, version: str) -> None:

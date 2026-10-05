@@ -51,6 +51,7 @@ class Settings:
     feedback_to: str = ""                            # 反馈收件人（管理员邮箱）
     resend_api_key: str = ""
     feedback_from: str = "joblander <onboarding@resend.dev>"
+    low_balance_usd: float = 0.5  # 额度提醒线（后台标红也用它）
     mail_from: str = ""          # 已验证域名的发件人，如 "joblander <hello@ailayoff.me>"；空 = 不给用户发信
 
 
@@ -394,7 +395,75 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
                      f'<p style="margin-top:16px"><a href="/">{pages.msg("back", lg)}</a> · '
                      f'<a href="/_gw/export">{pages.msg("export_acct", lg)}</a> · '
                      f'<a href="/_gw/privacy">{pages.msg("privacy", lg)}</a> · '
+                     + ('<a href="/_gw/admin">后台</a> · ' if user.email in settings.admins else '') +
                      f'<a href="/auth/logout">{pages.msg("logout", lg)}</a></p>', lang=lg)
+
+    # ---------- 管理后台（只给管理员；别人一律 404，不暴露它存在） ----------
+
+    def admin_of(request: Request) -> str | None:
+        email = current(request)
+        return email if email and email in settings.admins else None
+
+    def back(msg: str) -> RedirectResponse:
+        return RedirectResponse("/_gw/admin?" + urlencode({"m": msg}), status_code=303)
+
+    @app.get("/_gw/admin")
+    async def admin_page(request: Request, m: str = ""):
+        if not admin_of(request):
+            return Response(status_code=404)
+        from gw import admin
+        snap = store.admin_snapshot(time.time() - admin.DAYS * 86400)
+        return admin.render(snap, low_usd=settings.low_balance_usd, tz_name=settings.timezone,
+                            privacy_version=pages.PRIVACY_VERSION, flash=m[:200])
+
+    async def admin_form(request: Request) -> tuple[str, dict] | None:
+        email = admin_of(request)
+        if not email or not same_origin(request):
+            return None
+        return email, await request.form()
+
+    @app.post("/_gw/admin/invite")
+    async def admin_invite(request: Request):
+        got = await admin_form(request)
+        if got is None:
+            return Response(status_code=404)
+        target = str(got[1].get("email") or "").strip().lower()
+        if "@" not in target or len(target) > 254:
+            return back("邮箱不对")
+        lg = store.blocked_lang(target)
+        store.invite(target)
+        mailed = False
+        try:
+            from gw.notify import send_user
+            mailed = await send_user(google, settings.resend_api_key, settings.mail_from, settings.feedback_to,
+                                     to=target, kind="invited", lang=lg)
+        except Exception:                                       # noqa: BLE001
+            pass
+        return back(f"已邀请 {target}" + ("，已发邮件通知" if mailed else "（没发出邮件，记得自己告诉对方）"))
+
+    @app.post("/_gw/admin/dismiss")
+    async def admin_dismiss(request: Request):
+        got = await admin_form(request)
+        if got is None:
+            return Response(status_code=404)
+        target = str(got[1].get("email") or "").strip().lower()
+        return back(f"已清掉 {target}" if store.dismiss(target) else f"{target} 不在被拦名单")
+
+    @app.post("/_gw/admin/grant")
+    async def admin_grant(request: Request):
+        got = await admin_form(request)
+        if got is None:
+            return Response(status_code=404)
+        admin_email, form = got
+        target = str(form.get("email") or "").strip().lower()
+        try:
+            usd = float(form.get("usd") or 0)
+        except ValueError:
+            usd = 0
+        if not (0 < usd <= 100) or store.get(target) is None:
+            return back("没加：金额须在 0–100 之间，且对方已登录过")
+        store.grant(target, usd, f"后台手工发放（{admin_email}）")
+        return back(f"已给 {target} 加 ${usd:g}，余额 ${store.get(target).balance_usd:.2f}")
 
     # ---------- 其余一切：转发到这个人自己的 machine ----------
 
