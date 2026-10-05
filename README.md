@@ -8,13 +8,16 @@ I was laid off in 2026. Job hunting turned out to be a distributed-systems probl
 
 So I built the system I wanted, while fighting with it. It ran my entire search. Then I got an offer, and now it's open source.
 
-**Status:** v0, battle-tested through a real job search. Web war room + all agents below are live, backed by 326 tests and blind-review eval scripts.
+**Status:** battle-tested through a real job search, and now also running as a free, invite-only **hosted beta at [app.ailayoff.me](https://app.ailayoff.me)**. Web war room + all agents below are live, backed by 373 engine tests, 24 gateway tests and blind-review eval scripts.
 
-![Command center](docs/images/command-center.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/command-center-en-dark.webp">
+  <img alt="Command center" src="docs/images/command-center-en-light.webp">
+</picture>
 
-*The command center: what to do right now, what's overdue, what's waiting for your approval, and how fresh each data source is. (All screenshots use a fictional demo dataset.)*
+*The command center: what to do right now, what's overdue, what's waiting for your approval. (All screenshots use a fictional demo dataset, and follow your light/dark setting.)*
 
-> ⚠️ **The internals are in Chinese.** Prompts, the web UI, `docs/DESIGN.md`, and code comments are all Chinese — it was built as a personal tool first. The code, config, and this README are English-friendly, but you'll want to translate the prompts to use it in another language. PRs welcome.
+> 🌐 **English and Chinese.** The web UI ships in both (switch in Settings), and AI-generated content — assessments, research, briefs, resumes, reports — follows the UI language. Prompts, `docs/DESIGN.md` and code comments are still Chinese; it was built as a personal tool first.
 
 ---
 
@@ -35,6 +38,12 @@ Even if you never run it, a few design decisions here were expensive to learn an
 **Spend nothing where judgment isn't needed.** Scheduling constraint checks, format validation, red-line assembly, and resume rendering are all zero-LLM. The LLM is for judgment; everything else is code.
 
 ---
+
+## Two ways to run it
+
+**Hosted beta — nothing to install.** Sign in with Google at **[app.ailayoff.me](https://app.ailayoff.me)** (invite-only for now; ask the person who sent you here). Upload an old resume and it builds your arsenal, guesses the roles you're after and runs a first search. Each user gets their own isolated machine and encrypted disk in Singapore, free AI credit to start, and can export or permanently delete everything from Settings. Details: [privacy notice](https://app.ailayoff.me/_gw/privacy).
+
+**Self-host — your machine, your keys.** The quickstart below. Everything stays local unless you configure integrations.
 
 ## Quickstart
 
@@ -67,7 +76,7 @@ joblander web                  # war room at http://127.0.0.1:8899
 | `sentinel.rules` | strongly recommended | Your red lines — the guard is inert without them |
 | `policy` | needed for Analyst | `quote_tc_sgd` + `fx` are hard dependencies; discount tiers and reference conversions optional |
 | `search` | needed for due diligence | Tavily (free tier is plenty), Brave, or Google CSE |
-| `notion` | optional | Use Notion as tracker + mobile entry point; without it, everything stays local |
+| `notion` | optional (legacy) | Background sync of the tracker to Notion; no longer surfaced in the web UI |
 | `gmail` | optional | Auto-sourcing from email (read-only scope) |
 
 ### CLI
@@ -89,37 +98,61 @@ joblander daemon                  # background jobs (calendar sync, reminders, s
 
 *Every screenshot below uses a fictional demo dataset — the companies, people, and numbers are invented.*
 
-![New opportunities](docs/images/sourcing.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/sourcing-en-dark.webp">
+  <img alt="New opportunities" src="docs/images/sourcing-en-light.webp">
+</picture>
 
 **New opportunities.** Overnight scans (job board + inbox) land here scored 1–5 against your achievement bank, grouped by company, with the specific requirement gaps spelled out — "Terraform production experience — your record shows use, not ownership." Nothing enters the pipeline until you approve it.
 
-![War room board](docs/images/war-room-board.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/war-room-board-en-dark.webp">
+  <img alt="War room board" src="docs/images/war-room-board-en-light.webp">
+</picture>
 
 The **war room** — every opportunity on one board, dragged between stages, edited in place. Amber marks system-computed to-dos (unapproved proposals, due follow-ups); red marks the ones you flagged yourself as "ball's in my court."
 
-![Company page](docs/images/company-page.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/company-page-en-dark.webp">
+  <img alt="Company page" src="docs/images/company-page-en-light.webp">
+</picture>
 
 Each company gets a **dossier page**: stage flow, the one thing to do next, JD lifecycle, and a match radar whose axes are derived from *that specific JD* rather than a fixed template. The amber block is a proposal waiting for approval — you can edit the fields before it's written anywhere.
 
-![Timeline](docs/images/timeline.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/timeline-en-dark.webp">
+  <img alt="Timeline" src="docs/images/timeline-en-light.webp">
+</picture>
 
 The **timeline** is the company-level source of truth, and every entry is stamped `AI` or `人工` (human). You can always tell what the system claimed versus what you observed — which matters a lot when you're about to repeat something in an interview.
 
-![Staff HQ](docs/images/playbook.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/playbook-en-dark.webp">
+  <img alt="Staff HQ" src="docs/images/playbook-en-light.webp">
+</picture>
 
 **Staff HQ.** The capability radar plots what the market asks for against what your retros actually prove, rebuilt weekly from the JDs you're chasing — a dimension with no retro evidence scores low on purpose, and the gap becomes a concrete task. Below it, the pattern bank: every question you've faced, its best answer, and whether the last three attempts hit or missed. Two consecutive misses auto-escalate to `needs_work`.
 
-![Arsenal](docs/images/arsenal.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/arsenal-en-dark.webp">
+  <img alt="Arsenal" src="docs/images/arsenal-en-light.webp">
+</picture>
 
 The **arsenal** is the single source of every number that reaches a resume, an interview, or a brief. Append-only, edited section by section. The last section is a rules block — internal codenames to translate, figures that must not be rounded up — which feeds generation but never appears in this list.
 
-![Offer comparison](docs/images/offers.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/offers-en-dark.webp">
+  <img alt="Offer comparison" src="docs/images/offers-en-light.webp">
+</picture>
 
 **Offer comparison** — quote at face value, compare at a discount. Here the offer with the *highest* headline package drops to last once unlisted options are discounted to zero, which is the entire point: the discount tiers are parameters in your private config, so the ranking is explainable and regression-testable.
 
-![Drill ground](docs/images/drill.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/drill-en-dark.webp">
+  <img alt="Drill ground" src="docs/images/drill-en-light.webp">
+</picture>
 
-The **drill ground** — one random problem, tests run locally, no LLM involved. Keeping the coding muscle warm is part of the search, so it lives in the same place as everything else.
+The **drill ground** (opt-in under Settings → Features) — one random problem, tests run locally, no LLM involved. Keeping the coding muscle warm is part of the search, so it lives in the same place as everything else.
 
 ---
 
@@ -139,6 +172,15 @@ Paste/upload ┘     Operations    ─┘         ▲                  Playbook
 The **Event Log is the source of truth** (ADR-1); everything else is a projection that can be rebuilt from it. Notion, when enabled, is the most important *human* projection and edit surface — not the source of truth. Agents are stateless: context pack in, artifact or proposal out. Features are composed as workflows rather than one agent per feature (ADR-9).
 
 Full architecture, 16 ADRs with rejected alternatives and accepted costs, state machines, and the Notion reconciliation design: **[`docs/DESIGN.md`](docs/DESIGN.md)** (Chinese).
+
+### Cloud
+
+The hosted beta lives in [`cloud/gateway`](cloud/gateway) — a small FastAPI gateway in front of unmodified engine instances:
+
+- **Google sign-in + invite list**, HMAC-signed session cookie; Google only shares the email address.
+- **One always-on Fly.io machine and encrypted volume per user**, reachable only over the private network. Each machine accepts requests only from the gateway, carrying a per-machine token — users can't reach each other's space.
+- **Metering proxy** for the LLM and search APIs: user machines hold a metered sub-key, never the real API key; every call is priced from actual token usage against a per-user budget, and the engine stops cleanly when credit runs out.
+- **Privacy built in:** consent before provisioning, one-click export (workspace zip + account records), permanent deletion (machine, volume and every gateway record), access logs without paths or content.
 
 ### Agent teams
 
@@ -183,7 +225,8 @@ python -m evals.resume_eval <company>     # recruiter blind review + coach triag
 python -m evals.summary_eval <company>    # due-diligence summary: hard checks + 5-dim review
 python -m evals.brief_eval <company>      # pre-interview brief against user gold standards
 python -m evals.user_agent                # LLM plays the user and walks the running web UI
-pytest                                    # 326 tests
+pytest                                    # 373 engine tests
+(cd cloud/gateway && pytest)              # 24 gateway tests
 ```
 
 Each eval pairs **zero-LLM hard checks** (deterministic, catch format and discipline violations for free) with **LLM blind review** (judgment). The golden sets themselves are private — they're built from real job-search data.
@@ -193,7 +236,7 @@ Each eval pairs **zero-LLM hard checks** (deterministic, catch format and discip
 ## What this is not
 
 - **Not a job-application bot.** It never applies on your behalf, never sends a message, never posts anything. Every outward action is a draft that you send. That's a deliberate design constraint (ADR-10), not a missing feature.
-- **Not multi-tenant.** Single user, local-first, your own API keys. There's no hosted version and no account system.
+- **Not a shared-database SaaS.** The self-hosted engine is single-user and local-first. The hosted beta doesn't change that model — it gives every user their own isolated engine instance behind a thin gateway (see [Cloud](#cloud)).
 - **Not a framework.** Orchestration is hand-written on purpose (ADR-6) — at this scale the framework would have black-boxed the most instructive part.
 - **Not tuned for you yet.** The policy numbers are Singapore/SGD-shaped, the prompts are Chinese, and the Sentinel rules are empty until you write your own. Set `JOBLANDER_TZ` to your own timezone — it defaults to UTC+8.
 
@@ -201,7 +244,7 @@ Each eval pairs **zero-LLM hard checks** (deterministic, catch format and discip
 
 ## Support
 
-JobLander is free and stays free — Apache-2.0, no hosted tier, nothing to upsell. If it helped you land something, the best thanks is passing it on to the next person who's searching.
+JobLander is free and stays free — Apache-2.0, nothing to upsell. The hosted beta is free for invited users, with a per-user AI credit cap to keep costs sane. If it helped you land something, the best thanks is passing it on to the next person who's searching.
 
 If you'd rather chip in: [**❤️ GitHub Sponsors**](https://github.com/sponsors/Shuailong) · [**☕ Buy me a coffee**](https://buymeacoffee.com/lucasliang)
 
