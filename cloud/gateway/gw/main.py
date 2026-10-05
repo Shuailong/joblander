@@ -10,10 +10,12 @@ import asyncio
 import json
 import os
 
+import httpx
 import uvicorn
 
 from gw.flyapi import Fly
 from gw.meter import create_meter_app
+from gw.notify import send_user
 from gw.store import Store
 from gw.web import Settings, create_web_app
 
@@ -44,11 +46,27 @@ def build():
         admins={e.strip().lower() for e in env("ADMIN_EMAILS", "").split(",") if e.strip()},
         feedback_to=env("FEEDBACK_TO", env("ADMIN_EMAILS", "").split(",")[0].strip()),
         resend_api_key=env("RESEND_API_KEY", ""),
+        mail_from=env("MAIL_FROM", ""),
     )
+    if settings.mail_from:                   # 有了已验证域名，给管理员的通知也用它发
+        settings.feedback_from = settings.mail_from
     web = create_web_app(settings, store, fly)
+    mail_http = httpx.AsyncClient(timeout=15)
+
+    async def on_low(email: str) -> None:
+        u = store.get(email)
+        try:
+            await send_user(mail_http, settings.resend_api_key, settings.mail_from, settings.feedback_to,
+                            to=email, kind="low_balance", lang=u.lang if u else None,
+                            balance=f"{max(u.balance_usd, 0) if u else 0:.2f}")
+        except Exception:                                       # noqa: BLE001  提醒失败不影响计量
+            pass
+
     meter = create_meter_app(store, env("OPENAI_API_KEY"), prices,
                              tavily_key=env("TAVILY_API_KEY", ""),
-                             search_price_usd=float(env("SEARCH_PRICE_USD", "0.01")))
+                             search_price_usd=float(env("SEARCH_PRICE_USD", "0.01")),
+                             low_balance_usd=float(env("LOW_BALANCE_USD", "0.5")),
+                             on_low=on_low if settings.mail_from else None)
     return web, meter
 
 

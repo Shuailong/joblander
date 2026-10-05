@@ -66,6 +66,8 @@ class User:
     error: str | None
     consented_at: float | None = None
     privacy_version: str | None = None
+    lang: str | None = None                  # 最近一次登录时的界面语言（发通知邮件用）
+    low_notified_at: float | None = None     # 已发过「额度快用完」提醒；加额度后清空
 
     @property
     def balance_usd(self) -> float:
@@ -78,7 +80,8 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
-        for col in ("consented_at REAL", "privacy_version TEXT"):    # 旧库就地加列
+        for col in ("consented_at REAL", "privacy_version TEXT",     # 旧库就地加列
+                    "lang TEXT", "low_notified_at REAL"):
             try:
                 self.db.execute(f"ALTER TABLE users ADD COLUMN {col}")
             except sqlite3.OperationalError:
@@ -168,20 +171,33 @@ class Store:
         if amount:
             self.db.execute("INSERT INTO grants (email, amount_usd, reason, at) VALUES (?,?,?,?)",
                             (email.lower(), amount, reason, time.time()))
-            self.db.execute("UPDATE users SET credit_usd = credit_usd + ? WHERE email=?",
-                            (amount, email.lower()))
+            self.db.execute("UPDATE users SET credit_usd = credit_usd + ?, low_notified_at = NULL "
+                            "WHERE email=?", (amount, email.lower()))
 
     def grant(self, email: str, amount: float, reason: str) -> None:
         with self.lock:
             self._grant(email, amount, reason)
 
-    def charge(self, email: str, model: str, prompt: int, completion: int, cost: float) -> None:
+    def charge(self, email: str, model: str, prompt: int, completion: int, cost: float,
+               low_at: float | None = None) -> bool:
+        """记账。给了 low_at 时：余额这次跌破 low_at 且还没提醒过 → 记下已提醒并返回 True。"""
+        e = email.lower()
         with self.lock:
             self.db.execute("INSERT INTO usage (email, model, prompt_tokens, completion_tokens, "
                             "cost_usd, at) VALUES (?,?,?,?,?,?)",
-                            (email.lower(), model, prompt, completion, cost, time.time()))
-            self.db.execute("UPDATE users SET spent_usd = spent_usd + ? WHERE email=?",
-                            (cost, email.lower()))
+                            (e, model, prompt, completion, cost, time.time()))
+            self.db.execute("UPDATE users SET spent_usd = spent_usd + ? WHERE email=?", (cost, e))
+            if low_at is None:
+                return False
+            return self.db.execute("UPDATE users SET low_notified_at = ? WHERE email=? AND low_notified_at IS NULL "
+                                   "AND credit_usd - spent_usd < ?", (time.time(), e, low_at)).rowcount > 0
+
+    def set_lang(self, email: str, lang: str) -> None:
+        self.db.execute("UPDATE users SET lang=? WHERE email=?", (lang, email.lower()))
+
+    def blocked_lang(self, email: str) -> str | None:
+        r = self.db.execute("SELECT lang FROM waitlist WHERE email=?", (email.lower(),)).fetchone()
+        return r[0] if r else None
 
     # ---------- 反馈 ----------
 
@@ -216,7 +232,7 @@ class Store:
         """网关这边关于此人的全部记录（口令与 key 哈希不导出——那是系统凭据，不是个人数据）。"""
         e = email.lower()
         u = self.db.execute("SELECT email, status, credit_usd, spent_usd, created_at, consented_at, "
-                            "privacy_version FROM users WHERE email=?", (e,)).fetchone()
+                            "privacy_version, lang FROM users WHERE email=?", (e,)).fetchone()
         q = lambda sql: [dict(r) for r in self.db.execute(sql, (e,))]          # noqa: E731
         return {"account": dict(u) if u else None,
                 "invited": self.is_invited(e),

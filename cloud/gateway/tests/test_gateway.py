@@ -465,3 +465,78 @@ def test_access_log_has_no_paths(store, caplog):
         c.get("/wsdoc/18-companies/SecretCo/brief.md")
     text = " ".join(r.getMessage() for r in caplog.records)
     assert "GET page 200" in text and "SecretCo" not in text
+
+
+# ---------- 给用户本人的通知邮件 ----------
+
+def _resend_mock(monkeypatch, mails, who="friend@x.com"):
+    def handler(req: httpx.Request):
+        if "resend" in req.url.host:
+            mails.append(json.loads(req.content))
+            return httpx.Response(200, json={"id": "e"})
+        if "token" in req.url.path:
+            return httpx.Response(200, json={"access_token": "at"})
+        return httpx.Response(200, json={"email": who, "email_verified": True})
+    orig = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: orig(transport=httpx.MockTransport(handler)))
+
+
+def test_blocked_person_gets_confirmation_when_domain_configured(store, monkeypatch):
+    mails = []
+    _resend_mock(monkeypatch, mails)
+    s = Settings(**{**SETTINGS.__dict__, "feedback_to": "boss@x.com", "resend_api_key": "re_x",
+                    "mail_from": "joblander <hello@ailayoff.me>"})
+    c = TestClient(create_web_app(s, store, _fly([]), _upstream([])), base_url="https://app.test")
+    c.cookies.set("jl_state", "st"); c.cookies.set("jl_lang", "en")
+    assert "sent a confirmation" in c.get("/auth/callback?code=c&state=st", follow_redirects=False).text
+    to_admin, to_user = mails
+    assert to_admin["to"] == ["boss@x.com"] and to_admin["from"] == "joblander <onboarding@resend.dev>"
+    assert to_user["to"] == ["friend@x.com"] and to_user["from"] == "joblander <hello@ailayoff.me>"
+    assert to_user["reply_to"] == "boss@x.com" and to_user["subject"] == "We've got your beta request"
+
+
+def test_invite_cli_emails_person_in_their_language(store, monkeypatch, capsys):
+    import runpy, sys
+    mails = []
+    _resend_mock(monkeypatch, mails)
+    monkeypatch.setenv("GW_DB", store.db.execute("PRAGMA database_list").fetchone()[2])
+    monkeypatch.setenv("RESEND_API_KEY", "re_x")
+    monkeypatch.setenv("MAIL_FROM", "joblander <hello@ailayoff.me>")
+    monkeypatch.setenv("FEEDBACK_TO", "boss@x.com")
+    store.record_blocked("friend@x.com", "en")
+    monkeypatch.setattr(sys, "argv", ["gw.cli", "invite", "Friend@x.com", "new@x.com"])
+    runpy.run_module("gw.cli", run_name="__main__")
+    assert [m["to"] for m in mails] == [["friend@x.com"], ["new@x.com"]]
+    assert mails[0]["subject"] == "You're in — joblander beta"            # 被拦时是英文界面
+    assert "/" in mails[1]["subject"] and "已加入内测" in mails[1]["html"]   # 语言未知：中英都放
+    assert "https://app.ailayoff.me" in mails[0]["html"] and mails[0]["reply_to"] == "boss@x.com"
+    assert store.is_invited("friend@x.com") and store.waitlist() == []
+    monkeypatch.setattr(sys, "argv", ["gw.cli", "invite", "q@x.com", "--quiet"])
+    runpy.run_module("gw.cli", run_name="__main__")
+    assert len(mails) == 2 and store.is_invited("q@x.com")
+
+
+def test_low_balance_reminder_fires_once_until_topped_up(store):
+    _, key = store.create("a@x.com", 1.0)
+    store.charge("a@x.com", "m-pro", 0, 0, 0.4999)                      # 余额 0.5001，还没跌破
+    fired: list = []
+
+    async def on_low(email):
+        fired.append(email)
+    client = TestClient(create_meter_app(store, "sk", PRICES,
+                                         httpx.AsyncClient(transport=httpx.MockTransport(_openai([]))),
+                                         low_balance_usd=0.5, on_low=on_low))
+    for _ in range(2):
+        assert client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {key}"},
+                           json={"model": "m-pro"}).status_code == 200
+    assert fired == ["a@x.com"]                                          # 跌破只提醒一次
+    store.grant("a@x.com", 1.0, "续")
+    assert store.get("a@x.com").low_notified_at is None                  # 加额度后重新武装
+    assert store.charge("a@x.com", "m-pro", 0, 0, 1.2, low_at=0.5)
+
+
+def test_user_mail_templates_escape_and_fall_back_to_both_languages():
+    from gw.notify import render_user
+    subj, body = render_user("low_balance", None, email="<x>@y.com", balance="0.42")
+    assert subj == "你的 AI 额度快用完了 / Your AI credit is running low"
+    assert "$0.42" in body and "<x>" not in body

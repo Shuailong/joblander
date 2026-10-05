@@ -402,6 +402,9 @@ MSG = {
  "not_invited": ("{email} 还不在邀请名单里。我已经收到通知，加上后你直接回来登录就行；也可以找拉你进来的朋友催一下。",
                  "{email} isn't on the invite list yet. I've been notified — once you're added, just come back and sign in. "
                  "You can also nudge the friend who sent you here."),
+ "not_invited_mail": ("{email} 还不在邀请名单里。申请我已经收到，确认邮件已发到这个邮箱；加上后会再发邮件通知你。",
+                      "{email} isn't on the invite list yet. I've got your request and sent a confirmation to this address — "
+                      "you'll get another email once you're in."),
  "account": ("账户", "Account"),
  "balance": ("AI 额度余额：<b>${bal}</b>（累计 ${credit}，已用 ${spent}）",
              "AI credit balance: <b>${bal}</b> (granted ${credit}, used ${spent})"),
@@ -488,7 +491,7 @@ _PRIV = {
 <tr><td>OpenAI</td><td>AI 生成与评估</td><td>处理当次任务所需的简历片段、JD、笔记。API 数据默认不用于训练；可能保留至多 30 天用于滥用监测；处理地在美国</td></tr>
 <tr><td>Tavily</td><td>公司尽调的网页搜索</td><td>搜索词（公司名、岗位关键词），不含你的简历</td></tr>
 <tr><td>Google</td><td>登录</td><td>邮箱地址</td></tr>
-<tr><td>Resend</td><td>把反馈与登录申请转发到运营者邮箱</td><td>仅你提交的反馈与你的邮箱；未受邀登录时的邮箱</td></tr>
+<tr><td>Resend</td><td>发送服务通知邮件（申请已收到、内测已开通、额度快用完），并把反馈与登录申请转发给运营者</td><td>你的邮箱与通知内容；你提交的反馈</td></tr>
 </table>
 <p>LinkedIn 与 MyCareersFuture 只用于读取<b>公开</b>岗位信息，不会把你的任何数据发给它们。</p>
 
@@ -565,7 +568,7 @@ users are isolated at the network level and cannot reach each other's space. Acc
 <tr><td>OpenAI</td><td>AI generation and assessment</td><td>Resume excerpts, JDs and notes needed for the task at hand. API data is not used for training by default; may be retained up to 30 days for abuse monitoring; processed in the US</td></tr>
 <tr><td>Tavily</td><td>Web search for company research</td><td>Search terms (company names, role keywords) — not your resume</td></tr>
 <tr><td>Google</td><td>Sign-in</td><td>Email address</td></tr>
-<tr><td>Resend</td><td>Forwarding feedback and sign-in requests to the operator</td><td>Only the feedback you submit and your email; your email on an uninvited sign-in</td></tr>
+<tr><td>Resend</td><td>Service emails to you (request received, beta access, low credit) and forwarding feedback and sign-in requests to the operator</td><td>Your email and the notice content; feedback you submit</td></tr>
 </table>
 <p>LinkedIn and MyCareersFuture are only used to read <b>public</b> job listings; none of your data is sent to them.</p>
 

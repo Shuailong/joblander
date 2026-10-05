@@ -51,6 +51,7 @@ class Settings:
     feedback_to: str = ""                            # 反馈收件人（管理员邮箱）
     resend_api_key: str = ""
     feedback_from: str = "joblander <onboarding@resend.dev>"
+    mail_from: str = ""          # 已验证域名的发件人，如 "joblander <hello@ailayoff.me>"；空 = 不给用户发信
 
 
 # ---------- 会话：HMAC 签名的 email|过期时间，不存服务端 ----------
@@ -235,13 +236,18 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
                     from gw.notify import send_blocked
                     await send_blocked(google, settings.resend_api_key, settings.feedback_to,
                                        sender=settings.feedback_from, user=email, lang=lg)
+                    from gw.notify import send_user
+                    await send_user(google, settings.resend_api_key, settings.mail_from, settings.feedback_to,
+                                    to=email, kind="waitlisted", lang=lg)
                 except Exception:                               # noqa: BLE001  通知失败不影响提示页
                     pass
             t = pages.msg("beta", lg)
-            return _page(t, f"<h1>{t}</h1><p>{pages.msg('not_invited', lg, email=html.escape(email))}</p>",
+            return _page(t, f"<h1>{t}</h1><p>{pages.msg('not_invited_mail' if settings.mail_from else 'not_invited', lg,
+                                                                email=html.escape(email))}</p>",
                          lang=lg)
         if not store.get(email):
             store.create(email, settings.free_credit_usd)
+        store.set_lang(email, lang(request))
         resp = RedirectResponse("/", status_code=302)
         resp.set_cookie(SESSION_COOKIE, make_session(settings.session_secret, email),
                         max_age=SESSION_TTL, httponly=True, secure=True, samesite="lax")

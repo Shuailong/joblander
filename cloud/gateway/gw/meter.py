@@ -8,7 +8,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import Awaitable, Callable
 
 import httpx
 from fastapi import FastAPI, Request
@@ -33,9 +35,19 @@ TAVILY_URL = "https://api.tavily.com/search"
 
 def create_meter_app(store: Store, openai_key: str, prices: dict,
                      client: httpx.AsyncClient | None = None, *,
-                     tavily_key: str = "", search_price_usd: float = 0.01) -> FastAPI:
+                     tavily_key: str = "", search_price_usd: float = 0.01,
+                     low_balance_usd: float | None = None,
+                     on_low: Callable[[str], Awaitable[None]] | None = None) -> FastAPI:
     app = FastAPI(title="joblander-meter")
     http = client or httpx.AsyncClient(timeout=httpx.Timeout(600, connect=10))
+    pending: set[asyncio.Task] = set()
+
+    def charge(email: str, model: str, pt: int, ct: int, cost: float) -> None:
+        """记账；余额首次跌破提醒线时异步发提醒（发信失败不影响计量）。"""
+        if store.charge(email, model, pt, ct, cost, low_at=low_balance_usd if on_low else None):
+            t = asyncio.create_task(on_low(email))
+            pending.add(t)
+            t.add_done_callback(pending.discard)
 
     @app.post("/v1/search")
     async def search(request: Request):
@@ -57,7 +69,7 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
         r = await http.post(TAVILY_URL, json={"api_key": tavily_key, "query": q, "max_results": n})
         if r.status_code >= 400:
             return _reject(f"search upstream {r.status_code}", 502)
-        store.charge(user.email, "search:tavily", 0, 0, search_price_usd)
+        charge(user.email, "search:tavily", 0, 0, search_price_usd)
         return {"results": [{"title": x.get("title", ""), "url": x.get("url", ""),
                              "snippet": (x.get("content") or "")[:800]}
                             for x in r.json().get("results", [])][:n]}
@@ -86,7 +98,7 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
             u = out.get("usage") or {}
             if r.status_code < 400:
                 pt, ct = u.get("prompt_tokens") or 0, u.get("completion_tokens") or 0
-                store.charge(user.email, model, pt, ct, cost_usd(prices, model, pt, ct))
+                charge(user.email, model, pt, ct, cost_usd(prices, model, pt, ct))
             return JSONResponse(out, status_code=r.status_code)
 
         req = http.build_request("POST", OPENAI_URL, json=body, headers=headers)
@@ -114,7 +126,7 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
                 await upstream.aclose()
                 pt, ct = usage.get("prompt_tokens") or 0, usage.get("completion_tokens") or 0
                 if pt or ct:
-                    store.charge(user.email, model, pt, ct, cost_usd(prices, model, pt, ct))
+                    charge(user.email, model, pt, ct, cost_usd(prices, model, pt, ct))
 
         return StreamingResponse(relay(), status_code=upstream.status_code,
                                  media_type="text/event-stream")

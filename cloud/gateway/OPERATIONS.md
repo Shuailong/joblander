@@ -21,11 +21,24 @@ Google 登录后，网关按顺序检查，满足任一条就放行：
 
 首次放行会送 `FREE_CREDIT_USD`（默认 $2）AI 额度，并开一台独立机器。
 
+### 发给用户本人的邮件
+
+配了 `MAIL_FROM`（已在 Resend 验证过的域名）才发；没配就只通知管理员。回复都到 `FEEDBACK_TO`。
+
+| 什么时候 | 发什么 |
+|---|---|
+| 第一次被拦 | 「已收到你的内测申请」 |
+| `invite` 时 | 「内测已开通」+ 登录按钮（`--quiet` 不发） |
+| 余额首次跌破 `LOW_BALANCE_USD`（默认 $0.5） | 「额度快用完了」，`grant` 后重新武装 |
+
+语言按对方界面（被拦时 / 最近一次登录时）；不知道就中英都放。
+
 ### 常用命令
 
 | 要做什么 | 命令 |
 |---|---|
-| 邀请（可多个，空格隔开） | `$GW "python -m gw.cli invite a@x.com b@y.com"` |
+| 邀请（可多个，空格隔开；会邮件通知对方） | `$GW "python -m gw.cli invite a@x.com b@y.com"` |
+| 邀请但不发邮件 | `$GW "python -m gw.cli invite a@x.com --quiet"` |
 | 看谁被拦了 | `$GW "python -m gw.cli blocked"` |
 | 清掉不认识的被拦记录 | `$GW "python -m gw.cli dismiss a@x.com"` |
 | 移出邀请名单 | `$GW "python -m gw.cli uninvite a@x.com"` |
@@ -36,7 +49,7 @@ Google 登录后，网关按顺序检查，满足任一条就放行：
 
 要点：
 
-- **邀请后不用通知系统**：对方回到 app.ailayoff.me 重新登录即可。`invite` 会顺手把此人从被拦名单清掉。
+- **邀请后对方直接登录即可**：配了 `MAIL_FROM` 会自动发邮件告诉对方；没配就自己说一声。`invite` 会顺手把此人从被拦名单清掉。
 - **`uninvite` 不会踢掉已开通的人**：登录过就有账户，账户在就能进。要让人彻底出去，用 `reset`（销毁数据但保留账户与额度）或让对方在设置页「删除账户」。
 - **`grant` 之前对方必须登录过一次**：账户是第一次登录时建的。
 
@@ -76,6 +89,8 @@ $GW "python -m gw.cli upgrade registry.fly.io/joblander-users:vN"               
 | `ADMIN_EMAILS` | 管理员（逗号分隔），免邀请 |
 | `FEEDBACK_TO` | 反馈与被拦提醒收件人；不设则用第一个管理员 |
 | `RESEND_API_KEY` | 发邮件用；不设则不发信（记录照存，用命令查） |
+| `MAIL_FROM` | 发件人，如 `joblander <hello@ailayoff.me>`；域名须在 Resend 验证过。不设 = 不给用户发信 |
+| `LOW_BALANCE_USD` | 额度提醒线，默认 0.5 |
 | `FREE_CREDIT_USD` | 新用户赠送额度，默认 2 |
 | `USER_IMAGE` | 新用户机器用的镜像 |
 | `USER_MEMORY_MB` | 用户机器内存，默认 1024 |
@@ -89,3 +104,8 @@ $GW "python -m gw.cli upgrade registry.fly.io/joblander-users:vN"               
   `GET /auth/ 200`（几百毫秒）通常就是有人被拦或登录失败；正常登录是 `302`。
 - **某个用户卡在开通**：`users` 看状态与报错；必要时 `reset` 让其下次登录重新开通。
 - **备份**：用户卷由 Fly 每天自动快照，保留 5 天。
+
+## 发信域名（Resend）
+
+`ailayoff.me` 的 DNS 在 GoDaddy。Resend 后台 Domains → Add Domain 填 `ailayoff.me`，把它给的几条记录（`resend._domainkey` 的 DKIM TXT、`send` 子域的 MX 与 SPF TXT，可选 `_dmarc`）原样加到 GoDaddy，等 Resend 显示 Verified，再 `fly secrets set -a joblander-gw MAIL_FROM="joblander <hello@ailayoff.me>"`（会自动重启生效）。
+没验证就设 `MAIL_FROM`，发给别人的信会被 Resend 拒（不影响登录，只是收不到）。
