@@ -1,6 +1,9 @@
 """管理命令（在网关 machine 上跑：fly ssh console -a joblander-gw -C "python -m gw.cli ..."）
 
-  invite <email>...            加进邀请名单
+  invite <email>... [--quiet]  加进邀请名单（同时从被拦名单移除），并邮件通知对方（配了 MAIL_FROM 时；--quiet 不发）
+  uninvite <email>...          移出邀请名单（已开通的账户不受影响；要删账户用 reset 或用户自己删除）
+  blocked                      没被邀请就来登录、被拦下的人（首次被拦会邮件通知管理员）
+  dismiss <email>...           从被拦名单里清掉（不认识的人）
   grant <email> <usd> [原因]   给额度（充值落地前，手工给朋友加额度也走这里）
   users                        列出用户、状态、余额
   upgrade <image>              把全部用户 machine 换到新镜像（数据在卷上，不受影响）
@@ -24,9 +27,28 @@ def main(argv: list[str]) -> None:
         print(__doc__); return
     cmd, *args = argv
     if cmd == "invite":
-        for e in args:
+        quiet = "--quiet" in args
+        emails = [a for a in args if a != "--quiet"]
+        langs = {e: store.blocked_lang(e) for e in emails}          # 被拦时记下的界面语言，invite 会清掉
+        for e in emails:
             store.invite(e)
-        print(f"已邀请 {len(args)} 人")
+        print(f"已邀请 {len(emails)} 人")
+        if not quiet:
+            asyncio.run(_mail_invited(langs))
+    elif cmd == "uninvite":
+        for e in args:
+            print(f"{e}: {'已移出' if store.uninvite(e) else '本来就不在邀请名单'}"
+                  f"{'（账户仍在）' if store.get(e) else ''}")
+    elif cmd == "blocked":
+        import time as _t
+        rows = store.waitlist()
+        for w in rows:
+            print(f"{w['email']:36} {w['attempts']:3} 次  首次 {_t.strftime('%m-%d %H:%M', _t.localtime(w['first_at']))}"
+                  f"  最近 {_t.strftime('%m-%d %H:%M', _t.localtime(w['last_at']))}  [{w['lang'] or '-'}]")
+        print(f"共 {len(rows)} 人" if rows else "没有被拦的人")
+    elif cmd == "dismiss":
+        for e in args:
+            print(f"{e}: {'已清掉' if store.dismiss(e) else '不在被拦名单'}")
     elif cmd == "grant":
         email, usd, *reason = args
         if store.get(email) is None:
@@ -49,6 +71,20 @@ def main(argv: list[str]) -> None:
         asyncio.run(_reset(store, args[0]))
     else:
         print(__doc__)
+
+
+async def _mail_invited(langs: dict[str, str | None]) -> None:
+    import httpx
+    from gw.notify import send_user
+    key, sender = os.environ.get("RESEND_API_KEY", ""), os.environ.get("MAIL_FROM", "")
+    if not (key and sender):
+        print("（没配 MAIL_FROM / RESEND_API_KEY，没发通知邮件——记得自己告诉对方）")
+        return
+    reply_to = os.environ.get("FEEDBACK_TO") or os.environ.get("ADMIN_EMAILS", "").split(",")[0].strip()
+    async with httpx.AsyncClient(timeout=15) as http:
+        for e, lg in langs.items():
+            ok = await send_user(http, key, sender, reply_to, to=e.lower(), kind="invited", lang=lg)
+            print(f"{e}: {'已发通知邮件' if ok else '通知邮件发送失败——请自己告诉对方'}")
 
 
 async def _upgrade(store: Store, image: str) -> None:

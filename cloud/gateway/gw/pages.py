@@ -399,8 +399,12 @@ MSG = {
  "unverified": ("这个 Google 账号的邮箱未验证。", "This Google account's email isn't verified."),
  "relogin": ("重新登录", "Sign in again"),
  "beta": ("还在内测", "Invite-only beta"),
- "not_invited": ("{email} 还不在邀请名单里。找把你拉进来的朋友加一下，再回来登录。",
-                 "{email} isn't on the invite list yet. Ask the friend who sent you here to add you, then sign in again."),
+ "not_invited": ("{email} 还不在邀请名单里。我已经收到通知，加上后你直接回来登录就行；也可以找拉你进来的朋友催一下。",
+                 "{email} isn't on the invite list yet. I've been notified — once you're added, just come back and sign in. "
+                 "You can also nudge the friend who sent you here."),
+ "not_invited_mail": ("{email} 还不在邀请名单里。申请我已经收到，确认邮件已发到这个邮箱；加上后会再发邮件通知你。",
+                      "{email} isn't on the invite list yet. I've got your request and sent a confirmation to this address — "
+                      "you'll get another email once you're in."),
  "account": ("账户", "Account"),
  "balance": ("AI 额度余额：<b>${bal}</b>（累计 ${credit}，已用 ${spent}）",
              "AI credit balance: <b>${bal}</b> (granted ${credit}, used ${spent})"),
@@ -472,6 +476,7 @@ _PRIV = {
 <li><b>用量记录</b>：每次 AI 调用的模型、token 数、费用与时间（用于额度计费）。</li>
 <li><b>反馈</b>：你主动提交的反馈内容、所在页面和浏览器标识。</li>
 <li><b>技术日志</b>：请求时间、状态码、IP 地址，用于排障与防滥用；不记录页面路径与内容。</li>
+<li><b>未受邀的登录</b>：没在邀请名单的人登录时，记下邮箱、尝试次数与时间，并通知运营者以便邀请；获邀或被清除时即删除。</li>
 </ul>
 
 <h2>存在哪里</h2>
@@ -486,7 +491,7 @@ _PRIV = {
 <tr><td>OpenAI</td><td>AI 生成与评估</td><td>处理当次任务所需的简历片段、JD、笔记。API 数据默认不用于训练；可能保留至多 30 天用于滥用监测；处理地在美国</td></tr>
 <tr><td>Tavily</td><td>公司尽调的网页搜索</td><td>搜索词（公司名、岗位关键词），不含你的简历</td></tr>
 <tr><td>Google</td><td>登录</td><td>邮箱地址</td></tr>
-<tr><td>Resend</td><td>把你的反馈转发到运营者邮箱</td><td>仅你提交的反馈与你的邮箱</td></tr>
+<tr><td>Resend</td><td>发送服务通知邮件（申请已收到、内测已开通、额度快用完），并把反馈与登录申请转发给运营者</td><td>你的邮箱与通知内容；你提交的反馈</td></tr>
 </table>
 <p>LinkedIn 与 MyCareersFuture 只用于读取<b>公开</b>岗位信息，不会把你的任何数据发给它们。</p>
 
@@ -548,6 +553,7 @@ project's author as a free, invite-only beta. "I" below means the operator.</p>
 <li><b>Usage records</b>: model, tokens, cost and time of each AI call (for credit metering).</li>
 <li><b>Feedback</b>: what you submit, the page you were on and your browser's user agent.</li>
 <li><b>Technical logs</b>: request time, status code and IP address for troubleshooting and abuse prevention; page paths and content are not logged.</li>
+<li><b>Uninvited sign-ins</b>: if you sign in without an invite, your email, attempt count and time are kept and the operator is notified so they can invite you; the record is deleted once you're invited or it's cleared.</li>
 </ul>
 
 <h2>Where it is stored</h2>
@@ -562,7 +568,7 @@ users are isolated at the network level and cannot reach each other's space. Acc
 <tr><td>OpenAI</td><td>AI generation and assessment</td><td>Resume excerpts, JDs and notes needed for the task at hand. API data is not used for training by default; may be retained up to 30 days for abuse monitoring; processed in the US</td></tr>
 <tr><td>Tavily</td><td>Web search for company research</td><td>Search terms (company names, role keywords) — not your resume</td></tr>
 <tr><td>Google</td><td>Sign-in</td><td>Email address</td></tr>
-<tr><td>Resend</td><td>Forwarding your feedback to the operator</td><td>Only the feedback you submit and your email</td></tr>
+<tr><td>Resend</td><td>Service emails to you (request received, beta access, low credit) and forwarding feedback and sign-in requests to the operator</td><td>Your email and the notice content; feedback you submit</td></tr>
 </table>
 <p>LinkedIn and MyCareersFuture are only used to read <b>public</b> job listings; none of your data is sent to them.</p>
 
