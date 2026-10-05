@@ -54,6 +54,14 @@ KIND_LABELS = {"interview": "面试", "oa": "笔试", "call": "通话", "email":
 BATTLE_KINDS = ("interview", "oa", "call", "transcript")
 
 
+def _default_title(cfg, kind: str) -> str:
+    """用户没填标题时的兜底名：跟输出语言走。"""
+    from joblander.lang import lang_of
+    en = {"note": "Note", "retro": "Debrief"}
+    zh = {"note": "记录", "retro": "复盘"}
+    return (en if lang_of(cfg) == "en" else zh).get(kind, kind)
+
+
 def slugify(company: str) -> str:
     return (company or "unknown").split("（")[0].split("(")[0].strip() \
         .replace(" ", "-").replace("/", "-")[:60] or "unknown"
@@ -327,7 +335,7 @@ def edit_entry(cfg, company: str, *, entry_id: str = "", date: str = "",
     entry = timeline_add(
         cfg, company,
         kind=patch.get("kind") or guess_kind(title, fields.get("content_md", "")),
-        title=patch.get("title") or title or "记录",
+        title=patch.get("title") or title or _default_title(cfg, "note"),
         date=patch.get("date") or date or None,
         content_md=fields.get("content_md", ""), summary=fields.get("summary", ""),
         participants=patch.get("participants") or [],
@@ -354,7 +362,7 @@ def set_review(cfg, company: str, *, entry_id: str = "", date: str = "",
             return hit
     entry = timeline_add(cfg, company,
                          kind=kind or guess_kind(title, content_md),
-                         title=title or "复盘", date=date or None,
+                         title=title or _default_title(cfg, "retro"), date=date or None,
                          content_md=content_md,
                          author="human", source="manual")
     return update_entry(cfg, company, entry["id"], {"my_review": review}) or entry
@@ -983,25 +991,31 @@ def assess(cfg, llm, row: dict[str, Any]) -> dict[str, Any]:
     jm = (result.get("jd_match") or {}).get("score")
     sm = (result.get("salary_match") or {}).get("score")
 
+    from joblander.lang import lang_of, pick
+    lg = lang_of(cfg)
     md: list[str] = [
-        f"**JD 匹配 {jm or '—'}/5**　{(result.get('jd_match') or {}).get('why', '')}"]
-    md += [f"- ▸ 缺口：{g}" for g in (result.get("jd_match") or {}).get("gaps", [])]
-    md += ["", f"**薪酬匹配 {sm if sm is not None else '—'}/5**　"
-               f"{(result.get('salary_match') or {}).get('why', '')}"]
+        pick(lg, f"**JD 匹配 {jm or '—'}/5**", f"**JD fit {jm or '—'}/5**")
+        + f"　{(result.get('jd_match') or {}).get('why', '')}"]
+    md += [pick(lg, f"- ▸ 缺口：{g}", f"- ▸ Gap: {g}") for g in (result.get("jd_match") or {}).get("gaps", [])]
+    md += ["", pick(lg, f"**薪酬匹配 {sm if sm is not None else '—'}/5**",
+                    f"**Pay fit {sm if sm is not None else '—'}/5**")
+               + f"　{(result.get('salary_match') or {}).get('why', '')}"]
     rd = result.get("radar") or []
     if rd:
-        md += ["", "**JD 定制雷达**（该岗位要求 vs 我的匹配，依据见备注）", "",
-               "| 维度 | JD 要求 | 我 | 依据 |", "|---|---|---|---|"]
+        md += ["", pick(lg, "**JD 定制雷达**（该岗位要求 vs 我的匹配，依据见备注）",
+                        "**JD-specific radar** (what the role needs vs. me; see basis)"), "",
+               pick(lg, "| 维度 | JD 要求 | 我 | 依据 |", "| Dimension | JD needs | Me | Basis |"), "|---|---|---|---|"]
         md += [f"| {x.get('axis', '')} | {x.get('demand', '—')} | {x.get('self', '—')} "
                f"| {x.get('basis', '')} |" for x in rd]
     if result.get("highlights"):
-        md += ["", "**亮点**"] + [f"- {h}" for h in result["highlights"]]
+        md += ["", pick(lg, "**亮点**", "**Highlights**")] + [f"- {h}" for h in result["highlights"]]
     if result.get("risks"):
-        md += ["", "**风险**"] + [f"- ⚠️ {r}" for r in result["risks"]]
+        md += ["", pick(lg, "**风险**", "**Risks**")] + [f"- ⚠️ {r}" for r in result["risks"]]
 
-    timeline_upsert(cfg, company, title_prefix="评估快照", source="assess",
+    timeline_upsert(cfg, company, title_prefix=("评估快照", "Fit assessment"), source="assess",
                     kind="assessment",
-                    title=f"评估快照 · JD 匹配 {jm or '?'}/5 · 薪酬 {sm if sm is not None else '—'}",
+                    title=pick(lg, f"评估快照 · JD 匹配 {jm or '?'}/5 · 薪酬 {sm if sm is not None else '—'}",
+                               f"Fit assessment · JD {jm or '?'}/5 · pay {sm if sm is not None else '—'}"),
                     summary=(result.get("jd_match") or {}).get("why", ""),
                     content_md="\n".join(md))
     _log(cfg).append("company.assessed", "joblander.company",

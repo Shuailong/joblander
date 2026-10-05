@@ -16,18 +16,19 @@ REFERRAL_SYSTEM = """你是求职作战系统的内推参谋。输入：目标�
 纪律：只从输入的人脉地图取人名，不编造；草稿永远由用户本人发送。"""
 
 
-def format_referral_md(result: dict) -> str:
+def format_referral_md(result: dict, lang: str = "zh") -> str:
     """suggest_referral 结果 → 落档案的 markdown（触达草稿围栏，他来发）。"""
+    from joblander.lang import pick
     lines: list[str] = []
     for m in result.get("matches") or []:
         lines.append(f"- **{m.get('name', '?')}**（{m.get('channel', 'unknown')}）"
                      f"——{m.get('why', '')}")
     if not lines:
-        lines.append(f"- 无直接人脉。{result.get('blind_spot', '')}")
+        lines.append(pick(lang, "- 无直接人脉。", "- No direct connections. ") + str(result.get("blind_spot", "")))
     for s in result.get("second_degree") or []:
-        lines.append(f"- 二度路径：{s}")
+        lines.append(pick(lang, f"- 二度路径：{s}", f"- Second-degree path: {s}"))
     if result.get("outreach_draft"):
-        lines += ["", "**触达草稿（你来发）**", "", "```",
+        lines += ["", pick(lang, "**触达草稿（你来发）**", "**Outreach draft (you send it)**"), "", "```",
                   result["outreach_draft"].strip(), "```"]
     return "\n".join(lines)
 

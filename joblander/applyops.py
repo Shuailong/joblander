@@ -239,13 +239,17 @@ def apply_proposal(cfg, proposal_path: str | Path, yes: bool = False) -> dict[st
             result["create"] = _append_local_row(cfg, lead, proposal)
         if not dry and lead.get("company"):             # 档案：入池即建档
             from joblander import company as companyfile
+            from joblander.lang import lang_of, pick
+            lg = lang_of(cfg)
             companyfile.timeline_add(
-                cfg, lead["company"], kind="intake", title="入池",
+                cfg, lead["company"], kind="intake", title=pick(lg, "入池", "Added to pipeline"),
                 summary=lead.get("highlight") or "",
-                content_md=f"- 岗位：{lead.get('position') or '—'}\n"
-                           f"- 渠道：{proposal.get('source_hint') or '—'}\n"
+                content_md=pick(lg, f"- 岗位：{lead.get('position') or '—'}\n", f"- Role: {lead.get('position') or '—'}\n")
+                           + pick(lg, f"- 渠道：{proposal.get('source_hint') or '—'}\n",
+                                  f"- Source: {proposal.get('source_hint') or '—'}\n")
                            + (f"- 📊 {lead['market_ref']}\n" if lead.get("market_ref") else "")
-                           + f"- 建议动作：{lead.get('suggested_next_step') or '—'}",
+                           + pick(lg, f"- 建议动作：{lead.get('suggested_next_step') or '—'}",
+                                  f"- Suggested next step: {lead.get('suggested_next_step') or '—'}"),
                 author="ai", source="intake", ref=pf.name)
             if lead.get("jd_excerpt"):                  # JD 随入池落档 → 公司页评估直接有料
                 companyfile.save_upload(
@@ -265,11 +269,12 @@ def apply_proposal(cfg, proposal_path: str | Path, yes: bool = False) -> dict[st
                 from joblander.referral import format_referral_md, suggest_referral
                 ref = suggest_referral(cfg, from_config(cfg, "flash"), lead["company"])
                 if not ref.get("error"):
+                    n = len(ref.get("matches") or [])
                     companyfile.timeline_add(
                         cfg, lead["company"], kind="note",
-                        title="内推匹配（W14 · 入池自动）",
-                        summary=f"{len(ref.get('matches') or [])} 位候选",
-                        content_md=format_referral_md(ref),
+                        title=pick(lg, "内推匹配（入池自动）", "Referral match (on add)"),
+                        summary=pick(lg, f"{n} 位候选", f"{n} candidates"),
+                        content_md=format_referral_md(ref, lang=lg),
                         author="ai", source="referral", ref=pf.name)
                     result["referral_matches"] = len(ref.get("matches") or [])
             except Exception as e:

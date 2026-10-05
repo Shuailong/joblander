@@ -58,3 +58,34 @@ def load_config(path: str | Path | None = None) -> Config:
     with open(p, encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
     return Config(raw=raw, path=p)
+
+
+def update_config(cfg: Config, patch: dict[str, Any]) -> None:
+    """网页设置向导的写配置入口：深合并 patch → 原子写回 cfg.path，并就地更新 cfg.raw
+    （web 进程持有的是同一个 cfg，写完即生效，不用重启）。
+
+    yaml 回写会丢注释：手写过的 config.yaml 第一次被覆盖前留一份 .bak。"""
+    import os
+    import tempfile
+
+    def merge(dst: dict, src: dict) -> None:
+        for k, v in src.items():
+            if isinstance(v, dict) and isinstance(dst.get(k), dict):
+                merge(dst[k], v)
+            else:
+                dst[k] = v
+
+    merge(cfg.raw, patch)
+    bak = cfg.path.with_name(cfg.path.name + ".bak")
+    if cfg.path.exists() and not bak.exists():
+        bak.write_bytes(cfg.path.read_bytes())
+    cfg.path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=cfg.path.parent, prefix=f".{cfg.path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            yaml.safe_dump(cfg.raw, f, allow_unicode=True, sort_keys=False)
+        os.replace(tmp, cfg.path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise

@@ -104,6 +104,8 @@ def client(tmp_path, monkeypatch):
                                 "patterns": ["ProjectX"], "why": "internal"}]},
     }, path=tmp_path / "c.yaml")
 
+    from joblander import wizard
+    wizard.skip(cfg)        # 老用户形态：向导不拦首页（向导自身见 test_wizard.py）
     monkeypatch.setattr("joblander.web.app.load_config", lambda: cfg)
     monkeypatch.setattr(notion_mod.NotionClient, "_request",
                         lambda self, *a, **k: {"results": [], "id": "created"})
@@ -144,7 +146,14 @@ def test_company_stage_flow(client, tmp_path):
 
 
 def test_drill_page_and_run(client):
-    """练兵场：随机出题 302 定格到具体题；判题接口跑通正确/错误两路。"""
+    """练兵场：默认关（入口藏起、跑代码端点拒）；开启后随机出题 302 定格到具体题；
+    判题接口跑通正确/错误两路。"""
+    assert client.get("/drill", follow_redirects=False).status_code == 303
+    assert client.post("/api/drill/run", data={"id": "jump-game", "code": "print(1)"}
+                       ).status_code == 403
+    assert ">练兵场</a>" not in client.get("/pipeline").text
+    assert client.post("/api/settings/features", data={"name": "drill", "on": "1"}
+                       ).status_code == 200
     r = client.get("/drill", follow_redirects=False)
     assert r.status_code == 302 and "/drill?id=" in r.headers["location"]
     html = client.get("/drill?id=jump-game").text
@@ -182,8 +191,9 @@ def test_approvals_live_where_they_belong(client):
         assert client.get(path, follow_redirects=False).status_code == 302
     src = client.get("/sourcing").text
     assert "待入池" in src and "NewCo" in src and "否决所选" in src
-    assert "scanbar" in src and "↻ 扫邮箱" in src and "↻ 扫 MCF" in src
-    assert "上次扫" in src and "入库" in src              # 工具条时间 + 每条线索入库时间
+    assert "scanbar" in src and "↻ 立即搜" in src
+    assert "↻ 扫邮箱" not in src                          # 没连 Gmail 不给按钮
+    assert "MCF 上次" in src and "入库" in src            # 工具条时间 + 每条线索入库时间
     assert "⛔ fluent Thai" in src                         # requirements 初筛高亮
     assert "NewCo" not in client.get("/pipeline").text    # 机会页只管已有申请
     co = client.get("/company/aaa111").text
@@ -336,9 +346,10 @@ def test_command_center_v3(client, tmp_path):
 
 
 def test_refresh_all_sources(client, tmp_path, monkeypatch):
-    """全量刷新：数据源行可见；手动端点各自打新鲜度时间戳；日历刷新写缓存。"""
+    """全量刷新：数据源行可见；没连任何外部源时不给刷新按钮（云端新用户点了只会报错）；
+    手动端点各自打新鲜度时间戳；日历刷新写缓存。"""
     html = client.get("/").text
-    assert "数据源：" in html and "全量刷新" in html and "refreshAll" in html
+    assert "数据源：" in html and "全量刷新" not in html
     r = client.post("/api/pull")
     assert r.status_code == 200
     state = json.loads((tmp_path / "ws" / "08-events" / "daemon-state.json").read_text())
@@ -355,6 +366,8 @@ def test_refresh_all_sources(client, tmp_path, monkeypatch):
     state = json.loads((tmp_path / "ws" / "08-events" / "daemon-state.json").read_text())
     assert state["calendar_cache"]["events"][0]["title"] == "Beta 一面"
     assert state.get("last.calendar_watch")
+    html = client.get("/").text
+    assert "全量刷新" in html and "Google 日历" in html and "Gmail 邮箱" not in html
 
 
 def test_company_entry_edit_api(client, tmp_path):
@@ -611,7 +624,7 @@ def test_brief_generation(client, tmp_path, monkeypatch):
     assert briefs, "同步任务模式下 brief 应已落盘"
     text = briefs[-1].read_text(encoding="utf-8")
     assert "接下来的打法" in text and "R2 定生死" in text      # LLM 参谋层落地
-    assert "红线口径 → /system" in text and "R2 focus" in text  # 只指路不复印
+    assert "红线口径 → 设置" in text and "R2 focus" in text  # 只指路不复印
 
     from joblander import company as cf
     from joblander.config import Config
@@ -644,8 +657,10 @@ def test_visibility_batch(client):
     assert "叙事（1）" in pb                                          # 模式按类型分组
     assert client.get("/wsdoc/13-daily/2026-08-03-weekly.md").status_code == 200
     assert client.get("/wsdoc/01-profile/secret.md").status_code == 404   # 白名单外拒
-    sys_html = client.get("/system").text
-    assert "外部连接" in sys_html and "常驻作业" in sys_html
+    sys_html = client.get("/system").text                         # 旧地址跳到设置页高级视图
+    assert "外部连接" in sys_html and "常驻作业" in sys_html and "功能" in sys_html
+    plain = client.get("/settings").text                         # 默认不给用户看系统内部
+    assert "常驻作业" not in plain and "事件分布" not in plain and "功能" in plain
 
 
 def test_offers_page_and_save(client, tmp_path):
@@ -1124,3 +1139,16 @@ def test_arsenal_delete_and_reorder(client):
                       data={"idx": internal_idx,
                             "title": ars.load_sections(cfg)["sections"][internal_idx]["title"]})
     assert bad.status_code == 400 and "内部规则段" in bad.json()["error"]
+
+
+def test_export_all_data_zip(client):
+    import io
+    import zipfile
+    r = client.get("/api/export")
+    assert r.status_code == 200 and "attachment" in r.headers["content-disposition"]
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    names = z.namelist()
+    assert "workspace/09-projections/tracker.json" in names
+    assert "Acme AI" in z.read("workspace/09-projections/tracker.json").decode()
+    conf = z.read("config.yaml").decode()
+    assert "fake" not in conf and "<redacted>" in conf          # notion token 抹掉

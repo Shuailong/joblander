@@ -1,64 +1,64 @@
 {% extends "base.html" %}
-{% block title %}弹药库 · joblander{% endblock %}
+{% block title %}{{ _('弹药库 · joblander') }}{% endblock %}
 {% block main %}
-<div class="topbar"><span class="crumb"><b>弹药库</b></span><span class="sp"></span>
-  <button class="btn pri" onclick="dlg('dlg-addsec')">＋ 新增素材段</button>
+<div class="topbar"><span class="crumb"><b>{{ _('弹药库') }}</b></span><span class="sp"></span>
+  <button class="btn pri" onclick="dlg('dlg-addsec')">{{ _('＋ 新增素材段') }}</button>
 </div>
-<h1>弹药库</h1>
-<div class="sub">简历、面试、LinkedIn 的唯一取材地——能讲的、能打的案例和经历，按公司/项目分段，写任何对外材料都从这里取。{% if internal_n %}另有 {{ internal_n }} 段内部使用规则不在此展示，生成简历 / brief / 策略时照常生效。{% endif %}</div>
+<h1>{{ _('弹药库') }}</h1>
+<div class="sub">{{ _('简历、面试、LinkedIn 的唯一取材地——能讲的、能打的案例和经历，按公司/项目分段，写任何对外材料都从这里取。') }}{% if internal_n %}{{ _('另有') }} {{ internal_n }} {{ _('段内部使用规则不在此展示，生成简历 / brief / 策略时照常生效。') }}{% endif %}</div>
 
 {% if generic %}
-<h2>简历母版 <span class="note" style="text-transform:none;letter-spacing:0">结构与样式的基底；公司定制版长在各公司页的教练对话里，此处不重复陈列</span></h2>
+<h2>{{ _('简历母版') }} <span class="note" style="text-transform:none;letter-spacing:0">{{ _('结构与样式的基底；公司定制版长在各公司页的教练对话里，此处不重复陈列') }}</span></h2>
 <div class="card" style="margin-bottom:16px">
   {% for g in generic %}
   <div class="row"><span class="when">{{ g.mtime }}</span>
     <div class="body"><b>{{ g.label }}</b>
       <div style="margin-top:4px;display:flex;gap:6px">
         {% if g.pdf %}<a class="btn" href="/files/{{ g.pdf }}" target="_blank">📄 PDF</a>{% endif %}
-        <a class="btn" href="/files/{{ g.html }}" target="_blank">HTML 源</a>
+        <a class="btn" href="/files/{{ g.html }}" target="_blank">{{ _('HTML 源') }}</a>
       </div></div></div>
-  {% else %}<div class="note">03-materials 下没有 resume*.html 母版。</div>{% endfor %}
+  {% else %}<div class="note">{{ _('03-materials 下没有 resume*.html 母版。') }}</div>{% endfor %}
 </div>
 {% endif %}
 
-{% if sections|length > 1 %}<div class="note" style="margin-bottom:8px">⠿ 拖动段头把手可排序（默认顺序 = 定制简历取材的阅读序）；🗑 双击确认删除；「使用注意」规则段不受这些操作影响。</div>{% endif %}
+{% if sections|length > 1 %}<div class="note" style="margin-bottom:8px">{{ _('⠿ 拖动段头把手可排序（默认顺序 = 定制简历取材的阅读序）；🗑 双击确认删除；「使用注意」规则段不受这些操作影响。') }}</div>{% endif %}
 {% for s in sections %}
 <div class="card arsec" id="sec-{{ s.idx }}" data-title="{{ s.title }}" style="margin-bottom:14px">
   <div class="ars-v">
     <div style="display:flex;align-items:baseline;gap:10px">
-      <span class="drag" title="拖拽排序">⠿</span>
+      <span class="drag" title="{{ _('拖拽排序') }}">⠿</span>
       <h2 style="margin:0;font-size:15px;color:var(--ink);text-transform:none;letter-spacing:0">{{ s.title }}</h2>
       <span class="sp"></span>
-      <button class="btn" style="flex-shrink:0" onclick="arsEdit({{ s.idx }})">✎ 编辑</button>
-      <button class="btn danger" style="flex-shrink:0" data-title="{{ s.title }}" onclick="arsDel(this, {{ s.idx }})" title="删除本段（先点一次确认）">🗑</button>
+      <button class="btn" style="flex-shrink:0" onclick="arsEdit({{ s.idx }})">{{ _('✎ 编辑') }}</button>
+      <button class="btn danger" style="flex-shrink:0" data-title="{{ s.title }}" onclick="arsDel(this, {{ s.idx }})" title="{{ _('删除本段（先点一次确认）') }}">🗑</button>
     </div>
     <div class="mdoc arsdoc">{{ s.html | safe }}</div>
   </div>
   <div class="ars-e" hidden>
-    <label>段标题</label>
+    <label>{{ _('段标题') }}</label>
     <input type="text" id="at-{{ s.idx }}" value="{{ s.title }}" data-orig="{{ s.title }}">
-    <label>内容（markdown：### 小节 / - 列表 / **粗体** / &gt; 注记）</label>
+    <label>{{ _('内容（markdown：### 小节 / - 列表 / **粗体** / &gt; 注记）')|safe }}</label>
     <textarea id="ab-{{ s.idx }}" style="min-height:280px;font-family:var(--mono);font-size:12.5px">{{ s.body }}</textarea>
     <div style="display:flex;gap:8px;margin-top:10px">
-      <button class="btn pri" onclick="arsSave(this, {{ s.idx }})">保存</button>
-      <button class="btn" onclick="arsCancel({{ s.idx }})">取消</button>
+      <button class="btn pri" onclick="arsSave(this, {{ s.idx }})">{{ _('保存') }}</button>
+      <button class="btn" onclick="arsCancel({{ s.idx }})">{{ _('取消') }}</button>
     </div>
   </div>
 </div>
 {% else %}
-<div class="card">{% if exists %}素材段都是内部规则——先「＋ 新增素材段」放第一条战绩进来。{% else %}还没有素材库文件——「＋ 新增素材段」写第一条即建。{% endif %}</div>
+<div class="card">{% if exists %}{{ _('素材段都是内部规则——先「＋ 新增素材段」放第一条战绩进来。') }}{% else %}{{ _('还没有素材库文件——「＋ 新增素材段」写第一条即建。') }}{% endif %}</div>
 {% endfor %}
 
 <dialog id="dlg-addsec">
-  <h3>＋ 新增素材段</h3>
-  <div class="note" style="margin:0 0 8px">一段 = 一个公司或项目。写 STAR：情境 / 任务 / 动作 / 可验证的结果。</div>
-  <label>段标题（如：某公司 —— 岗位（起止时间））</label>
+  <h3>{{ _('＋ 新增素材段') }}</h3>
+  <div class="note" style="margin:0 0 8px">{{ _('一段 = 一个公司或项目。写 STAR：情境 / 任务 / 动作 / 可验证的结果。') }}</div>
+  <label>{{ _('段标题（如：某公司 —— 岗位（起止时间））') }}</label>
   <input type="text" id="na-title">
-  <label>内容</label>
-  <textarea id="na-body" style="min-height:220px;font-family:var(--mono);font-size:12.5px" placeholder="### X1. 项目名 —— 一句话战果&#10;- **S**：…&#10;- **T**：…&#10;- **A**：…&#10;- **R**：…"></textarea>
+  <label>{{ _('内容') }}</label>
+  <textarea id="na-body" style="min-height:220px;font-family:var(--mono);font-size:12.5px" placeholder="{{ _('### X1. 项目名 —— 一句话战果&#10;- **S**：…&#10;- **T**：…&#10;- **A**：…&#10;- **R**：…')|safe }}"></textarea>
   <div class="dlg-ft">
-    <button class="btn" onclick="this.closest('dialog').close()">取消</button>
-    <button class="btn pri" onclick="post('/api/arsenal/add',{title:gv('na-title'),body:gv('na-body')},{btn:this,ok:'已入库',reload:true})">入库</button>
+    <button class="btn" onclick="this.closest('dialog').close()">{{ _('取消') }}</button>
+    <button class="btn pri" onclick="post('/api/arsenal/add',{title:gv('na-title'),body:gv('na-body')},{btn:this,ok:{{ _('已入库')|jsq }},reload:true})">{{ _('存入弹药库') }}</button>
   </div>
 </dialog>
 
@@ -75,15 +75,15 @@ function arsSave(btn, i){
   const t = document.getElementById('at-'+i);
   post('/api/arsenal/save',
        {idx:i, title:t.value, body:gv('ab-'+i), orig_title:t.dataset.orig},
-       {btn:btn, ok:'已保存', reload:true});
+       {btn:btn, ok:{{ _('已保存')|jsq }}, reload:true});
 }
 function arsDel(btn, i){
   if (!btn.dataset.armed){
-    btn.dataset.armed = '1'; btn.textContent = '确认删除？';
+    btn.dataset.armed = '1'; btn.textContent = {{ _('确认删除？')|jsq }};
     setTimeout(() => { btn.dataset.armed = ''; btn.textContent = '🗑'; }, 3000);
     return;
   }
-  post('/api/arsenal/delete', {idx:i, title:btn.dataset.title}, {btn:btn, ok:'已删除', reload:true});
+  post('/api/arsenal/delete', {idx:i, title:btn.dataset.title}, {btn:btn, ok:{{ _('已删除')|jsq }}, reload:true});
 }
 // 拖拽排序：把手按下才允许拖整卡，松手即把新顺序落库（内部规则段服务端自动垫底）
 let _dragEl = null;
@@ -108,7 +108,7 @@ document.addEventListener('dragend', () => {
   _dragEl.classList.remove('dragging'); _dragEl.removeAttribute('draggable');
   _dragEl = null;
   const titles = [...document.querySelectorAll('.arsec')].map(c => c.dataset.title);
-  post('/api/arsenal/reorder', {titles: JSON.stringify(titles)}, {ok: '顺序已保存'});
+  post('/api/arsenal/reorder', {titles: JSON.stringify(titles)}, {ok: {{ _('顺序已保存')|jsq }}});
 });
 </script>
 {% endblock %}

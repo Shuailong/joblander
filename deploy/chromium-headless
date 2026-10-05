@@ -1,0 +1,6 @@
+#!/bin/sh
+# 容器里 chromium 自带沙箱起不来（缺 user namespace）。每个用户独占一台 machine，
+# 且只渲染本机生成的简历 HTML，关沙箱的代价可接受。
+# 实测（Fly shared-cpu-1x）：512MB 下 chromium 会卡死到超时，1GB 下 3 秒出 PDF——
+# 用户 machine 因此开 1GB（网关 USER_MEMORY_MB）。/dev/shm 很小，改走 /tmp。
+exec chromium --no-sandbox --disable-dev-shm-usage "$@"

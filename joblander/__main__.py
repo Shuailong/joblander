@@ -82,7 +82,9 @@ def _run(argv: list[str] | None = None) -> int:
 
     p_web = sub.add_parser("web")
     p_web.add_argument("--port", type=int, default=8899)
+    p_web.add_argument("--host", default="127.0.0.1")   # 容器内用 :: （Fly 私网是 IPv6）
     p_web.add_argument("--no-daemon", action="store_true")
+    p_web.add_argument("--no-access-log", action="store_true")   # 云端：URL 里有公司名，不进平台日志
 
     sub.add_parser("daemon")
 
@@ -149,7 +151,7 @@ def _run(argv: list[str] | None = None) -> int:
         import uvicorn
         from joblander.web.app import create_app
         uvicorn.run(create_app(with_daemon=not args.no_daemon),
-                    host="127.0.0.1", port=args.port)
+                    host=args.host, port=args.port, access_log=not args.no_access_log)
 
     elif args.cmd == "daemon":
         from joblander.daemon import Daemon

@@ -121,3 +121,17 @@ def test_talk_generate_intent_also_stores_feedback(cfg, monkeypatch):
     out = talk(cfg, llm, "Acme", "把 agent 放最前，出一版")
     assert out["generate"] is True and out["opinions"]
     assert resume_state(cfg, "Acme").get("feedback") == ["把 agent 放最前"]
+
+
+def test_new_entry_lands_before_wizard_style_rules_section(tmp_path):
+    """向导建的弹药库规则段写作「## 【⚠️ 素材使用注意】」——新条目必须插在它之前（原先只认手写格式）。"""
+    from joblander.config import Config
+    from joblander.resume_chat import apply_facts
+    ws = tmp_path / "ws"
+    (ws / "03-materials").mkdir(parents=True)
+    bank = ws / "03-materials" / "achievement-bank.md"
+    bank.write_text("# 战绩弹药库\n\n## Acme\n\n### A1. x\n\n## 【⚠️ 素材使用注意】\n\n- 规则\n", encoding="utf-8")
+    cfg = Config(raw={"workspace_dir": str(ws)}, path=tmp_path / "c.yaml")
+    apply_facts(cfg, [{"target": "new", "new_title": "新战绩", "bullets": ["做了 y"]}])
+    text = bank.read_text(encoding="utf-8")
+    assert text.index("### 新战绩") < text.index("素材使用注意")

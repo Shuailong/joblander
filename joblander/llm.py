@@ -17,6 +17,10 @@ class LLMError(RuntimeError):
     pass
 
 
+class QuotaExceeded(LLMError):
+    """计量代理（云端版）按用户额度拒绝了请求——不是故障，不重试，提示充值。"""
+
+
 USAGE = {"prompt": 0, "completion": 0, "calls": 0}   # 进程内累计（OpenAI 流式回报），成本测量用
 
 
@@ -102,12 +106,23 @@ def _with_retry(fn, tries: int = 3):
     raise LLMError(f"网络错误（重试 {tries} 次后放弃）：{last}") from last
 
 
+def _is_budget_error(e: LLMError) -> bool:
+    """LiteLLM 代理超预算时回 400，正文带 ExceededBudget / budget exceeded 字样。"""
+    text = str(e).lower()
+    return "exceededbudget" in text or ("budget" in text and "exceed" in text)
+
+
 class OpenAIChat:
     URL = "https://api.openai.com/v1/chat/completions"
 
-    def __init__(self, model: str, api_key: str | None = None, temperature: float = 0.2):
+    def __init__(self, model: str, api_key: str | None = None, temperature: float = 0.2,
+                 base_url: str | None = None):
         self.model = model
         self.temperature = temperature
+        # 云端版走计量代理（OpenAI 兼容接口）：OPENAI_BASE_URL 指过去，key 是代理发的子 key
+        base = base_url or os.environ.get("OPENAI_BASE_URL")
+        if base:
+            self.URL = base.rstrip("/") + "/chat/completions"
         self.key = api_key or os.environ.get("OPENAI_API_KEY")
         if not self.key:
             raise LLMError("缺 OPENAI_API_KEY 环境变量")
@@ -126,9 +141,14 @@ class OpenAIChat:
             body["reasoning_effort"] = effort
         if json_mode:
             body["response_format"] = {"type": "json_object"}
-        return _with_retry(lambda: _http_sse_text(
-            self.URL, body, {"Authorization": f"Bearer {self.key}"},
-            timeout=600 if effort == "high" else 300))
+        try:
+            return _with_retry(lambda: _http_sse_text(
+                self.URL, body, {"Authorization": f"Bearer {self.key}"},
+                timeout=600 if effort == "high" else 300))
+        except LLMError as e:
+            if _is_budget_error(e):
+                raise QuotaExceeded("AI 额度已用完——充值或订阅后继续使用") from e
+            raise
 
 
 class GeminiChat:
@@ -157,7 +177,47 @@ class GeminiChat:
         return data["candidates"][0]["content"]["parts"][0]["text"]
 
 
+# 英文界面时附加在每个 system prompt 末尾。提示词本身是中文写的，所以要点名：哪些照旧（JSON 键、
+# 代码要比对的固定取值），哪些改英文（一切给人读的文字）。固定取值显示时由界面层再翻。
+ENGLISH_OUTPUT = """
+
+【OUTPUT LANGUAGE — overrides any language instruction above】
+The user reads English. Write every human-readable string in natural, professional English:
+summaries, explanations, reasons, flags, notes, drafts, headings, bullet points, markdown documents, resumes.
+The instructions above are written in Chinese and contain Chinese example phrases (e.g. 中介代招,
+『简历约 6 年，JD 要 8 年』) — those are illustrations: write their English equivalent, never copy the Chinese.
+Keep EXACTLY as specified (do not translate) only:
+- JSON keys and structure;
+- values that the instructions define as a closed set of allowed options for a field, written like
+  "verdict": "不符|存疑" or 达标/缺/死角 — copy the chosen option character for character;
+- facts: names, companies, titles, numbers, dates, URLs, quoted source text."""
+
+ENGLISH_PROMPT_TAIL = "\n\n(Answer in English, following the OUTPUT LANGUAGE rule in the system prompt.)"
+
+
+class OutputLanguage:
+    """给任意 LLMClient 套上输出语言指令；不改提示词本体，所有 Agent 一处生效。"""
+
+    def __init__(self, inner: LLMClient, suffix: str):
+        self.inner, self.suffix = inner, suffix
+        self.model = getattr(inner, "model", "")
+
+    def generate(self, prompt: str, system: str | None = None, json_mode: bool = False,
+                 effort: str | None = None) -> str:
+        return self.inner.generate(prompt + ENGLISH_PROMPT_TAIL, system=(system or "") + self.suffix,
+                                   json_mode=json_mode, effort=effort)
+
+
+def output_lang(cfg) -> str:
+    return "en" if (cfg.raw.get("ui_lang") if cfg is not None else None) == "en" else "zh"
+
+
 def from_config(cfg, tier: str = "pro") -> LLMClient:
+    client = _from_config(cfg, tier)
+    return OutputLanguage(client, ENGLISH_OUTPUT) if output_lang(cfg) == "en" else client
+
+
+def _from_config(cfg, tier: str = "pro") -> LLMClient:
     """tier 模型分层（§8.4 简化版）：
     - "pro"   质量敏感：复盘、简历定制、公司评估、能力画像、周报、调研
     - "flash" 高频/结构化：抽取、初筛、扫描分类、字段建议、日记草稿
@@ -173,7 +233,7 @@ def from_config(cfg, tier: str = "pro") -> LLMClient:
         model = llm_cfg.get("model_eval") or model
     if provider == "openai":
         default = "gpt-5.6-luna" if tier == "flash" else "gpt-5.6-sol"
-        return OpenAIChat(model or default)
+        return OpenAIChat(model or default, base_url=llm_cfg.get("base_url"))
     if provider == "gemini":
         return GeminiChat(model or "gemini-2.0-flash")
     raise LLMError(f"未知 provider：{provider}（mock 仅限测试内直接构造）")

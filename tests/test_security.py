@@ -77,6 +77,28 @@ def test_foreign_host_header_is_refused(app_client):
     assert client.get("/pipeline", headers={"Host": "localhost:8899"}).status_code == 200
 
 
+def test_allowed_hosts_env_admits_gateway_domain(tmp_path, monkeypatch):
+    """云端版：网关域名经 JOBLANDER_ALLOWED_HOSTS 放行（Host 与写操作 Origin 都认）；
+    名单外的域名照旧拒——放开的是一个名字，不是关掉守卫。"""
+    ws = tmp_path / "ws"
+    (ws / "09-projections").mkdir(parents=True)
+    (ws / "09-projections" / "tracker.json").write_text('{"rows": []}', encoding="utf-8")
+    cfg = Config(raw={"workspace_dir": str(ws), "sentinel": {"rules": []}},
+                 path=tmp_path / "c.yaml")
+    monkeypatch.setattr("joblander.web.app.load_config", lambda: cfg)
+    monkeypatch.setenv("JOBLANDER_ALLOWED_HOSTS", "app.ailayoff.me")
+    from joblander.web.app import create_app
+    client = TestClient(create_app(with_daemon=False), base_url="https://app.ailayoff.me")
+    assert client.get("/pipeline").status_code == 200
+    assert client.get("/pipeline", headers={"Host": "evil.example"}).status_code == 421
+    r = client.post("/api/company/flag", data={"page_id": "x", "on": "1"},
+                    headers={"Origin": "https://app.ailayoff.me"})
+    assert r.status_code != 403
+    r = client.post("/api/company/flag", data={"page_id": "x", "on": "1"},
+                    headers={"Origin": "https://evil.example"})
+    assert r.status_code == 403
+
+
 # ---------- 提案路径夹紧 ----------
 
 def test_reject_refuses_path_outside_workspace(app_client, tmp_path):
@@ -246,3 +268,19 @@ def test_rendered_resume_is_parseable_html():
     p.feed(_render_html(content, {"name": "Alex & Co", "contact": [{"text": "a@b.com"}]}))
     assert "img" not in p.tags and "script" not in p.tags
     assert "a" in p.tags and "strong" in p.tags        # 合法内容没被误伤
+
+
+def test_gateway_token_required_when_configured(tmp_path, monkeypatch):
+    """云端版：同一私网的其他用户 machine 直连 → 没口令，拒；网关带对口令 → 放行。"""
+    ws = tmp_path / "ws"
+    (ws / "09-projections").mkdir(parents=True)
+    (ws / "09-projections" / "tracker.json").write_text('{"rows": []}', encoding="utf-8")
+    cfg = Config(raw={"workspace_dir": str(ws), "sentinel": {"rules": []}},
+                 path=tmp_path / "c.yaml")
+    monkeypatch.setattr("joblander.web.app.load_config", lambda: cfg)
+    monkeypatch.setenv("JOBLANDER_GATEWAY_TOKEN", "s3cret")
+    from joblander.web.app import create_app
+    client = TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1")
+    assert client.get("/pipeline").status_code == 403
+    assert client.get("/pipeline", headers={"X-Joblander-Gateway": "wrong"}).status_code == 403
+    assert client.get("/pipeline", headers={"X-Joblander-Gateway": "s3cret"}).status_code == 200

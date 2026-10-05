@@ -1,3 +1,5 @@
+// 界面文案：英文界面下 base.html 注入 window.I18N（中文原文 → 英文），否则原样
+const T = s => (window.I18N && window.I18N[s]) || s;
 // 小工具：POST 表单 → toast/刷新。所有写操作按钮均经此（人工点击 = 审批动作）。
 async function post(url, data, opts = {}) {
   const body = new FormData();
@@ -10,16 +12,16 @@ async function post(url, data, opts = {}) {
     const out = isJson ? await resp.json() : null;
     if (!resp.ok) throw new Error((out && out.error) || resp.statusText);
     if (out && out.task) {                 // 后台任务：托盘接管，完成才刷新（切页不丢）
-      toast("⏳ " + (out.label || "任务") + " 进行中——右下角看进度");
+      toast("⏳ " + (out.label || T("任务")) + " " + T("进行中——右下角看进度"));
       pollTasks();
       return out;
     }
-    if (!opts.quiet) toast(opts.ok || "完成");
+    if (!opts.quiet) toast(opts.ok || T("完成"));
     if (opts.reload) setTimeout(() => location.reload(), 500);
     if (opts.then) opts.then(out);
     return out;
   } catch (e) {
-    toast("失败：" + e.message);
+    toast(T("失败：") + e.message);
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = btn.dataset.t; }
   }
@@ -135,8 +137,8 @@ async function pollTasks(){
     if (t.status === 'running'){ _seenRunning.add(t.id); hasRunning = true; }
     else if (_seenRunning.has(t.id)){
       _seenRunning.delete(t.id);
-      if (t.status === 'done'){ toast('✓ ' + t.label + ' 完成'); setTimeout(()=>location.reload(), 700); }
-      else toast('✗ ' + t.label + ' 失败：' + (t.error || '').slice(0, 120));
+      if (t.status === 'done'){ toast('✓ ' + t.label + T(' 完成')); setTimeout(()=>location.reload(), 700); }
+      else toast('✗ ' + t.label + T(' 失败：') + (t.error || '').slice(0, 120));
     }
   });
   clearTimeout(_trayTimer);
@@ -160,3 +162,19 @@ function initBackTop(){
   });
 }
 addEventListener('DOMContentLoaded', initBackTop);
+
+// 主题切换：light / dark / auto（跟随系统）。偏好存本机，首帧前由 base.html 头部脚本应用
+function applyTheme(t){
+  const root = document.documentElement;
+  if (t === 'light' || t === 'dark') root.dataset.theme = t; else delete root.dataset.theme;
+  try { t === 'auto' ? localStorage.removeItem('jl_theme') : localStorage.setItem('jl_theme', t); } catch (e) {}
+  document.querySelectorAll('.theme-sw button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+}
+addEventListener('DOMContentLoaded', () => {
+  let cur = 'auto';
+  try { cur = localStorage.getItem('jl_theme') || 'auto'; } catch (e) {}
+  document.querySelectorAll('.theme-sw button').forEach(b => {
+    b.classList.toggle('on', b.dataset.t === cur);
+    b.addEventListener('click', () => applyTheme(b.dataset.t));
+  });
+});

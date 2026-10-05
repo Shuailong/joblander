@@ -414,7 +414,11 @@ def diligence(cfg, llm, company: str, context: str = "", jd_text: str = "",
     return dossier
 
 
-def format_deep_summary(dossier: dict[str, Any]) -> str:
+COVERAGE_EN = {"动因": "why hiring", "面试": "interviews", "技术栈": "tech stack",
+               "薪酬": "pay", "稳定性": "stability"}
+
+
+def format_deep_summary(dossier: dict[str, Any], lang: str = "zh") -> str:
     """尽调结果 → 落时间线的 markdown。展示层三条纪律：
     ①来源只列简介实际引用的（全量存 dossier 供审计）②编号按正文出现顺序
     重排为连续 1..k（正文引用同步重映射）③内部记账（无关材料等）不上屏。
@@ -428,42 +432,54 @@ def format_deep_summary(dossier: dict[str, Any]) -> str:
     md = re.sub(r"\[(\d+)\]",
                 lambda m: f"[{remap[int(m.group(1))]}]" if int(m.group(1)) in remap
                 else m.group(0), md)
-    mark = {"official": " 🏢官网", "trusted": "", "aggregator": " ⚠️聚合站",
-            "fed": " 📎人工喂入", "mcf": " 🏛️MCF挂牌"}
+    from joblander.lang import pick
+    en = lang == "en"
+    mark = ({"official": " 🏢official", "trusted": "", "aggregator": " ⚠️aggregator",
+             "fed": " 📎provided by you", "mcf": " 🏛️MCF listing"} if en else
+            {"official": " 🏢官网", "trusted": "", "aggregator": " ⚠️聚合站",
+             "fed": " 📎人工喂入", "mcf": " 🏛️MCF挂牌"})
     lines = []
     card = [re.sub(r"^[①-⑩\s]+", "", re.sub(r"\s*\[\d+\]", "", str(c))).strip()
             for c in dossier.get("card") or [] if str(c).strip()]   # 剥引用编号与行首序号
     if card:
-        lines += ["**30 秒要点**", ""] + [f"- {c}" for c in card[:5]] + ["", "---", ""]
-    lines += [md, "", f"**来源**（{len(order)} 个）", ""]
+        lines += [pick(lang, "**30 秒要点**", "**30-second summary**"), ""] + [f"- {c}" for c in card[:5]] + ["", "---", ""]
+    lines += [md, "", pick(lang, f"**来源**（{len(order)} 个）", f"**Sources** ({len(order)})"), ""]
     if dossier.get("jd_used") and "[JD]" in md:
-        lines.append("- JD. 岗位 JD（本地档案）")
+        lines.append(pick(lang, "- JD. 岗位 JD（本地档案）", "- JD. Job description (your file)"))
     by_n = {s["n"]: s for s in dossier.get("sources") or []}
     for old in order:
         s = by_n.get(old)
         if not s:
             continue
         title = (s.get("title") or s["url"]).replace("（上轮钉住）", "").strip()
+        if en:                     # 「（搜索摘要）」是喂给综合简介的可信度标记，显示时换成英文
+            title = title.replace("（搜索摘要）", " (search snippet)")
         link = f"[{title}]({s['url']})" if s.get("url") else title
         lines.append(f"{remap[old]}. {link}{mark.get(s.get('tier', ''), '')}")
     gaps = [g for g in (dossier.get("gaps") or [])
             if not re.search(r"材料\s*\[?\d*\]?.{0,8}无关", g)]
     if gaps:
-        lines += ["", "**未查到（下一步）**"] + [f"- {g}" for g in gaps]
+        lines += ["", pick(lang, "**未查到（下一步）**", "**Not found (next steps)**")] + [f"- {g}" for g in gaps]
     failed = (dossier.get("seeded") or {}).get("failed_urls") or []
     if failed:
-        lines += ["", "**喂入链接抓取失败**（登录墙请复制正文贴入重跑）"] + [f"- {u}" for u in failed]
+        lines += ["", pick(lang, "**喂入链接抓取失败**（登录墙请复制正文贴入重跑）",
+                           "**Couldn't fetch these links** (for login-only pages, paste the text and re-run)")] + [f"- {u}" for u in failed]
     trail = dossier.get("trail") or []
     if trail:
-        lines += ["", f"**尽调轨迹**（计划轮 + {len(trail)} 判读轮）"]
+        lines += ["", pick(lang, f"**尽调轨迹**（计划轮 + {len(trail)} 判读轮）",
+                           f"**Research trail** (planning round + {len(trail)} review rounds)")]
         for s in trail:
             cov = s.get("coverage") or {}
-            miss = [k for k, v in cov.items() if v == "缺"]
-            dead = [k for k, v in cov.items() if v == "死角"]
-            head = "；".join(filter(None, [
-                "缺 " + "、".join(miss) if miss else "",
-                "死角 " + "、".join(dead) if dead else ""])) or "五项覆盖"
-            tail = (f" → {len(s['queries'])} 查询 → +{s.get('gained', 0)} 页"
-                    if s.get("queries") else " → 收兵")
-            lines.append(f"- R{s.get('round')}：{head}{tail}")
+            # 五项覆盖的键是提示词里的固定取值（动因/面试/…），显示时按语言换名
+            dim = (lambda k: COVERAGE_EN.get(k, k)) if en else (lambda k: k)
+            miss = [dim(k) for k, v in cov.items() if v == "缺"]
+            dead = [dim(k) for k, v in cov.items() if v == "死角"]
+            head = pick(lang, "；", "; ").join(filter(None, [
+                pick(lang, "缺 ", "missing ") + pick(lang, "、", ", ").join(miss) if miss else "",
+                pick(lang, "死角 ", "blind spots ") + pick(lang, "、", ", ").join(dead) if dead else ""])) \
+                or pick(lang, "五项覆盖", "all five covered")
+            tail = (pick(lang, f" → {len(s['queries'])} 查询 → +{s.get('gained', 0)} 页",
+                         f" → {len(s['queries'])} queries → +{s.get('gained', 0)} pages")
+                    if s.get("queries") else pick(lang, " → 收兵", " → done"))
+            lines.append(f"- R{s.get('round')}{pick(lang, '：', ': ')}{head}{tail}")
     return "\n".join(lines)

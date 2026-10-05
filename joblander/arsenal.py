@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
-INTERNAL_PAT = re.compile(r"使用注意|注意事项|内部规则")
+INTERNAL_PAT = re.compile(r"使用注意|注意事项|内部规则|Usage rules", re.I)
 
 
 def bank_path(cfg) -> Path:

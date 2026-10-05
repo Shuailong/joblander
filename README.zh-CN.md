@@ -8,11 +8,16 @@
 
 所以我一边打仗一边造了这个系统。它跑完了我整场求职。然后 offer 来了，现在它开源了。
 
-**状态：** v0，真实战场跑完。web 作战室 + 下述全部 Agent 落地，326 个测试 + 盲评脚本背书。
+**状态：** 真实战场跑完，现在也以免费、邀请制的**云端内测版运行在 [app.ailayoff.me](https://app.ailayoff.me)**。web 作战室 + 下述全部 Agent 落地，373 个引擎测试 + 24 个网关测试 + 盲评脚本背书。
 
-![指挥中心](docs/images/command-center.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/command-center-zh-dark.webp">
+  <img alt="指挥中心" src="docs/images/command-center-zh-light.webp">
+</picture>
 
-*指挥中心：现在就做什么、什么逾期了、什么在等你批、每个数据源新鲜到几点。（全部截图使用虚构演示数据。）*
+*指挥中心：现在就做什么、什么逾期了、什么在等你批。（全部截图使用虚构演示数据，跟随你的深浅色设置。）*
+
+> 🌐 **中英双语。** 界面有中文和英文（设置里切换），AI 生成的内容——评估、尽调、brief、简历、报告——跟随界面语言。
 
 ---
 
@@ -33,6 +38,12 @@
 **能省则省。** 排期约束检查、格式校验、口径卡拼装、简历渲染全部零 LLM。LLM 用来做判断，其余都是代码的事。
 
 ---
+
+## 两种用法
+
+**云端内测版——什么都不用装。** 在 **[app.ailayoff.me](https://app.ailayoff.me)** 用 Google 登录（目前邀请制，找把你拉进来的朋友）。上传一份旧简历，它会建好弹药库、猜出你想找的岗位并先搜一轮。每个用户有自己独立的机器和加密磁盘（新加坡），送 AI 试用额度，可以在设置页导出或彻底删除全部数据。详见[隐私说明](https://app.ailayoff.me/_gw/privacy)。
+
+**自部署——你的机器、你的 key。** 见下面的快速开始。不配集成就全部留在本地。
 
 ## 快速开始
 
@@ -65,7 +76,7 @@ joblander web                  # 作战室 http://127.0.0.1:8899
 | `sentinel.rules` | 强烈建议 | 你的红线——不填守卫就是空转 |
 | `policy` | Analyst 需要 | `quote_tc_sgd` + `fx` 是硬依赖；折价档与参考换算线可选 |
 | `search` | 尽调需要 | Tavily（免费档够用）、Brave 或 Google CSE |
-| `notion` | 可选 | 拿 Notion 当战线看板 + 移动端入口；不配则全本地 |
+| `notion` | 可选（旧功能） | 后台把战线同步到 Notion；网页界面已不再展示 |
 | `gmail` | 可选 | 邮件自动 sourcing（只读 scope） |
 
 ### CLI
@@ -87,37 +98,61 @@ joblander daemon                  # 后台作业（日历同步、提醒、扫�
 
 *以下截图全部使用虚构演示数据——公司、人名、数字都是编的。*
 
-![新机会](docs/images/sourcing.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/sourcing-zh-dark.webp">
+  <img alt="新机会" src="docs/images/sourcing-zh-light.webp">
+</picture>
 
 **新机会。** 夜里的自动扫描（招聘站 + 邮箱）落到这里，对照弹药库打 1–5 分、按公司聚合，并逐条点明缺口——「Terraform 生产经验 — 履历只有使用未主导」。你不批，什么都进不了战线。
 
-![作战室看板](docs/images/war-room-board.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/war-room-board-zh-dark.webp">
+  <img alt="作战室看板" src="docs/images/war-room-board-zh-light.webp">
+</picture>
 
 **作战室**——所有战线一块板，拖卡换阶段，点格原位改。琥珀色是系统算出来的待办（未批提案、到期 follow-up），红色是你自己标的「球在我这」。
 
-![公司档案页](docs/images/company-page.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/company-page-zh-dark.webp">
+  <img alt="公司档案页" src="docs/images/company-page-zh-light.webp">
+</picture>
 
 每家公司一个**档案页**：阶段流转、下一步唯一动作、JD 生命周期，以及一张**按这份 JD 提炼轴**的匹配雷达——不是套通用模板。琥珀色那块是待批提案，写进任何地方之前你都可以先改字段。
 
-![时间线](docs/images/timeline.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/timeline-zh-dark.webp">
+  <img alt="时间线" src="docs/images/timeline-zh-light.webp">
+</picture>
 
 **时间线**是公司级事实源，每条都标 `AI` 或 `人工` 署名。系统声称的和你亲眼见的永远分得清——这一点在你即将把某句话复述进面试时特别重要。
 
-![参谋部](docs/images/playbook.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/playbook-zh-dark.webp">
+  <img alt="参谋部" src="docs/images/playbook-zh-light.webp">
+</picture>
 
 **参谋部。** 能力画像把「市场要什么」和「你的复盘真能证明什么」画在一张雷达上，每周按你正在追的 JD 重估——某个维度没有复盘证据就该打低分，缺口随即变成一条具体任务。下面是模式与问题库：每道被问过的题、当前最佳答法、最近三战是 hit 还是 miss。连续 2 次 miss 自动升级为 `needs_work`。
 
-![弹药库](docs/images/arsenal.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/arsenal-zh-dark.webp">
+  <img alt="弹药库" src="docs/images/arsenal-zh-light.webp">
+</picture>
 
 **弹药库**是所有进入简历、面试、brief 的数字的唯一取材地，只追加、按段编辑。最后一段是规则段——内部代号怎么转译、哪些数字不许四舍五入放大——它照常参与生成，但不在这个列表里展示。
 
-![Offer 对比](docs/images/offers.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/offers-zh-dark.webp">
+  <img alt="Offer 对比" src="docs/images/offers-zh-light.webp">
+</picture>
 
 **Offer 对比**——报价按面值，比较按折价。这里面值总包**最高**的那个，在未上市期权按 0 折价之后掉到了最后一名。这正是重点：折价档是你私有 config 里的参数，所以排序可解释、可回归测试。
 
-![练兵场](docs/images/drill.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/drill-zh-dark.webp">
+  <img alt="练兵场" src="docs/images/drill-zh-light.webp">
+</picture>
 
-**练兵场**——随机一道题，本地跑用例，全程零 LLM。手不能生也是求职的一部分，所以它跟别的东西放在同一个地方。
+**练兵场**（可选，在设置 → 功能里开启）——随机一道题，本地跑用例，全程零 LLM。手不能生也是求职的一部分，所以它跟别的东西放在同一个地方。
 
 ---
 
@@ -137,6 +172,15 @@ MCF 挂牌    │     简历队  ─┼──► 提案 ──► 你 ──► 
 **Event Log 是事实源**（ADR-1）；其余一切都是可以从它重建的投影。启用 Notion 时，它是最重要的**人用**投影与编辑入口——不是事实源。Agent 无状态：输入上下文包，输出制品或提案；功能靠 workflow 组合，不按功能拆 agent（ADR-9）。
 
 完整架构、16 条 ADR（含备选方案与已接受代价）、状态机、Notion 双向和解设计：**[`docs/DESIGN.md`](docs/DESIGN.md)**。
+
+### 云端版
+
+云端内测版在 [`cloud/gateway`](cloud/gateway)——一个薄薄的 FastAPI 网关，后面是原样不改的引擎实例：
+
+- **Google 登录 + 邀请名单**，会话 cookie 用 HMAC 签名；Google 只给邮箱地址。
+- **每个用户一台常开的 Fly.io 机器 + 一块加密卷**，只能经私网访问。每台机器只接受网关带专属口令的请求——用户之间互相够不着。
+- **计量代理**挡在 LLM 与搜索 API 前面：用户机器上只有计量子 key，没有真实 API key；每次调用按实际 token 计价、扣每人额度，额度用完引擎干净地停下。
+- **隐私内建：** 开通前先同意隐私说明；一键导出（workspace zip + 账户记录）；彻底删除（机器、卷和网关里的全部记录）；访问日志不记路径与内容。
 
 ### Agent Teams
 
@@ -181,7 +225,8 @@ python -m evals.resume_eval <公司>     # 招聘方盲评 + 教练分拣
 python -m evals.summary_eval <公司>    # 尽调简介：硬检查 + 五维盲评
 python -m evals.brief_eval <公司>      # 面前 brief 对照用户金标
 python -m evals.user_agent             # LLM 扮用户走一遍运行中的 web UI
-pytest                                 # 326 个测试
+pytest                                 # 373 个引擎测试
+(cd cloud/gateway && pytest)           # 24 个网关测试
 ```
 
 每个 eval 都是**零 LLM 硬检查**（确定性，免费抓格式与纪律违规）配**LLM 盲评**（判断）。金标集本身是私有的——它们来自真实求职数据。
@@ -191,7 +236,7 @@ pytest                                 # 326 个测试
 ## 这个项目不是什么
 
 - **不是自动投递机器人。** 它不替你投递、不替你发消息、不替你发帖。一切对外动作都是草稿，由你来发。这是刻意的设计约束（ADR-10），不是没做完的功能。
-- **不是多租户服务。** 单用户、本地优先、你自己的 API key。没有托管版，没有账号体系。
+- **不是共享数据库的 SaaS。** 自部署的引擎是单用户、本地优先。云端内测版没有改变这个模型——每个用户在一个薄网关后面拥有自己隔离的引擎实例（见[云端版](#云端版)）。
 - **不是框架。** 编排是刻意手写的（ADR-6）——这个规模上，框架会把最有练习价值的部分黑盒掉。
 - **还没为你调过。** policy 数字是新加坡/SGD 形状的，Sentinel 规则在你自己写之前是空的。时区用 `JOBLANDER_TZ` 设成你自己的——默认 UTC+8。
 
@@ -199,7 +244,7 @@ pytest                                 # 326 个测试
 
 ## 支持
 
-这个项目是免费的，也会一直免费——Apache-2.0，没有托管版，不卖任何东西。如果它帮上了忙，最好的感谢是把它转给下一个正在找工作的人。
+这个项目是免费的，也会一直免费——Apache-2.0，不卖任何东西。云端内测版对受邀用户免费，每人有 AI 额度上限以控制成本。如果它帮上了忙，最好的感谢是把它转给下一个正在找工作的人。
 
 如果你更想直接支持一下：[**❤️ GitHub Sponsors**](https://github.com/sponsors/Shuailong) · [**☕ Buy me a coffee**](https://buymeacoffee.com/lucasliang)
 
