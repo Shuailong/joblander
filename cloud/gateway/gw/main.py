@@ -47,6 +47,7 @@ def build():
         feedback_to=env("FEEDBACK_TO", env("ADMIN_EMAILS", "").split(",")[0].strip()),
         resend_api_key=env("RESEND_API_KEY", ""),
         mail_from=env("MAIL_FROM", ""),
+        low_balance_usd=float(env("LOW_BALANCE_USD", "0.5")),
     )
     if settings.mail_from:                   # 有了已验证域名，给管理员的通知也用它发
         settings.feedback_from = settings.mail_from
@@ -65,7 +66,7 @@ def build():
     meter = create_meter_app(store, env("OPENAI_API_KEY"), prices,
                              tavily_key=env("TAVILY_API_KEY", ""),
                              search_price_usd=float(env("SEARCH_PRICE_USD", "0.01")),
-                             low_balance_usd=float(env("LOW_BALANCE_USD", "0.5")),
+                             low_balance_usd=settings.low_balance_usd,
                              on_low=on_low if settings.mail_from else None)
     return web, meter
 

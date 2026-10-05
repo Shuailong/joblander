@@ -540,3 +540,50 @@ def test_user_mail_templates_escape_and_fall_back_to_both_languages():
     subj, body = render_user("low_balance", None, email="<x>@y.com", balance="0.42")
     assert subj == "你的 AI 额度快用完了 / Your AI credit is running low"
     assert "$0.42" in body and "<x>" not in body
+
+
+# ---------- 管理后台 ----------
+
+def test_admin_portal_is_admin_only_and_shows_numbers(store):
+    store.create("boss@x.com", 2.0)
+    store.create("a@x.com", 2.0)
+    store.charge("a@x.com", "m-pro", 1000, 200, 1.7)
+    store.record_blocked("<script>@x.com", "en")
+    store.add_feedback("a@x.com", "按钮点不动", "/pipeline", "zh", "ua")
+    anon = _client(store, _fly([]), _upstream([]))
+    assert anon.get("/_gw/admin").status_code == 404
+    assert _client(store, _fly([]), _upstream([]), "a@x.com").get("/_gw/admin").status_code == 404
+    c = _client(store, _fly([]), _upstream([]), "boss@x.com")
+    r = c.get("/_gw/admin")
+    assert r.status_code == 200
+    for s in ("a@x.com", "$1.70", "m-pro", "按钮点不动", "被拦的登录", "&lt;script&gt;@x.com"):
+        assert s in r.text, s
+    assert "<script>@x.com" not in r.text                                     # 名单里的邮箱要转义
+    assert 'class="n low">$0.30' in r.text                                    # 低于提醒线标红
+    assert "gateway_token" not in r.text and store.get("a@x.com").gateway_token not in r.text
+    assert "/_gw/admin" in c.get("/_gw/account").text
+    assert "/_gw/admin" not in _client(store, _fly([]), _upstream([]), "a@x.com").get("/_gw/account").text
+
+
+def test_admin_actions_invite_dismiss_grant(store):
+    store.create("boss@x.com", 2.0)
+    store.create("a@x.com", 2.0)
+    store.record_blocked("w@x.com", "zh")
+    store.record_blocked("spam@x.com", "zh")
+    c = _client(store, _fly([]), _upstream([]), "boss@x.com")
+    r = c.post("/_gw/admin/invite", data={"email": "W@x.com"}, follow_redirects=False)
+    assert r.status_code == 303 and store.is_invited("w@x.com")
+    assert [w["email"] for w in store.waitlist()] == ["spam@x.com"]
+    c.post("/_gw/admin/dismiss", data={"email": "spam@x.com"})
+    assert store.waitlist() == []
+    r = c.post("/_gw/admin/grant", data={"email": "a@x.com", "usd": "5"}, follow_redirects=True)
+    assert store.get("a@x.com").credit_usd == 7.0 and "已给 a@x.com 加 $5" in r.text
+    c.post("/_gw/admin/grant", data={"email": "a@x.com", "usd": "500"})                # 超上限不加
+    c.post("/_gw/admin/grant", data={"email": "nobody@x.com", "usd": "5"})
+    assert store.get("a@x.com").credit_usd == 7.0 and store.get("nobody@x.com") is None
+    # 非管理员与跨站请求一律拒
+    u = _client(store, _fly([]), _upstream([]), "a@x.com")
+    assert u.post("/_gw/admin/grant", data={"email": "a@x.com", "usd": "5"}).status_code == 404
+    assert c.post("/_gw/admin/grant", data={"email": "a@x.com", "usd": "5"},
+                  headers={"Origin": "https://evil.test"}).status_code == 404
+    assert store.get("a@x.com").credit_usd == 7.0
