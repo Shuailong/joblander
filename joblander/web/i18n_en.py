@@ -867,6 +867,8 @@ EN: dict[str, str] = {'还没搜过——点「立即搜」': 'Not searched yet 
  '请输入 RESET 确认': 'Type RESET to confirm',
  '读不出简历文字——可能是扫描版，换一份能选中文字的版本': "Couldn't read any text — it may be a scanned file; use a version with "
                                 'selectable text',
+ '读不出简历文字——文件可能损坏或不是文字版，换一份 PDF 或 Word 再传': "Couldn't read any text — the file may be damaged or not "
+                                         'text-based; try a PDF or Word file',
  '调研档案（': 'Research file (',
  '谈判提醒：重折价期权的公司谈判重心压现金；多 offer 对齐时间窗制造竞争；对外口径以 brief 的口径卡为准。': 'Negotiation tips: with heavily discounted '
                                                                'equity, push on cash; align offer timelines '
