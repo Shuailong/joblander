@@ -604,3 +604,13 @@ def test_admin_actions_invite_dismiss_grant(store):
     assert c.post("/_gw/admin/grant", data={"email": "a@x.com", "usd": "5"},
                   headers={"Origin": "https://evil.test"}).status_code == 404
     assert store.get("a@x.com").credit_usd == 7.0
+
+
+def test_home_screen_icons_are_public(store):
+    """存到手机主屏幕：未登录也能拿到 PNG 图标与 manifest（iOS 不认 SVG，抓图标不一定带 cookie）。"""
+    c = _client(store, _fly([]), _upstream([]))
+    assert 'rel="apple-touch-icon" href="/_gw/static/icon-180.png"' in c.get("/").text
+    r = c.get("/_gw/static/icon-180.png")
+    assert r.status_code == 200 and r.content[:8] == b"\x89PNG\r\n\x1a\n"
+    m = c.get("/_gw/static/manifest.webmanifest")
+    assert m.status_code == 200 and m.json()["icons"][0]["src"] == "/_gw/static/icon-192.png"

@@ -99,6 +99,24 @@ svg.i{flex:none;vertical-align:-3px}
 .acct-menu a svg{opacity:.7}
 .acct-menu hr{border:0;border-top:1px solid var(--line);margin:5px 4px}
 .acct-menu .lowtag{margin-left:auto;font-size:11px;font-weight:600;color:var(--amber)}
+.more-btn{display:none}
+.acct-menu .m-only{display:none}
+.acct-menu a.on{color:var(--accent-ink);font-weight:600}
+.acct-menu .mrow{align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;color:var(--ink-2)}
+.acct-menu .theme-sw{margin:0;background:var(--surface-2);border-color:var(--line);width:132px}
+.acct-menu .theme-sw button{color:var(--ink-3);height:30px}
+.acct-menu .theme-sw button:hover{color:var(--ink)}
+.acct-menu .theme-sw button.on{background:var(--surface);color:var(--accent);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.scrim{position:fixed;inset:0;z-index:55;background:rgba(8,16,14,.42)}
+/* 底部标签栏（只在窄屏出现） */
+.tabbar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:40;grid-template-columns:repeat(5,1fr);
+  padding:6px 4px env(safe-area-inset-bottom);background:var(--brand-bg);border-top:1px solid var(--brand-line)}
+.tabbar a{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 2px 6px;color:var(--brand-ink-2);
+  font-size:10.5px;font-weight:500;min-width:0}
+.tabbar a span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tabbar a.on{color:var(--mint)}
+.tabbar .cnt{position:absolute;top:0;left:calc(50% + 6px);font:600 10px/16px var(--mono);font-style:normal;min-width:16px;padding:0 4px;
+  border-radius:8px;background:var(--mint);color:#0B3B34;text-align:center}
 .meter{height:6px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:8px;max-width:320px}
 .meter i{display:block;height:100%;background:var(--accent);border-radius:99px}
 .meter.low i{background:var(--amber)}
@@ -234,20 +252,29 @@ label{font-size:12.5px;font-weight:500;color:var(--ink-2);display:block;margin:1
 @media(max-width:900px){
   .grid3,.grid2,.facts{grid-template-columns:1fr}
   .frame{grid-template-columns:1fr;grid-template-rows:auto 1fr}
-  .side{position:sticky;top:0;z-index:20;height:auto;flex-direction:row;align-items:center;gap:8px;padding:8px 12px;overflow-x:auto;border-right:none;border-bottom:1px solid var(--brand-line)}
-  .brand{padding:0 6px 0 0}.brand b{display:none}
-  .navgrp,.side .foot .hide-sm{display:none}
-  .nav{flex-direction:row;gap:2px}
-  .nav a{padding:6px 10px;white-space:nowrap}
-  .side .foot{margin:0 0 0 auto;border-top:none;padding:0;flex-direction:row;align-items:center;white-space:nowrap}
-  .theme-sw{margin:0}.theme-sw button{width:26px;flex:none}
+  /* 窄屏：侧栏只剩顶栏（logo + 右上角菜单按钮），主导航挪到底部标签栏，其余收进菜单 */
+  .side{position:sticky;top:0;z-index:20;height:auto;flex-direction:row;align-items:center;gap:8px;
+    padding:calc(8px + env(safe-area-inset-top)) 12px 8px;overflow:visible;border-right:none;border-bottom:1px solid var(--brand-line)}
+  .brand{padding:0}
+  .side .nav,.navgrp,.side .foot .theme-sw,.side .foot .fl{display:none}
+  .side .foot{margin:0 0 0 auto;border-top:none;padding:0;flex-direction:row;align-items:center}
+  .acct-btn{width:36px;height:36px;margin:0;padding:0;justify-content:center;border-radius:50%}
+  .acct-btn .em,.acct-btn .chev{display:none}.acct-btn .av{width:30px;height:30px;font-size:13px}
+  .acct-btn .lowdot{left:25px;top:2px}
+  .more-btn{display:flex;color:var(--brand-ink)}
+  .tabbar{display:grid}
+  .acct-menu{left:10px!important;right:10px;bottom:calc(72px + env(safe-area-inset-bottom))!important;width:auto!important;
+    max-height:calc(100vh - 140px);overflow-y:auto;border-radius:16px;padding:8px;font-size:15px}
+  .acct-menu a{padding:11px 12px}
+  .acct-menu .m-only{display:flex}
   .prop-lead{flex-wrap:wrap;gap:8px 10px}
   .prop-lead .body{flex:1 1 calc(100% - 90px);min-width:0}
   .prop-lead>.btn{order:3}.prop-lead>.btn.pri{margin-left:auto}
-  .main h2[id]{scroll-margin-top:130px}
-  .acct-btn{width:auto;margin:0;padding:4px}.acct-btn .em,.acct-btn .chev{display:none}.acct-btn .lowdot{left:22px;top:3px}
-  .main{padding:0 16px 80px}
-  .topbar{top:52px;flex-wrap:wrap}
+  .main h2[id]{scroll-margin-top:calc(80px + env(safe-area-inset-top))}
+  .main{padding:0 16px calc(96px + env(safe-area-inset-bottom))}
+  .topbar{top:calc(53px + env(safe-area-inset-top));flex-wrap:wrap}
+  #backtop{bottom:calc(76px + env(safe-area-inset-bottom))}
+  #tasktray{bottom:calc(132px + env(safe-area-inset-bottom));right:12px;left:12px;max-width:none}
 }
 /* ---- 看板（UI v2） ---- */
 .kb{display:flex;gap:10px;overflow-x:auto;padding-bottom:12px;align-items:flex-start}

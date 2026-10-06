@@ -1,6 +1,9 @@
 """界面英文表：键是中文原文（模板里 _() 包住的那句），值是英文。缺键回落中文。"""
 
-EN: dict[str, str] = {'上次没搜成': 'Last search failed',
+EN: dict[str, str] = {'主导航': 'Main navigation',
+ '更多': 'More',
+ '外观': 'Appearance',
+ '上次没搜成': 'Last search failed',
  '——下次「立即搜」或今晚自动重试。': ' — it will retry on the next “Search now” or tonight.',
  '{n} 个待决定': '{n} to review',
  '（{c}）去作战室看它的进展；不再重复提岗位。': '({c}) — see its progress in the War Room; no duplicate roles are proposed.',

@@ -48,6 +48,11 @@ THEME_TOGGLE_JS = ("function jlTheme(){var r=document.documentElement,dark=r.dat
                    "matchMedia('(prefers-color-scheme: dark)').matches;var t=dark?'light':'dark';r.dataset.theme=t;"
                    "try{localStorage.setItem('jl_theme',t)}catch(e){}}")
 LOGO = "/_gw/static/logo.svg"
+# 存到手机主屏幕：PNG 图标（iOS 不认 SVG）+ manifest；和应用页（base.html）用同一套
+APP_HEAD = ('<link rel="apple-touch-icon" href="/_gw/static/icon-180.png">'
+            '<link rel="manifest" href="/_gw/static/manifest.webmanifest">'
+            '<meta name="theme-color" content="#0F2724"><meta name="apple-mobile-web-app-title" content="joblander">'
+            '<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">')
 
 # 线性图标（Lucide 风格，ISC 许可），继承 currentColor
 _PATHS = {
@@ -90,7 +95,7 @@ def icon(name: str, size: int = 16, width: float = 1.9) -> str:
 def _doc(title: str, body: str, extra_css: str = "", head: str = "", lang: str = "zh") -> HTMLResponse:
     return HTMLResponse(f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">{THEME_HEAD}{head}<title>{title}</title>
-<link rel="icon" href="{LOGO}" type="image/svg+xml">
+<link rel="icon" href="{LOGO}" type="image/svg+xml">{APP_HEAD}
 <style>{BASE_CSS}{extra_css}</style></head><body>{body}</body></html>""")
 
 

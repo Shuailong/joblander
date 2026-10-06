@@ -2,7 +2,15 @@
 <html lang="{{ lang }}">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+{# 存到手机主屏幕：PNG 图标 + manifest。云端从网关公开静态目录取（iOS 抓图标不一定带登录 cookie） #}
+{% set ib = '/_gw/static' if cloud else '/static' %}
+<link rel="apple-touch-icon" href="{{ ib }}/icon-180.png">
+<link rel="manifest" href="{{ ib }}/manifest.webmanifest">
+<meta name="theme-color" content="#0F2724">
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="joblander">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>{% block title %}joblander{% endblock %}</title>
 <script>
 /* 主题先于首帧生效（否则深色用户每次进页先闪一下白）：light | dark | 缺省 = 跟随系统 */
@@ -43,20 +51,41 @@ try { var t = localStorage.getItem('jl_theme'); if (t === 'light' || t === 'dark
       <button type="button" class="acct-btn" id="acct-btn" aria-haspopup="menu" aria-expanded="false" onclick="acctMenu(event)">
         <span class="av" id="acct-av">{{ icon("user", 14) }}</span><span class="em" id="acct-em">{{ _('账户') }}</span>
         <span class="lowdot" id="acct-low" hidden></span>{{ icon("updown", 14, cls="chev") }}</button>
-      <div class="acct-menu" id="acct-menu" role="menu" hidden>
-        <div class="hd" id="acct-hd"></div>
-        <a role="menuitem" href="/settings#account">{{ icon("user", 15) }}{{ _('账户与额度') }}<span class="lowtag" id="acct-lowtag" hidden>{{ _('额度偏低') }}</span></a>
-        <a role="menuitem" href="/_gw/privacy" target="_blank">{{ icon("shield", 15) }}{{ _('隐私说明') }}</a>
-        <a role="menuitem" href="/_gw/admin" id="acct-admin" hidden>{{ icon("gauge", 15) }}{{ _('管理后台') }}</a>
-        <hr>
-        <a role="menuitem" href="/auth/logout">{{ icon("logout", 15) }}{{ _('退出登录') }}</a>
-      </div>
-      {% else %}<div class="fl hide-sm"><span class="dot"></span>{{ _('引擎在线（本机）') }}</div>{% endif %}
+      {% else %}<div class="fl engine-st"><span class="dot"></span>{{ _('引擎在线（本机）') }}</div>
+      <button type="button" class="acct-btn more-btn" id="acct-btn" aria-haspopup="menu" aria-expanded="false" aria-label="{{ _('更多') }}" onclick="acctMenu(event)">{{ icon("more", 20) }}</button>{% endif %}
     </div>
   </aside>
   <main class="main{{ ' wide' if nav == 'pipe' }}">
     {% block main %}{% endblock %}
   </main>
+</div>
+
+{# 窄屏：底部标签栏放主导航；其余（设置、练兵场、反馈、外观、账户）收进右上角菜单，菜单从底部弹出 #}
+<nav class="tabbar" aria-label="{{ _('主导航') }}">
+  <a href="/" class="{{ 'on' if nav=='dash' }}">{{ icon("dashboard", 21) }}<span>{{ 'Home' if lang == 'en' else '指挥中心' }}</span>{% if pending_n %}<i class="cnt">{{ pending_n }}</i>{% endif %}</a>
+  <a href="/sourcing" class="{{ 'on' if nav=='src' }}">{{ icon("radar", 21) }}<span>{{ _('新机会') }}</span>{% if leads_n %}<i class="cnt">{{ leads_n }}</i>{% endif %}</a>
+  <a href="/pipeline" class="{{ 'on' if nav=='pipe' }}">{{ icon("kanban", 21) }}<span>{{ _('作战室') }}</span></a>
+  <a href="/playbook" class="{{ 'on' if nav=='pb' }}">{{ icon("book", 21) }}<span>{{ _('参谋部') }}</span></a>
+  <a href="/arsenal" class="{{ 'on' if nav=='ars' }}">{{ icon("layers", 21) }}<span>{{ _('弹药库') }}</span></a>
+</nav>
+<div class="scrim" id="acct-scrim" hidden></div>
+<div class="acct-menu" id="acct-menu" role="menu" hidden>
+  {% if cloud %}<div class="hd" id="acct-hd"></div>
+  <a role="menuitem" href="/settings#account">{{ icon("user", 16) }}{{ _('账户与额度') }}<span class="lowtag" id="acct-lowtag" hidden>{{ _('额度偏低') }}</span></a>{% endif %}
+  <a role="menuitem" class="m-only{{ ' on' if nav=='set' }}" href="/settings">{{ icon("settings", 16) }}{{ _('设置') }}</a>
+  {% if features.drill %}<a role="menuitem" class="m-only{{ ' on' if nav=='drill' }}" href="/drill">{{ icon("swords", 16) }}{{ _('练兵场') }}</a>{% endif %}
+  {% if cloud %}<a role="menuitem" class="m-only" href="#" onclick="dlg('dlg-feedback');return false">{{ icon("message", 16) }}{{ _('反馈') }}</a>
+  {% else %}<a role="menuitem" class="m-only" href="https://github.com/Shuailong/joblander/issues" target="_blank">{{ icon("message", 16) }}{{ _('反馈') }}</a>{% endif %}
+  {% if cloud %}<a role="menuitem" href="/_gw/privacy" target="_blank">{{ icon("shield", 16) }}{{ _('隐私说明') }}</a>
+  <a role="menuitem" href="/_gw/admin" id="acct-admin" hidden>{{ icon("gauge", 16) }}{{ _('管理后台') }}</a>{% endif %}
+  <div class="mrow m-only"><span>{{ _('外观') }}</span>
+    <div class="theme-sw" role="group" aria-label="{{ _('主题') }}">
+      <button type="button" data-t="light" aria-label="{{ _('浅色') }}">{{ icon("sun", 15) }}</button>
+      <button type="button" data-t="auto" aria-label="{{ _('跟随系统') }}">{{ icon("monitor", 15) }}</button>
+      <button type="button" data-t="dark" aria-label="{{ _('深色') }}">{{ icon("moon", 15) }}</button>
+    </div></div>
+  {% if cloud %}<hr>
+  <a role="menuitem" href="/auth/logout">{{ icon("logout", 16) }}{{ _('退出登录') }}</a>{% endif %}
 </div>
 
 <div id="tasktray" aria-live="polite"></div>
@@ -126,27 +155,33 @@ jlMe.then(me => {
     document.querySelector('.main').prepend(bar);
   }
 });
-function acctMenu(ev){
-  ev.stopPropagation();
-  const btn = document.getElementById('acct-btn'), m = document.getElementById('acct-menu');
-  const open = m.hidden;
-  m.hidden = !open; btn.setAttribute('aria-expanded', open);
-  if (!open) return;
-  // 侧栏会滚动（窄屏时还是横向滚动条），菜单用 fixed 定位才不被裁掉：宽屏向上弹，窄屏向下弹
-  const r = btn.getBoundingClientRect();
-  m.style.left = m.style.right = m.style.top = m.style.bottom = '';
-  if (innerWidth > 900) { m.style.left = r.left + 'px'; m.style.bottom = (innerHeight - r.top + 6) + 'px'; m.style.width = Math.max(r.width, 260) + 'px'; }
-  else { m.style.right = (innerWidth - r.right) + 'px'; m.style.top = (r.bottom + 6) + 'px'; m.style.width = '240px'; }
-}
-document.addEventListener('click', e => {
-  const m = document.getElementById('acct-menu');
-  // 点菜单外，或点了菜单项（含同页锚点）都收起
-  if (m && !m.hidden && (!m.contains(e.target) || e.target.closest('a'))) { m.hidden = true; document.getElementById('acct-btn').setAttribute('aria-expanded', false); }
-});
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { const m = document.getElementById('acct-menu'); if (m) m.hidden = true; } });
 </script>
 {% endif %}
 <script>
+function acctMenu(ev){
+  ev.stopPropagation();
+  const btn = document.getElementById('acct-btn'), m = document.getElementById('acct-menu');
+  setMenu(m.hidden);
+  if (m.hidden) return;
+  // 宽屏：贴着侧栏底部的按钮向上弹（fixed 定位，不被会滚动的侧栏裁掉）；窄屏：CSS 把它变成底部弹出的面板
+  m.style.left = m.style.bottom = m.style.width = '';
+  if (innerWidth > 900) {
+    const r = btn.getBoundingClientRect();
+    m.style.left = r.left + 'px'; m.style.bottom = (innerHeight - r.top + 6) + 'px'; m.style.width = Math.max(r.width, 260) + 'px';
+  }
+}
+function setMenu(open){
+  const m = document.getElementById('acct-menu'), btn = document.getElementById('acct-btn');
+  if (!m || !btn) return;
+  m.hidden = !open; btn.setAttribute('aria-expanded', open);
+  document.getElementById('acct-scrim').hidden = !open || innerWidth > 900;
+}
+document.addEventListener('click', e => {
+  const m = document.getElementById('acct-menu');
+  // 点菜单外，或点了菜单项（含同页锚点）都收起；点菜单里的外观切换不收
+  if (m && !m.hidden && (!m.contains(e.target) || e.target.closest('a'))) setMenu(false);
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') setMenu(false); });
 function dlg(id){ document.getElementById(id).showModal(); }
 function gv(id){ return document.getElementById(id).value; }
 </script>

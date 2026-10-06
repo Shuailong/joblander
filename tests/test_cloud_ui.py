@@ -42,4 +42,24 @@ def test_local_has_no_account_ui(tmp_path, monkeypatch):
     c = _client(tmp_path, monkeypatch, cloud=False)
     for path in ("/sourcing", "/settings"):
         html = c.get(path).text
-        assert "acct-menu" not in html and "/_gw/" not in html and 'id="account"' not in html
+        assert "/_gw/" not in html and 'id="account"' not in html and "/auth/logout" not in html
+        assert 'class="acct-btn more-btn"' in html                       # 窄屏「更多」：设置、反馈、外观
+
+
+def test_mobile_tabbar_and_menu(tmp_path, monkeypatch):
+    """窄屏：主导航在底部标签栏；设置、练兵场、反馈、外观收进菜单（m-only），菜单挂在 body 下不被顶栏裁掉。"""
+    html = _client(tmp_path, monkeypatch, cloud=True).get("/sourcing").text
+    tab = html.split('class="tabbar"')[1].split("</nav>")[0]
+    for href in ('"/"', '"/sourcing"', '"/pipeline"', '"/playbook"', '"/arsenal"'):
+        assert f"href={href}" in tab
+    assert 'href="/sourcing" class="on"' in tab
+    side = html.split('<aside class="side">')[1].split("</aside>")[0]
+    assert 'id="acct-menu"' not in side                                 # 不在会滚动的侧栏里
+    menu = html.split('id="acct-menu"')[1].split("<dialog")[0]
+    assert 'class="m-only" href="/settings"' in menu and 'data-t="dark"' in menu
+    assert '/_gw/static/icon-180.png' in html and '/_gw/static/manifest.webmanifest' in html
+
+
+def test_local_icons_from_engine_static(tmp_path, monkeypatch):
+    html = _client(tmp_path, monkeypatch, cloud=False).get("/").text
+    assert 'rel="apple-touch-icon" href="/static/icon-180.png"' in html
