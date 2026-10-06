@@ -131,6 +131,9 @@ def render_bank(sections: list[dict], lang: str = "zh") -> str:
 def bootstrap_from_resume(cfg, llm, resume_text: str) -> dict[str, Any]:
     """旧简历文本 → 弹药库 + profile.json。已有弹药库不覆盖（那是用户核对过的心血）。"""
     text = (resume_text or "").strip()
+    from joblander.company import looks_garbled
+    if looks_garbled(text):
+        raise ValueError("读不出简历文字——文件可能损坏或不是文字版，换一份 PDF 或 Word 再传")
     if len(text) < 200:
         raise ValueError("简历文字太少——可能是扫描版 PDF，换一份能选中文字的版本")
     if not _BOOTSTRAP_LOCK.acquire(blocking=False):
