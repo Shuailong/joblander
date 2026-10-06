@@ -86,4 +86,4 @@ def test_linkedin_off_or_blocked_never_raises(tmp_path, monkeypatch):
         raise OSError("429 Too Many Requests")
     monkeypatch.setattr(S, "linkedin_search", blocked)
     monkeypatch.setattr(S, "source_mcf", lambda cfg, llm, days=2: [])
-    assert S.source_all(cfg, MockLLM([])) == {"mcf": 0, "linkedin": 0}
+    assert S.source_all(cfg, MockLLM([])) == {"mcf": 0, "linkedin": 0, "targets": 0}

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -590,6 +591,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
     def sourcing_page(request: Request):
         from joblander.scout import _name_tokens
         from joblander.sourcing import load_prefs, search_links
+        from joblander.targets import load_status
         leads = _split_pending(list_pending(cfg))["lead"]
         glist: list[dict] = []
         for p in leads:
@@ -639,6 +641,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         return tpl.TemplateResponse(request, "sourcing.html", ctx(
             "src", good=good, low=low, total=len(leads), prefs=prefs,
             links=search_links(prefs), profile_files=profile_files, bank=bank,
+            target_status=load_status(cfg),
             digest_chars=len(_profile_digest(cfg)),
             li_last=li_last,
             gmail_last=(state.get("last.gmail_scan") or "")[:16].replace("T", " "),
@@ -1109,10 +1112,22 @@ def create_app(with_daemon: bool = True) -> FastAPI:
     def api_sourcing_scan(days: int = Form(2)):
         """立即搜：MCF + LinkedIn（开着的话）同一条查重/评分/入池管线。"""
         from joblander.sourcing import load_prefs, source_all
-        if not load_prefs(cfg).get("keywords"):
+        prefs = load_prefs(cfg)
+        if not prefs.get("keywords") and not prefs.get("targets"):
             return JSONResponse({"error": _t("先在下方「搜索偏好」填目标岗位关键词")}, status_code=400)
         tid = start_task("sourcing", "搜新机会",
                          lambda: source_all(cfg, _llm("flash"), days=days))
+        return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
+
+    @app.post("/api/sourcing/targets/scan")
+    def api_targets_scan():
+        """只搜目标公司：每家拉全部在招 → 挑几条评分入池。"""
+        from joblander.sourcing import load_prefs
+        from joblander.targets import source_targets
+        if not load_prefs(cfg).get("targets"):
+            return JSONResponse({"error": _t("先在「目标公司」里填至少一家")}, status_code=400)
+        tid = start_task("targets", "搜目标公司",
+                         lambda: {"proposals": len(source_targets(cfg, _llm("flash")))})
         return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
 
     @app.post("/api/mcf/scan")
@@ -1541,6 +1556,9 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             if k in form:
                 patch[k] = [s.strip() for s in form[k].replace("，", ",").split(",")
                             if s.strip()]
+        if "targets" in form:                    # 一行一家（名字或招聘页链接），也认逗号
+            items = re.split(r"[\n,，]", form["targets"])
+            patch["targets"] = list(dict.fromkeys(t.strip() for t in items if t.strip()))[:30]
         patch["guessed"] = False                 # 他亲手存过一次，就不再是「猜的」
         save_prefs(cfg, patch)
         return {"ok": True}

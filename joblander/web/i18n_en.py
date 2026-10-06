@@ -1,6 +1,27 @@
 """界面英文表：键是中文原文（模板里 _() 包住的那句），值是英文。缺键回落中文。"""
 
-EN: dict[str, str] = {' High 机会': ' high-priority leads',
+EN: dict[str, str] = {'目标公司': 'Target companies',
+ '↻ 搜目标公司': '↻ Search targets',
+ '搜目标公司': 'Search target companies',
+ '先在「目标公司」里填至少一家': 'Add at least one company under “Target companies” first',
+ '有心仪的公司？列在这里。系统拉它在招的全部岗位，按你的地点和意向挑出合适的几条，评分后放进上面的待入池；之后每晚只看新挂出来的。批准入池后，到公司页按这个岗位定制简历。':
+     'Have companies you want to join? List them here. joblander pulls every open role, picks the few '
+     'that fit your locations and goals, scores them and puts them in the queue above; after that it '
+     'only checks newly posted roles each night. Once approved, tailor your resume to the role on the company page.',
+ '认不出它的招聘系统（Workday 等），改用公司名搜 LinkedIn / MCF——可能漏岗。贴它的招聘页链接（Greenhouse / Lever / Ashby）可以修正。':
+     'Couldn’t identify its hiring system (e.g. Workday), so we search LinkedIn / MCF by company name — '
+     'some roles may be missed. Paste its careers-page link (Greenhouse / Lever / Ashby) to fix this.',
+ '部分覆盖': 'Partial coverage',
+ '上次出错：': 'Last run failed: ',
+ '已在库（{c}）——去公司页看，不再重复提岗位': 'Already tracked ({c}) — see its company page; no new roles proposed',
+ '在招 {a} · 你的地点 {b} · 本轮新出现 {c} · 累计挑出 {d}': '{a} open · {b} in your locations · {c} new this run · {d} picked so far',
+ '还没搜过——点「搜目标公司」': 'Not searched yet — click “Search targets”',
+ '还没有目标公司。点「编辑」，一行一家：写公司名（如 Stripe），或贴它的招聘页链接。':
+     'No target companies yet. Click “Edit” and add one per line: a company name (e.g. Stripe) or its careers-page link.',
+ '一行一家：公司名，或招聘页链接（boards.greenhouse.io / jobs.lever.co / jobs.ashbyhq.com 最准）':
+     'One per line: company name or careers-page link (boards.greenhouse.io / jobs.lever.co / jobs.ashbyhq.com are most accurate)',
+ '已保存——点「搜目标公司」马上看': 'Saved — click “Search targets” to look now',
+ ' High 机会': ' high-priority leads',
  ' 和 LinkedIn': ' and LinkedIn',
  ' 失败：': ' failed: ',
  ' 完成': ' done',

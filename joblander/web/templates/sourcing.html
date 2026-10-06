@@ -11,7 +11,7 @@
   <span class="pill {{ 'teal' if f and f>=4 else 'amber' if f==3 else 'gray' }}" style="margin-top:2px">{{ f or '—' }}/5</span>
   <div class="body">
     <b style="font-weight:600">{{ p.lead.position or '—' }}</b>
-    <span class="pill gray">{{ p.source_hint }}</span>
+    {% if p.lead.target %}<span class="pill teal">{{ _('目标公司') }}</span>{% else %}<span class="pill gray">{{ p.source_hint }}</span>{% endif %}
     <span class="note" style="margin:0" title="{{ _('进入待入池的时间') }}">{{ _('入库') }} {{ p._created or '—' }}</span>
     {% if p.dedupe.verdict == 'group_conflict' %}<span class="pill amber">{{ _('集团冲突：') }}{{ p.dedupe.active_members|join('、') }}</span>{% endif %}
     {% if p.lead.urls %}<a class="note" href="{{ p.lead.urls[0] }}" target="_blank">JD ↗</a>{% endif %}
@@ -88,7 +88,38 @@
 <div class="card">{{ _('暂无待决策线索 ✅ 每晚自动搜，有新的会出现在这里。等不及就点上面的「立即搜」。') }}</div>
 {% endif %}
 
-<div class="grid2" style="margin-top:26px">
+<div class="card" id="targets" style="margin-top:26px">
+  <h2 style="margin-top:0;display:flex;align-items:center">{{ _('目标公司') }}<span class="sp"></span>
+    {% if prefs.get('targets') %}<button class="btn pri" onclick="post('/api/sourcing/targets/scan',{},{btn:this})" style="text-transform:none;letter-spacing:0">{{ _('↻ 搜目标公司') }}</button>{% endif %}
+    <button class="btn" id="tg-edit-btn" onclick="togTargets(true)" style="text-transform:none;letter-spacing:0;margin-left:6px">{{ _('✎ 编辑') }}</button></h2>
+  <div class="note" style="margin:0 0 8px">{{ _('有心仪的公司？列在这里。系统拉它在招的全部岗位，按你的地点和意向挑出合适的几条，评分后放进上面的待入池；之后每晚只看新挂出来的。批准入池后，到公司页按这个岗位定制简历。') }}</div>
+  <div id="tg-view">
+    {% for t in prefs.get('targets') or [] %}{% set st = target_status.get(t) or {} %}
+    <div class="row"><span class="when">{{ (st.ts or '')[5:16].replace('T',' ') or '—' }}</span><div class="body">
+      <b>{{ st.name or t }}</b>
+      {% if st.ats %}<a class="note" href="{{ st.board_url }}" target="_blank">{{ st.ats|capitalize }} ↗</a>
+      {% elif st.ts and not st.error %}<span class="pill amber" title="{{ _('认不出它的招聘系统（Workday 等），改用公司名搜 LinkedIn / MCF——可能漏岗。贴它的招聘页链接（Greenhouse / Lever / Ashby）可以修正。') }}">{{ _('部分覆盖') }}</span>{% endif %}
+      <div class="meta">
+      {% if st.error %}<span style="color:var(--red)">{{ _('上次出错：') }}{{ st.error }}</span>
+      {% elif st.tracked %}{{ _('已在库（{c}）——去公司页看，不再重复提岗位', c=st.tracked) }}
+      {% elif st.ts %}{{ _('在招 {a} · 你的地点 {b} · 本轮新出现 {c} · 累计挑出 {d}', a=st.total or 0, b=st.local or 0, c=st.new or 0, d=st.proposed_total or st.proposed or 0) }}
+      {% else %}{{ _('还没搜过——点「搜目标公司」') }}{% endif %}
+      </div></div></div>
+    {% else %}
+    <div class="note">{{ _('还没有目标公司。点「编辑」，一行一家：写公司名（如 Stripe），或贴它的招聘页链接。') }}</div>
+    {% endfor %}
+  </div>
+  <form id="tg-form" style="display:none">
+    <label>{{ _('一行一家：公司名，或招聘页链接（boards.greenhouse.io / jobs.lever.co / jobs.ashbyhq.com 最准）') }}</label>
+    <textarea name="targets" style="min-height:110px" placeholder="Stripe&#10;https://jobs.lever.co/example">{{ (prefs.get('targets') or []) | join('\n') }}</textarea>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn pri" type="button" onclick="saveTargets(this)">{{ _('保存') }}</button>
+      <button class="btn" type="button" onclick="togTargets(false)">{{ _('取消') }}</button>
+    </div>
+  </form>
+</div>
+
+<div class="grid2" style="margin-top:12px">
   <div class="card">
     <h2 style="margin-top:0;display:flex;align-items:center">{{ _('搜索偏好（喂给评分器和搜索源）') }}<span class="sp"></span>
       <button class="btn" id="prefs-edit-btn" onclick="togPrefs(true)" style="text-transform:none;letter-spacing:0">{{ _('✎ 编辑') }}</button></h2>
@@ -192,6 +223,16 @@ function togPrefs(edit){
   document.getElementById('prefs-view').style.display = edit ? 'none' : '';
   document.getElementById('prefs').style.display = edit ? '' : 'none';
   document.getElementById('prefs-edit-btn').style.display = edit ? 'none' : '';
+}
+function togTargets(edit){
+  document.getElementById('tg-view').style.display = edit ? 'none' : '';
+  document.getElementById('tg-form').style.display = edit ? '' : 'none';
+  document.getElementById('tg-edit-btn').style.display = edit ? 'none' : '';
+}
+async function saveTargets(btn){
+  const targets = new FormData(document.getElementById('tg-form')).get('targets');
+  const out = await post('/api/sourcing/prefs', {targets}, {btn, ok:{{ _('已保存——点「搜目标公司」马上看')|jsq }}});
+  if (out) setTimeout(()=>location.reload(), 500);
 }
 async function savePrefs(btn){
   const data = {};

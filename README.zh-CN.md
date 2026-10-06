@@ -103,7 +103,7 @@ joblander daemon                  # 后台作业（日历同步、提醒、扫�
   <img alt="新机会" src="docs/images/sourcing-zh-light.webp">
 </picture>
 
-**新机会。** 夜里的自动扫描（招聘站 + 邮箱）落到这里，对照弹药库打 1–5 分、按公司聚合，并逐条点明缺口——「Terraform 生产经验 — 履历只有使用未主导」。你不批，什么都进不了战线。
+**新机会。** 夜里的自动扫描（招聘站 + 邮箱）落到这里，对照弹药库打 1–5 分、按公司聚合，并逐条点明缺口——「Terraform 生产经验 — 履历只有使用未主导」。你不批，什么都进不了战线。有心仪的公司？列成「目标公司」：直接从它的招聘页拉在招岗位（Greenhouse / Lever / Ashby，其余走 LinkedIn / MCF），挑出适合你的几条，之后每晚盯新挂的。
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/war-room-board-zh-dark.webp">

@@ -466,7 +466,12 @@ def source_all(cfg, llm, days: int = 2, *, first_run: bool = False) -> dict[str,
     out = {}
     kw = ({"mcf": {"limit_per_kw": 10, "max_keywords": 3}, "linkedin": {"max_keywords": 3}}
           if first_run else {"mcf": {}, "linkedin": {}})
-    for name, fn in (("mcf", source_mcf), ("linkedin", source_linkedin)):
+    from joblander.targets import source_targets
+    chans = [("mcf", source_mcf), ("linkedin", source_linkedin)]
+    if not first_run:                              # 向导首轮时还没人填目标公司
+        chans.append(("targets", source_targets))
+        kw["targets"] = {}
+    for name, fn in chans:
         try:
             out[name] = len(fn(cfg, llm, days=days, **kw[name]))
         except Exception as e:                       # noqa: BLE001
