@@ -42,7 +42,7 @@
   <button class="btn pri" onclick="dlg('dlg-intake')">{{ _('＋ 贴入') }}</button>
 </div>
 <h1>{{ _('新机会') }}</h1>
-<div class="sub">{{ _('每晚 02:30 按你的偏好搜 {src} 的新岗位 → 去重 → 对照弹药库打匹配分、初筛硬性要求 → 在这里等你决定入不入池。', src='MyCareersFuture' ~ (_(' 和 LinkedIn') if features.linkedin else '')) }}</div>
+<div class="sub">{{ _('每晚 02:30 按你的偏好搜 {src} 的新岗位 → 去重 → 对照弹药库打匹配分、初筛硬性要求 → 在这里等你决定入不入池。', src='MyCareersFuture' ~ (_(' 和 LinkedIn') if features.linkedin else '') ~ (_('，以及目标公司的招聘页') if prefs.get('targets') else '')) }}</div>
 
 {% if prefs.get('guessed') %}
 <div class="card tint-amber" style="margin-bottom:16px">
@@ -51,10 +51,10 @@
   <button class="btn" onclick="togPrefs(true);document.getElementById('prefs').scrollIntoView({behavior:'smooth'})">{{ _('✎ 核对偏好') }}</button>
 </div>
 {% endif %}
-{% if not prefs.get('keywords') %}
+{% if not prefs.get('keywords') and not prefs.get('targets') %}
 <div class="card tint-accent" style="margin-bottom:16px">
   <b>{{ _('先告诉系统你在找什么') }}</b>
-  <p style="margin:6px 0 10px;color:var(--ink-2)">{{ _('在下方「搜索偏好」填目标岗位关键词（比如 <span class="num">Product Manager, Data Engineer</span>）和地点，然后点「立即搜」。')|safe }}</p>
+  <p style="margin:6px 0 10px;color:var(--ink-2)">{{ _('在下方「搜索偏好」填目标岗位关键词（比如 <span class="num">Product Manager, Data Engineer</span>）和地点，或者直接列出想去的公司，然后点「立即搜」。')|safe }}</p>
   <button class="btn pri" onclick="togPrefs(true);document.getElementById('prefs').scrollIntoView({behavior:'smooth'})">{{ _('✎ 填搜索偏好') }}</button>
 </div>
 {% endif %}
@@ -62,6 +62,7 @@
 <div class="scanbar">
   <span>{{ _('MCF 上次') }} <b class="num">{% if mcf_last %}{{ mcf_last.ts[:16].replace('T',' ') }}{% else %}—{% endif %}</b></span>
   {% if features.linkedin %}<span>{{ _('LinkedIn 上次') }} <b class="num">{% if li_last %}{{ li_last.ts[:16].replace('T',' ') }}{% else %}—{% endif %}</b></span>{% endif %}
+  {% if prefs.get('targets') %}<span>{{ _('目标公司上次') }} <b class="num">{% if tg_last %}{{ tg_last.ts[:16].replace('T',' ') }}{% else %}—{% endif %}</b></span>{% endif %}
   <button class="btn pri" onclick="post('/api/sourcing/scan',{days:2},{btn:this})">{{ _('↻ 立即搜') }}</button>
   {% if conn.gmail %}<span style="color:var(--line-strong)">｜</span>
   <span>{{ _('Gmail 上次') }} <b class="num">{{ gmail_last or '—' }}</b></span>
@@ -88,38 +89,7 @@
 <div class="card">{{ _('暂无待决策线索 ✅ 每晚自动搜，有新的会出现在这里。等不及就点上面的「立即搜」。') }}</div>
 {% endif %}
 
-<div class="card" id="targets" style="margin-top:26px">
-  <h2 style="margin-top:0;display:flex;align-items:center">{{ _('目标公司') }}<span class="sp"></span>
-    {% if prefs.get('targets') %}<button class="btn pri" onclick="post('/api/sourcing/targets/scan',{},{btn:this})" style="text-transform:none;letter-spacing:0">{{ _('↻ 搜目标公司') }}</button>{% endif %}
-    <button class="btn" id="tg-edit-btn" onclick="togTargets(true)" style="text-transform:none;letter-spacing:0;margin-left:6px">{{ _('✎ 编辑') }}</button></h2>
-  <div class="note" style="margin:0 0 8px">{{ _('有心仪的公司？列在这里。系统拉它在招的全部岗位，按你的地点和意向挑出合适的几条，评分后放进上面的待入池；之后每晚只看新挂出来的。批准入池后，到公司页按这个岗位定制简历。') }}</div>
-  <div id="tg-view">
-    {% for t in prefs.get('targets') or [] %}{% set st = target_status.get(t) or {} %}
-    <div class="row"><span class="when">{{ (st.ts or '')[5:16].replace('T',' ') or '—' }}</span><div class="body">
-      <b>{{ st.name or t }}</b>
-      {% if st.ats %}<a class="note" href="{{ st.board_url }}" target="_blank">{{ st.ats|capitalize }} ↗</a>
-      {% elif st.ts and not st.error %}<span class="pill amber" title="{{ _('认不出它的招聘系统（Workday 等），改用公司名搜 LinkedIn / MCF——可能漏岗。贴它的招聘页链接（Greenhouse / Lever / Ashby）可以修正。') }}">{{ _('部分覆盖') }}</span>{% endif %}
-      <div class="meta">
-      {% if st.error %}<span style="color:var(--red)">{{ _('上次出错：') }}{{ st.error }}</span>
-      {% elif st.tracked %}{{ _('已在库（{c}）——去公司页看，不再重复提岗位', c=st.tracked) }}
-      {% elif st.ts %}{{ _('在招 {a} · 你的地点 {b} · 本轮新出现 {c} · 累计挑出 {d}', a=st.total or 0, b=st.local or 0, c=st.new or 0, d=st.proposed_total or st.proposed or 0) }}
-      {% else %}{{ _('还没搜过——点「搜目标公司」') }}{% endif %}
-      </div></div></div>
-    {% else %}
-    <div class="note">{{ _('还没有目标公司。点「编辑」，一行一家：写公司名（如 Stripe），或贴它的招聘页链接。') }}</div>
-    {% endfor %}
-  </div>
-  <form id="tg-form" style="display:none">
-    <label>{{ _('一行一家：公司名，或招聘页链接（boards.greenhouse.io / jobs.lever.co / jobs.ashbyhq.com 最准）') }}</label>
-    <textarea name="targets" style="min-height:110px" placeholder="Stripe&#10;https://jobs.lever.co/example">{{ (prefs.get('targets') or []) | join('\n') }}</textarea>
-    <div style="margin-top:12px;display:flex;gap:8px">
-      <button class="btn pri" type="button" onclick="saveTargets(this)">{{ _('保存') }}</button>
-      <button class="btn" type="button" onclick="togTargets(false)">{{ _('取消') }}</button>
-    </div>
-  </form>
-</div>
-
-<div class="grid2" style="margin-top:12px">
+<div class="grid2" style="margin-top:26px">
   <div class="card">
     <h2 style="margin-top:0;display:flex;align-items:center">{{ _('搜索偏好（喂给评分器和搜索源）') }}<span class="sp"></span>
       <button class="btn" id="prefs-edit-btn" onclick="togPrefs(true)" style="text-transform:none;letter-spacing:0">{{ _('✎ 编辑') }}</button></h2>
@@ -127,6 +97,14 @@
     <div id="prefs-view">
       <div class="kvline"><span>{{ _('求职意向') }}</span><b style="text-align:right">{{ prefs.get('intent') or '—' }}</b></div>
       <div class="kvline"><span>{{ _('关键词') }}</span><span style="text-align:right">{% for k in prefs.get('keywords') or [] %}<span class="pill teal">{{ k }}</span> {% else %}—{% endfor %}</span></div>
+      <div class="kvline" style="align-items:flex-start"><span>{{ _('目标公司') }}</span><span style="text-align:right;max-width:75%">
+        {% for t in prefs.get('targets') or [] %}{% set st = target_status.get(t) or {} %}
+        {% set tip = (_('上次出错：') ~ st.error) if st.error else (_('已在库（{c}）——去公司页看，不再重复提岗位', c=st.tracked) if st.tracked else (_('在招 {a} · 你的地点 {b} · 本轮新出现 {c} · 累计挑出 {d}', a=st.total or 0, b=st.local or 0, c=st.new or 0, d=st.proposed_total or st.proposed or 0) if st.ts else _('还没搜过——点「立即搜」'))) %}
+        {% if st.board_url %}<a class="pill teal" href="{{ st.board_url }}" target="_blank" title="{{ tip }}">{{ st.name or t }} · {{ st.local or 0 }}</a>
+        {% else %}<span class="pill {{ 'red' if st.error else 'amber' if st.ts and not st.tracked else 'gray' }}" title="{{ tip }}{% if st.ts and not st.error and not st.tracked %} ｜ {{ _('认不出它的招聘系统（Workday 等），改用公司名搜 LinkedIn / MCF——可能漏岗。贴它的招聘页链接（Greenhouse / Lever / Ashby）可以修正。') }}{% endif %}">{{ st.name or t }}{% if st.ts and not st.error and not st.tracked %} · {{ _('部分覆盖') }}{% endif %}</span>{% endif %}
+        {% else %}—{% endfor %}
+        {% if prefs.get('targets') %}<div class="note" style="margin:4px 0 0">{{ _('数字是你所在地点的在招岗数；悬停看详情') }}</div>{% endif %}
+      </span></div>
       <div class="kvline"><span>{{ _('地点') }}</span><span>{% for l in prefs.get('locations') or [] %}<span class="pill blue">{{ l }}</span> {% else %}—{% endfor %}</span></div>
       <div class="kvline"><span>{{ _('排除词') }}</span><span>{% for e in prefs.get('exclude') or [] %}<span class="pill red">{{ e }}</span> {% else %}—{% endfor %}</span></div>
       <div class="kvline" style="align-items:flex-start"><span>{{ _('补充偏好') }}</span><span style="text-align:right;font-size:12.5px;max-width:75%">{{ prefs.get('notes') or '—' }}</span></div>
@@ -139,6 +117,8 @@
       <input type="text" name="intent" value="{{ prefs.get('intent','') }}">
       <label>{{ _('目标岗位关键词（逗号分隔，MCF / LinkedIn 按这个搜）') }}</label>
       <input type="text" name="keywords" value="{{ (prefs.get('keywords') or []) | join(', ') }}">
+      <label>{{ _('目标公司（一行一家：公司名，或招聘页链接——系统拉它全部在招岗位，挑出适合你的；只想看这几家时关键词可留空）') }}</label>
+      <textarea name="targets" style="min-height:80px" placeholder="Stripe&#10;https://jobs.lever.co/example">{{ (prefs.get('targets') or []) | join('\n') }}</textarea>
       <label>{{ _('地点（逗号分隔）') }}</label>
       <input type="text" name="locations" value="{{ (prefs.get('locations') or []) | join(', ') }}">
       <label>{{ _('排除词（命中直接丢弃，不进待入池）') }}</label>
@@ -168,6 +148,8 @@
         {% for l in links if 'LinkedIn' in l.label %}<a class="btn" href="{{ l.url }}" target="_blank" style="font-size:12px">{{ l.label }} ↗</a>{% endfor %}
       </div></div></div>
     {% endif %}
+    <div class="row"><span class="when">{{ _('自动') }}</span><div class="body"><b>{{ _('目标公司招聘页') }}</b>
+      <div class="meta">{{ _('Greenhouse / Lever / Ashby 直接拉全部在招，其余按公司名搜；先按地点和标题挑几条再评分，每晚只看新挂的') }}{% if tg_last %} ｜ {{ _('上次抓 {a} 提 {b}', a=tg_last.payload.fetched, b=tg_last.payload.proposed) }}{% endif %}</div></div></div>
     {% if conn.gmail %}
     <div class="row"><span class="when">{{ _('自动') }}</span><div class="body"><b>Gmail</b>{{ _('（含 LinkedIn Job Alert 邮件）') }}
       <div class="meta">{{ _('每 30 分钟自动一轮，分类闸过滤非机会') }}</div></div></div>
@@ -223,16 +205,6 @@ function togPrefs(edit){
   document.getElementById('prefs-view').style.display = edit ? 'none' : '';
   document.getElementById('prefs').style.display = edit ? '' : 'none';
   document.getElementById('prefs-edit-btn').style.display = edit ? 'none' : '';
-}
-function togTargets(edit){
-  document.getElementById('tg-view').style.display = edit ? 'none' : '';
-  document.getElementById('tg-form').style.display = edit ? '' : 'none';
-  document.getElementById('tg-edit-btn').style.display = edit ? 'none' : '';
-}
-async function saveTargets(btn){
-  const targets = new FormData(document.getElementById('tg-form')).get('targets');
-  const out = await post('/api/sourcing/prefs', {targets}, {btn, ok:{{ _('已保存——点「搜目标公司」马上看')|jsq }}});
-  if (out) setTimeout(()=>location.reload(), 500);
 }
 async function savePrefs(btn){
   const data = {};

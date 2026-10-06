@@ -134,6 +134,7 @@ def test_guessed_slug_of_another_company_is_rejected_then_falls_back(cfg, monkey
     assert len(outs) == 1 and llm.listings == ["0|AI Engineer|Singapore"]   # 公司名对不上的被滤掉
     prop = json.loads(outs[0].read_text())
     assert prop["lead"]["target"] and "LLM evals" in prop["lead"]["jd_excerpt"]
+    assert prop["lead"]["company"] == "Kite"                  # 不是 MCF 上的法人全名
     st = targets.load_status(cfg)["Kite"]
     assert st["ats"] == "" and st["total"] == 1
 
@@ -175,8 +176,7 @@ def test_web_save_targets_and_render(tmp_path, monkeypatch):
     wizard.skip(c)
     from joblander.web.app import create_app
     client = TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1")
-    r = client.post("/api/sourcing/targets/scan")
-    assert r.status_code == 400
+    assert client.post("/api/sourcing/scan").status_code == 400       # 关键词、目标公司都没填
     r = client.post("/api/sourcing/prefs", data={"targets": "Stripe\n\nhttps://jobs.lever.co/kite，Stripe"})
     assert r.json()["ok"]
     assert sourcing.load_prefs(c)["targets"] == ["Stripe", "https://jobs.lever.co/kite"]
@@ -185,11 +185,15 @@ def test_web_save_targets_and_render(tmp_path, monkeypatch):
         "board_url": "https://job-boards.greenhouse.io/stripe",
         "total": 721, "local": 12, "new": 12, "picked": 3, "proposed": 3}})
     html = client.get("/sourcing").text
-    assert "在招 721 · 你的地点 12 · 本轮新出现 12 · 累计挑出 3" in html
-    assert "还没搜过" in html                                  # 第二家还没跑
+    assert "/api/sourcing/targets/scan" not in html            # 没有单独的入口：并进搜索偏好 + 立即搜
+    assert 'title="在招 721 · 你的地点 12 · 本轮新出现 12 · 累计挑出 3">Stripe · 12</a>' in html
+    assert 'title="还没搜过——点「立即搜」">https://jobs.lever.co/kite</span>' in html
     assert "Stripe\nhttps://jobs.lever.co/kite</textarea>" in html
+    assert "先告诉系统你在找什么" not in html                  # 只填目标公司也算配置过
     en = client.get("/sourcing", headers={"Accept-Language": "en-US,en"}).text
     assert "721 open · 12 in your locations" in en
+    monkeypatch.setattr("joblander.sourcing.source_all", lambda *a, **k: {})
+    assert client.post("/api/sourcing/scan").json()["ok"]      # 只有目标公司也能「立即搜」
 
 
 def test_status_keeps_running_total(cfg, monkeypatch):

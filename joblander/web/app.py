@@ -624,6 +624,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                 state = {}
         mcf_last = _log().last("sourcing.mcf_run")   # 倒序早停，不再读整份日志
         li_last = _log().last("sourcing.linkedin_run")
+        tg_last = _log().last("sourcing.targets_run")
         bankp = cfg.workspace_dir / "03-materials" / "achievement-bank.md"
         bank = {"exists": bankp.exists(),
                 "kb": round(bankp.stat().st_size / 1024) if bankp.exists() else 0,
@@ -643,7 +644,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             links=search_links(prefs), profile_files=profile_files, bank=bank,
             target_status=load_status(cfg),
             digest_chars=len(_profile_digest(cfg)),
-            li_last=li_last,
+            li_last=li_last, tg_last=tg_last,
             gmail_last=(state.get("last.gmail_scan") or "")[:16].replace("T", " "),
             mcf_last=mcf_last))
 
@@ -1114,20 +1115,9 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         from joblander.sourcing import load_prefs, source_all
         prefs = load_prefs(cfg)
         if not prefs.get("keywords") and not prefs.get("targets"):
-            return JSONResponse({"error": _t("先在下方「搜索偏好」填目标岗位关键词")}, status_code=400)
+            return JSONResponse({"error": _t("先在下方「搜索偏好」填目标岗位关键词或目标公司")}, status_code=400)
         tid = start_task("sourcing", "搜新机会",
                          lambda: source_all(cfg, _llm("flash"), days=days))
-        return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
-
-    @app.post("/api/sourcing/targets/scan")
-    def api_targets_scan():
-        """只搜目标公司：每家拉全部在招 → 挑几条评分入池。"""
-        from joblander.sourcing import load_prefs
-        from joblander.targets import source_targets
-        if not load_prefs(cfg).get("targets"):
-            return JSONResponse({"error": _t("先在「目标公司」里填至少一家")}, status_code=400)
-        tid = start_task("targets", "搜目标公司",
-                         lambda: {"proposals": len(source_targets(cfg, _llm("flash")))})
         return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
 
     @app.post("/api/mcf/scan")

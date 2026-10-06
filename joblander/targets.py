@@ -254,7 +254,7 @@ _TEXT = {"zh": {"board": "官网招聘页", "fallback": "按公司名搜到", "n
 
 def to_lead(job: dict[str, Any], company: str, via: str, lang: str = "zh") -> dict[str, Any]:
     tx = _TEXT["en" if lang == "en" else "zh"]
-    return {"category": "job_lead", "company": job.get("company") or company,
+    return {"category": "job_lead", "company": company,
             "position": job["title"], "location": job.get("location") or "",
             "comp_mentions": [], "urls": [job["url"]] if job.get("url") else [],
             "highlight": f"{tx[via]} {job.get('posted') or ''}".strip(),
@@ -333,6 +333,7 @@ def source_targets(cfg, llm, days: int = 2, max_picks: int = MAX_PICKS,
             before = len(run.outs)
             for j in picks:
                 lead = _fill_jd(cfg, j, to_lead(j, name, via, run.lang), run.lang)
+                lead["company"] = name             # 统一用他写的名字（不是 SHOPEE IP SINGAPORE PTE LTD），建档也干净
                 run.propose(lead, verdict, name, j["uid"].replace(":", "-"))
             st["proposed"] = len(run.outs) - before
             st["proposed_total"] = (status.get(entry) or {}).get("proposed_total", 0) + st["proposed"]
