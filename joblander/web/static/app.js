@@ -162,6 +162,14 @@ function initBackTop(){
   });
 }
 addEventListener('DOMContentLoaded', initBackTop);
+// 窄屏没有浮动回顶按钮：点底部标签栏里「当前页」那一格回到顶部（手机应用的习惯）
+addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.tabbar a.on').forEach(a => a.addEventListener('click', e => {
+    if (location.pathname !== a.getAttribute('href')) return;
+    e.preventDefault();
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }));
+});
 
 // 主题切换：light / dark / auto（跟随系统）。偏好存本机，首帧前由 base.html 头部脚本应用
 function applyTheme(t){

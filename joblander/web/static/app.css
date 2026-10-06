@@ -273,7 +273,25 @@ label{font-size:12.5px;font-weight:500;color:var(--ink-2);display:block;margin:1
   .main h2[id]{scroll-margin-top:calc(80px + env(safe-area-inset-top))}
   .main{padding:0 16px calc(96px + env(safe-area-inset-bottom))}
   .topbar{top:calc(53px + env(safe-area-inset-top));flex-wrap:wrap}
-  #backtop{bottom:calc(76px + env(safe-area-inset-bottom))}
+  #backtop{display:none!important}   /* 窄屏不要浮动按钮挡标签栏：点当前标签回顶部（app.js） */
+  .composer{flex-wrap:wrap}.composer textarea{flex:1 1 100%;min-width:0}.composer .btn{margin-left:auto}
+  /* 作战室：筛选在自己那行横滑，不撑宽整页；看板一列一屏、按列吸附；表格变卡片 */
+  #chips{overflow-x:auto;margin-right:-16px;padding-right:16px;scrollbar-width:none}
+  #chips::-webkit-scrollbar{display:none}
+  #chips .btn{flex:none;white-space:nowrap}
+  #kb.kb{scroll-snap-type:x mandatory;margin:0 -16px;padding:0 16px 12px;scroll-padding:0 16px}
+  #kb .kcol{min-width:84vw;width:84vw;scroll-snap-align:start}
+  #tbl{padding:2px 12px!important}
+  #ptable,#ptable tbody{display:block}
+  #ptable tr:first-child{display:none}
+  #ptable tr{display:grid;grid-template-columns:auto auto 1fr;gap:6px 8px;align-items:center;padding:12px 2px;border-bottom:1px solid var(--line)}
+  #ptable tr:last-child{border-bottom:0}
+  #ptable td{display:block;border:0;padding:0;min-width:0}
+  #ptable td.rowlink{grid-column:1/-1}
+  #ptable td[data-field="Status"]{order:1}
+  #ptable td[data-field="Priority"]{order:2}
+  #ptable td[data-field="Follow-up Reminder"]{order:3;justify-self:end;font-size:12px;color:var(--ink-3)}
+  #ptable td[data-field="Next Steps"]{order:4;grid-column:1/-1;color:var(--ink-2)}
   #tasktray{bottom:calc(132px + env(safe-area-inset-bottom));right:12px;left:12px;max-width:none}
 }
 /* ---- 看板（UI v2） ---- */
