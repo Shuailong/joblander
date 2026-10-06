@@ -1,6 +1,24 @@
 """界面英文表：键是中文原文（模板里 _() 包住的那句），值是英文。缺键回落中文。"""
 
-EN: dict[str, str] = {'管理后台': 'Admin',
+EN: dict[str, str] = {'上次没搜成': 'Last search failed',
+ '——下次「立即搜」或今晚自动重试。': ' — it will retry on the next “Search now” or tonight.',
+ '{n} 个待决定': '{n} to review',
+ '（{c}）去作战室看它的进展；不再重复提岗位。': '({c}) — see its progress in the War Room; no duplicate roles are proposed.',
+ '招聘页': 'Careers page',
+ '点上面的「立即搜」，或等今晚自动搜。': 'Click “Search now” above, or wait for tonight’s automatic search.',
+ '已在你的战线里': 'Already in your pipeline',
+ '你的地点在招 {b} 个都看过了，没有对口的。每晚继续盯，新挂出来的合适岗位会第一时间出现在这里。':
+     'All {b} open roles in your locations were checked and none fit. We keep watching nightly — a new fitting role will show up here first.',
+ '在招 {a} · 你的地点 {b} · 累计挑出 {d}': '{a} open · {b} in your locations · {d} picked so far',
+ '还没搜过': 'Not searched yet',
+ '暂时没有适合你的岗位': 'No fitting roles right now',
+ '上次': 'last',
+ '它在招 {a} 个，但不在你偏好的地点。想放宽就去下方改「地点」。':
+     'It has {a} open roles, none in your preferred locations. Widen “Locations” below if you’re open to more.',
+ '{a} 家 · {b} 个岗位待你决定': '{a} companies · {b} roles to review',
+ '其他新机会（{n} 岗 · 按公司聚合，已在库公司不出现在这里）': 'Other leads ({n} roles · grouped by company; companies already in your pipeline are hidden)',
+ '你的地点没有在招岗位': 'No open roles in your locations',
+ '管理后台': 'Admin',
  'AI 额度已用完——生成类功能暂停。<a href="/settings#account">查看额度</a>，或找邀请你的朋友加额度。':
      'AI credit used up — generation is paused. <a href="/settings#account">See credit</a>, or ask the friend who invited you for more.',
  '评分、定制简历、brief 等 AI 生成按实际用量扣；用完找邀请你的朋友加。':

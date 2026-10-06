@@ -203,3 +203,39 @@ def test_status_keeps_running_total(cfg, monkeypatch):
     targets.source_targets(cfg, LLM())                          # 第二轮没新岗
     st = targets.load_status(cfg)["Stripe"]
     assert st["proposed"] == 0 and st["proposed_total"] == 1
+
+
+def test_sourcing_page_target_section_first_with_clear_empty_states(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    ws = tmp_path / "ws"
+    (ws / "09-projections").mkdir(parents=True)
+    (ws / "09-projections" / "tracker.json").write_text('{"rows": []}', encoding="utf-8")
+    c = Config(raw={"workspace_dir": str(ws), "sentinel": {"rules": []}}, path=tmp_path / "c.yaml")
+    monkeypatch.setattr("joblander.web.app.load_config", lambda: c)
+    from joblander import wizard
+    wizard.skip(c)
+    sourcing.save_prefs(c, {"keywords": ["AI Engineer"], "locations": ["Singapore"],
+                            "targets": ["Stripe", "Anthropic", "Acme", "Faraway", "Newco"]})
+    targets._save_json(targets.status_path(c), {
+        "Stripe": {"ts": "2099-01-01T02:30:00", "name": "Stripe", "ats": "greenhouse",
+                   "board_url": "https://job-boards.greenhouse.io/stripe", "total": 720, "local": 52, "proposed_total": 1},
+        "Anthropic": {"ts": "2099-01-01T02:30:00", "name": "Anthropic", "ats": "greenhouse", "board_url": "x",
+                      "total": 642, "local": 11, "proposed_total": 0},
+        "Acme": {"ts": "2099-01-01T02:30:00", "name": "Acme", "tracked": "Acme Corp"},
+        "Faraway": {"ts": "2099-01-01T02:30:00", "name": "Faraway", "ats": "lever", "board_url": "y", "total": 9, "local": 0}})
+    intake = ws / "12-intake"
+    intake.mkdir()
+    for fn, lead in (("a-stripe.json", {"company": "Stripe", "position": "ML Engineer", "target": True}),
+                     ("b-other.json", {"company": "Other Co", "position": "AI Engineer"})):
+        (intake / fn).write_text(json.dumps({"kind": "lead.intake", "lead": lead, "dedupe": {"verdict": "new"},
+                                             "source_hint": "mcf", "fit": {"fit": 4, "why": "对口"}, "approved": None}))
+    from joblander.web.app import create_app
+    html = TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1").get("/sourcing").text
+    sec = html.split('id="targets"')[1].split("其他新机会")[0]
+    assert "5 家 · 1 个岗位待你决定" in sec
+    assert sec.index("ML Engineer") < sec.index("Anthropic")            # Stripe 的岗位在 Stripe 卡里
+    assert "Other Co" not in sec and "Other Co" in html.split("其他新机会")[1]
+    assert "暂时没有适合你的岗位" in sec and "你的地点在招 11 个都看过了" in sec
+    assert "已在你的战线里" in sec and "Acme Corp" in sec
+    assert "你的地点没有在招岗位" in sec and "它在招 9 个" in sec
+    assert "还没搜过" in sec                                              # Newco

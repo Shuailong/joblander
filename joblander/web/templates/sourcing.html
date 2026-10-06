@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ _('新机会') }} · joblander{% endblock %}
 {% block main %}
-{% macro leadrow(p) %}
+{% macro leadrow(p, in_target=False) %}
 {% set f = (p.fit or {}).get('fit') %}
 {% set flags = [] %}
 {% if p.dedupe.verdict in ('duplicate','group_conflict') %}{% set _void = flags.append('dup') %}{% endif %}
@@ -11,7 +11,7 @@
   <span class="pill {{ 'teal' if f and f>=4 else 'amber' if f==3 else 'gray' }}" style="margin-top:2px">{{ f or '—' }}/5</span>
   <div class="body">
     <b style="font-weight:600">{{ p.lead.position or '—' }}</b>
-    {% if p.lead.target %}<span class="pill teal">{{ _('目标公司') }}</span>{% else %}<span class="pill gray">{{ p.source_hint }}</span>{% endif %}
+    {% if p.lead.target %}{% if not in_target %}<span class="pill teal">{{ _('目标公司') }}</span>{% endif %}{% else %}<span class="pill gray">{{ p.source_hint }}</span>{% endif %}
     <span class="note" style="margin:0" title="{{ _('进入待入池的时间') }}">{{ _('入库') }} {{ p._created or '—' }}</span>
     {% if p.dedupe.verdict == 'group_conflict' %}<span class="pill amber">{{ _('集团冲突：') }}{{ p.dedupe.active_members|join('、') }}</span>{% endif %}
     {% if p.lead.urls %}<a class="note" href="{{ p.lead.urls[0] }}" target="_blank">JD ↗</a>{% endif %}
@@ -70,7 +70,37 @@
   <span class="note" style="margin:0">{{ _('后台任务——点完随便去哪，右下角看进度，完成自动刷新') }}</span>
 </div>
 
+{% if targets %}
+<h2 id="targets">{{ _('目标公司') }} <span class="note" style="text-transform:none;letter-spacing:0;font-weight:400">{{ _('{a} 家 · {b} 个岗位待你决定', a=targets|length, b=target_n) }}</span></h2>
+<div class="tgrid">
+{% for g in targets %}{% set st = g.st %}
+<div class="card tcard {{ 'has' if g['items'] else 'none' }}">
+  <div class="thd">
+    <b>{{ g.name }}</b>
+    {% if st.board_url %}<a class="note" href="{{ st.board_url }}" target="_blank">{{ _('招聘页') }} ↗</a>
+    {% elif st.ts and not st.error and not st.tracked %}<span class="pill amber" title="{{ _('认不出它的招聘系统（Workday 等），改用公司名搜 LinkedIn / MCF——可能漏岗。贴它的招聘页链接（Greenhouse / Lever / Ashby）可以修正。') }}">{{ _('部分覆盖') }}</span>{% endif %}
+    <span class="sp"></span>
+    {% if g['items'] %}<span class="pill teal">{{ _('{n} 个待决定', n=g['items']|length) }}</span>{% endif %}
+  </div>
+  {% if st.ts and not st.error and not st.tracked %}<div class="meta tstat">{{ _('在招 {a} · 你的地点 {b} · 累计挑出 {d}', a=st.total or 0, b=st.local or 0, d=st.proposed_total or st.proposed or 0) }} · {{ _('上次') }} {{ st.ts[5:16].replace('T',' ') }}</div>{% endif %}
+  {% if g['items'] %}
+    {% for p in g['items'] %}{{ leadrow(p, True) }}{% endfor %}
+  {% else %}
+  <div class="tempty">
+    {% if st.error %}<b style="color:var(--red)">{{ _('上次没搜成') }}</b><span>{{ st.error }}{{ _('——下次「立即搜」或今晚自动重试。') }}</span>
+    {% elif st.tracked %}<b>{{ _('已在你的战线里') }}</b><span>{{ _('（{c}）去作战室看它的进展；不再重复提岗位。', c=st.tracked) }}</span>
+    {% elif not st.ts %}<b>{{ _('还没搜过') }}</b><span>{{ _('点上面的「立即搜」，或等今晚自动搜。') }}</span>
+    {% elif not st.local %}<b>{{ _('你的地点没有在招岗位') }}</b><span>{{ _('它在招 {a} 个，但不在你偏好的地点。想放宽就去下方改「地点」。', a=st.total or 0) }}</span>
+    {% else %}<b>{{ _('暂时没有适合你的岗位') }}</b><span>{{ _('你的地点在招 {b} 个都看过了，没有对口的。每晚继续盯，新挂出来的合适岗位会第一时间出现在这里。', b=st.local) }}</span>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+</div>
+<h2>{{ _('其他新机会（{n} 岗 · 按公司聚合，已在库公司不出现在这里）', n=total) }}</h2>
+{% else %}
 <h2>{{ _('待入池（{n} 岗 · 按公司聚合，已在库公司不出现在这里）', n=total) }}</h2>
+{% endif %}
 {% if good or low %}
 <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
   <button class="btn" onclick="selBy('lowfit')">{{ _('选低匹配') }}</button>

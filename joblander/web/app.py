@@ -596,6 +596,19 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         from joblander.sourcing import load_prefs, search_links
         from joblander.targets import load_status
         leads = _split_pending(list_pending(cfg))["lead"]
+        prefs = load_prefs(cfg)
+        tstatus = load_status(cfg)
+        # 目标公司单独一节、放最前：每家一张卡，有岗列岗，没岗也要说清楚为什么
+        targets = []
+        for t in prefs.get("targets") or []:
+            st = tstatus.get(t) or {}
+            name = st.get("name") or t
+            mine = [p for p in leads if (p.get("lead") or {}).get("target")
+                    and ((p.get("lead") or {}).get("company") or "").casefold() == name.casefold()]
+            mine.sort(key=lambda p: -(((p.get("fit") or {}).get("fit")) or 0))
+            targets.append({"entry": t, "name": name, "st": st, "items": mine})
+        taken = {id(p) for g in targets for p in g["items"]}
+        leads = [p for p in leads if id(p) not in taken]
         glist: list[dict] = []
         for p in leads:
             name = (p.get("lead") or {}).get("company") or "公司未披露"
@@ -617,7 +630,6 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         ordered = sorted(glist, key=lambda g: -g["best"])
         good = [g for g in ordered if g["best"] >= 3]
         low = [g for g in ordered if g["best"] < 3]
-        prefs = load_prefs(cfg)
         state = {}
         sp = cfg.workspace_dir / "08-events" / "daemon-state.json"
         if sp.exists():
@@ -643,7 +655,8 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                          .strftime("%Y-%m-%d") if p.exists() else ""})
         from joblander.sourcing import _profile_digest
         return tpl.TemplateResponse(request, "sourcing.html", ctx(
-            "src", good=good, low=low, total=len(leads), prefs=prefs,
+            "src", good=good, low=low, total=len(leads), prefs=prefs, targets=targets,
+            target_n=sum(len(g["items"]) for g in targets),
             links=search_links(prefs), profile_files=profile_files, bank=bank,
             target_status=load_status(cfg),
             digest_chars=len(_profile_digest(cfg)),

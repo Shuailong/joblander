@@ -241,6 +241,10 @@ label{font-size:12.5px;font-weight:500;color:var(--ink-2);display:block;margin:1
   .nav a{padding:6px 10px;white-space:nowrap}
   .side .foot{margin:0 0 0 auto;border-top:none;padding:0;flex-direction:row;align-items:center;white-space:nowrap}
   .theme-sw{margin:0}.theme-sw button{width:26px;flex:none}
+  .prop-lead{flex-wrap:wrap;gap:8px 10px}
+  .prop-lead .body{flex:1 1 calc(100% - 90px);min-width:0}
+  .prop-lead>.btn{order:3}.prop-lead>.btn.pri{margin-left:auto}
+  .main h2[id]{scroll-margin-top:130px}
   .acct-btn{width:auto;margin:0;padding:4px}.acct-btn .em,.acct-btn .chev{display:none}.acct-btn .lowdot{left:22px;top:3px}
   .main{padding:0 16px 80px}
   .topbar{top:52px;flex-wrap:wrap}
@@ -532,3 +536,15 @@ h2>svg.i{margin-right:7px;color:var(--ink-3);vertical-align:-2px}
 .card.tint-amber,.prop.tint-amber{border-color:color-mix(in srgb,var(--amber) 30%,var(--line));background:linear-gradient(180deg,color-mix(in srgb,var(--amber-soft) 60%,var(--surface)),var(--surface) 70px)}
 .meta>svg.i:first-child{margin-right:6px;vertical-align:-2px;color:var(--ink-3)}
 .meta.warnln{color:var(--amber)}.meta.warnln>svg.i{color:var(--amber)}
+
+/* 新机会 · 目标公司：单独一节放最前，有岗高亮、没岗也说清楚 */
+.tgrid{display:flex;flex-direction:column;gap:10px;margin-bottom:26px}
+.tcard{padding:12px 16px;border-left:3px solid var(--accent)}
+.tcard.has{border-color:color-mix(in srgb,var(--accent) 35%,var(--line));border-left-color:var(--accent);
+  background:linear-gradient(180deg,color-mix(in srgb,var(--accent-soft) 55%,var(--surface)),var(--surface) 64px)}
+.tcard.none{border-left-color:var(--line-strong)}
+.tcard .thd{display:flex;align-items:center;gap:10px;padding:2px 0}
+.tcard .thd b{font-size:15px}
+.tcard .tstat{margin:2px 0 4px}
+.tcard .tempty{display:flex;flex-direction:column;gap:2px;margin-top:6px;padding:10px 12px;border-radius:9px;background:var(--surface-2);font-size:13px}
+.tcard .tempty span{color:var(--ink-2)}
