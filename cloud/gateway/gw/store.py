@@ -222,6 +222,12 @@ class Store:
             "SELECT model, prompt_tokens, completion_tokens, cost_usd, at FROM usage "
             "WHERE email=? ORDER BY id DESC LIMIT ?", (email.lower(), limit))]
 
+    def usage_since(self, email: str, since: float) -> list[dict]:
+        """用量明细页按天汇总用：只要时间与金额，不要 token 数。"""
+        return [dict(r) for r in self.db.execute(
+            "SELECT model, cost_usd, at FROM usage WHERE email=? AND at>=? ORDER BY at DESC",
+            (email.lower(), since))]
+
     # ---------- 管理后台 ----------
 
     def admin_snapshot(self, since: float) -> dict:

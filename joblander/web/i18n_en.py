@@ -1,6 +1,42 @@
 """界面英文表：键是中文原文（模板里 _() 包住的那句），值是英文。缺键回落中文。"""
 
-EN: dict[str, str] = {' High 机会': ' high-priority leads',
+EN: dict[str, str] = {'管理后台': 'Admin',
+ 'AI 额度已用完——生成类功能暂停。<a href="/settings#account">查看额度</a>，或找邀请你的朋友加额度。':
+     'AI credit used up — generation is paused. <a href="/settings#account">See credit</a>, or ask the friend who invited you for more.',
+ '评分、定制简历、brief 等 AI 生成按实际用量扣；用完找邀请你的朋友加。':
+     'Scoring, tailored resumes, briefs and other AI generation are charged by actual use; ask the friend who invited you for more.',
+ '打开': 'Open',
+ '额度偏低': 'Low credit',
+ '用户、用量、邀请与反馈——只有管理员看得到这一行。': 'Users, usage, invites and feedback — only admins see this row.',
+ '账户': 'Account',
+ '用量明细': 'Usage',
+ '剩余 ${b}，共 ${c}': '${b} left of ${c}',
+ '账户与额度': 'Account & credit',
+ '用 Google 登录': 'Signed in with Google',
+ '还没搜过——点「立即搜」': 'Not searched yet — click “Search now”',
+ '数字是你所在地点的在招岗数；悬停看详情': 'Numbers are open roles in your locations; hover for details',
+ '目标公司（一行一家：公司名，或招聘页链接——系统拉它全部在招岗位，挑出适合你的；只想看这几家时关键词可留空）':
+     'Target companies (one per line: name or careers-page link — joblander pulls every open role and picks the ones that fit you; '
+     'leave keywords empty if you only want these companies)',
+ '在下方「搜索偏好」填目标岗位关键词（比如 <span class="num">Product Manager, Data Engineer</span>）和地点，或者直接列出想去的公司，然后点「立即搜」。':
+     'Under “Search preferences” below, enter target job keywords (e.g. <span class="num">Product Manager, Data Engineer</span>) '
+     'and locations, or just list the companies you want to join, then click “Search now”.',
+ '，以及目标公司的招聘页': ', plus your target companies’ careers pages',
+ '目标公司上次': 'Targets last',
+ '目标公司招聘页': 'Target companies’ careers pages',
+ 'Greenhouse / Lever / Ashby 直接拉全部在招，其余按公司名搜；先按地点和标题挑几条再评分，每晚只看新挂的':
+     'Greenhouse / Lever / Ashby boards are read directly, others searched by company name; filtered by location and title before scoring, '
+     'then only new postings each night',
+ '先在下方「搜索偏好」填目标岗位关键词或目标公司': 'First add job keywords or target companies under “Search preferences” below',
+ '目标公司': 'Target companies',
+ '认不出它的招聘系统（Workday 等），改用公司名搜 LinkedIn / MCF——可能漏岗。贴它的招聘页链接（Greenhouse / Lever / Ashby）可以修正。':
+     'Couldn’t identify its hiring system (e.g. Workday), so we search LinkedIn / MCF by company name — '
+     'some roles may be missed. Paste its careers-page link (Greenhouse / Lever / Ashby) to fix this.',
+ '部分覆盖': 'Partial coverage',
+ '上次出错：': 'Last run failed: ',
+ '已在库（{c}）——去公司页看，不再重复提岗位': 'Already tracked ({c}) — see its company page; no new roles proposed',
+ '在招 {a} · 你的地点 {b} · 本轮新出现 {c} · 累计挑出 {d}': '{a} open · {b} in your locations · {c} new this run · {d} picked so far',
+ ' High 机会': ' high-priority leads',
  ' 和 LinkedIn': ' and LinkedIn',
  ' 失败：': ' failed: ',
  ' 完成': ' done',
@@ -24,12 +60,7 @@ EN: dict[str, str] = {' High 机会': ' high-priority leads',
  'AI 的归 AI，你的判断单独留档': "AI's take stays AI's; your judgment is kept separately",
  'AI 草稿': 'AI draft',
  'AI 额度': 'AI credit',
- 'AI 额度…': 'AI credit…',
  'AI 额度已用完——充值或订阅后继续使用': 'AI credit used up — top up or subscribe to continue',
- 'AI 额度已用完——生成类功能暂停。<a href="/_gw/account">查看用量</a>，或找邀请你的朋友加额度。': 'AI credit used up — generation is '
-                                                                   'paused. <a href="/_gw/account">See '
-                                                                   'usage</a>, or ask the friend who invited '
-                                                                   'you for more credit.',
  'Bar Raiser / 交叉面': 'Bar raiser / cross-team',
  'FDE 版（母版）': 'FDE (master)',
  'Gmail 上次': 'Gmail last run',

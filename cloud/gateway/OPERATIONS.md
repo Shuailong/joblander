@@ -9,7 +9,7 @@ $GW "python -m gw.cli"            # 不带参数 = 打印命令列表
 
 ## 管理后台
 
-**https://app.ailayoff.me/_gw/admin**（账户页底部也有入口）。只有 `ADMIN_EMAILS` 里的账号能打开，其他人看到 404。
+**https://app.ailayoff.me/_gw/admin**（应用里：侧栏左下角账户菜单 →「管理后台」，或「设置 → 账户」）。只有 `ADMIN_EMAILS` 里的账号能打开，其他人看到 404。
 
 一页看完：用户数、7 天活跃、今天 / 7 天 / 累计花费、30 天每日花费图、每个用户的状态与余额与最近活跃、被拦名单、待登录的邀请、按模型用量、最近反馈、额度发放记录。可以直接点：**邀请**（发邮件）、**清掉**被拦记录、给用户**加额度**（单次 ≤ $100）。
 
@@ -73,7 +73,7 @@ cd cloud/gateway && fly deploy -a joblander-gw --ha=false
 
 ### 改了引擎（`joblander/`，用户机器跑的那部分）
 
-vN 取比上一次大一的数字（截至 2026-10-05 线上是 v14）：
+vN 取比上一次大一的数字（截至 2026-10-06 线上是 v16）：
 
 ```bash
 fly deploy --build-only --push -c deploy/fly.users.toml --image-label vN .
