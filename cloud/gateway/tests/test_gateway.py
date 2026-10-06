@@ -241,6 +241,23 @@ def test_balance_endpoint(store):
     assert _client(store, _fly([]), _upstream([])).get("/_gw/balance").status_code == 401
 
 
+def test_me_endpoint_and_usage_page(store):
+    store.create("a@x.com", 2.0)
+    store.charge("a@x.com", "m-pro", 0, 0, 0.5)
+    store.charge("a@x.com", "m-flash", 0, 0, 1.25)
+    c = _client(store, _fly([]), _upstream([]), "a@x.com")
+    assert c.get("/_gw/me").json() == {"email": "a@x.com", "admin": False, "balance_usd": 0.25,
+                                       "credit_usd": 2.0, "spent_usd": 1.75, "low": True}
+    assert _client(store, _fly([]), _upstream([])).get("/_gw/me").status_code == 401
+    page = c.get("/_gw/account").text
+    assert "用量明细" in page and "$0.25" in page and "/settings#account" in page
+    assert "2次" in page and "$1.75" in page                                  # 同一天两次调用并成一行
+    assert "/auth/logout" not in page and "m-pro" not in page                 # 退出在设置页；明细不列模型
+    en = _client(store, _fly([]), _upstream([]), "a@x.com")
+    en.cookies.set("jl_lang", "en")
+    assert "Back to settings" in en.get("/_gw/account").text
+
+
 def test_search_charges_per_call_and_respects_budget(store):
     _, key = store.create("a@x.com", 0.015)
     seen = []
@@ -561,8 +578,8 @@ def test_admin_portal_is_admin_only_and_shows_numbers(store):
     assert "<script>@x.com" not in r.text                                     # 名单里的邮箱要转义
     assert 'class="n low">$0.30' in r.text                                    # 低于提醒线标红
     assert "gateway_token" not in r.text and store.get("a@x.com").gateway_token not in r.text
-    assert "/_gw/admin" in c.get("/_gw/account").text
-    assert "/_gw/admin" not in _client(store, _fly([]), _upstream([]), "a@x.com").get("/_gw/account").text
+    assert c.get("/_gw/me").json()["admin"] is True                          # 应用里的「后台」入口靠这个
+    assert _client(store, _fly([]), _upstream([]), "a@x.com").get("/_gw/me").json()["admin"] is False
 
 
 def test_admin_actions_invite_dismiss_grant(store):

@@ -1,6 +1,19 @@
 """界面英文表：键是中文原文（模板里 _() 包住的那句），值是英文。缺键回落中文。"""
 
-EN: dict[str, str] = {'还没搜过——点「立即搜」': 'Not searched yet — click “Search now”',
+EN: dict[str, str] = {'管理后台': 'Admin',
+ 'AI 额度已用完——生成类功能暂停。<a href="/settings#account">查看额度</a>，或找邀请你的朋友加额度。':
+     'AI credit used up — generation is paused. <a href="/settings#account">See credit</a>, or ask the friend who invited you for more.',
+ '评分、定制简历、brief 等 AI 生成按实际用量扣；用完找邀请你的朋友加。':
+     'Scoring, tailored resumes, briefs and other AI generation are charged by actual use; ask the friend who invited you for more.',
+ '打开': 'Open',
+ '额度偏低': 'Low credit',
+ '用户、用量、邀请与反馈——只有管理员看得到这一行。': 'Users, usage, invites and feedback — only admins see this row.',
+ '账户': 'Account',
+ '用量明细': 'Usage',
+ '剩余 ${b}，共 ${c}': '${b} left of ${c}',
+ '账户与额度': 'Account & credit',
+ '用 Google 登录': 'Signed in with Google',
+ '还没搜过——点「立即搜」': 'Not searched yet — click “Search now”',
  '数字是你所在地点的在招岗数；悬停看详情': 'Numbers are open roles in your locations; hover for details',
  '目标公司（一行一家：公司名，或招聘页链接——系统拉它全部在招岗位，挑出适合你的；只想看这几家时关键词可留空）':
      'Target companies (one per line: name or careers-page link — joblander pulls every open role and picks the ones that fit you; '
@@ -47,12 +60,7 @@ EN: dict[str, str] = {'还没搜过——点「立即搜」': 'Not searched yet 
  'AI 的归 AI，你的判断单独留档': "AI's take stays AI's; your judgment is kept separately",
  'AI 草稿': 'AI draft',
  'AI 额度': 'AI credit',
- 'AI 额度…': 'AI credit…',
  'AI 额度已用完——充值或订阅后继续使用': 'AI credit used up — top up or subscribe to continue',
- 'AI 额度已用完——生成类功能暂停。<a href="/_gw/account">查看用量</a>，或找邀请你的朋友加额度。': 'AI credit used up — generation is '
-                                                                   'paused. <a href="/_gw/account">See '
-                                                                   'usage</a>, or ask the friend who invited '
-                                                                   'you for more credit.',
  'Bar Raiser / 交叉面': 'Bar raiser / cross-team',
  'FDE 版（母版）': 'FDE (master)',
  'Gmail 上次': 'Gmail last run',

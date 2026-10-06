@@ -75,6 +75,34 @@
     <label class="switch"><input type="checkbox" {{ 'checked' if features.drill }} onchange="post('/api/settings/features',{name:'drill',on:this.checked?1:0},{ok:this.checked?{{ _('已开启')|jsq }}:{{ _('已关闭')|jsq }},reload:true})"><span></span></label></div>
 </div>
 
+{% if cloud %}
+<h2 id="account">{{ _('账户') }}</h2>
+<div class="card setup-step" style="margin-bottom:14px">
+  <div class="row"><div class="body"><b id="me-email">—</b>
+    <div class="meta">{{ _('用 Google 登录') }}</div></div>
+    <a class="btn" href="/auth/logout">{{ icon("logout", 14) }}{{ _('退出登录') }}</a></div>
+  <div class="row"><div class="body"><b>{{ _('AI 额度') }}</b>
+    <div class="meta"><span id="me-credit">—</span> ｜ {{ _('评分、定制简历、brief 等 AI 生成按实际用量扣；用完找邀请你的朋友加。') }}</div>
+    <div class="meter" id="me-meter"><i style="width:0"></i></div></div>
+    <a class="btn" href="/_gw/account">{{ _('用量明细') }}</a></div>
+  <div class="row" id="me-admin" hidden><div class="body"><b>{{ _('管理后台') }}</b>
+    <div class="meta">{{ _('用户、用量、邀请与反馈——只有管理员看得到这一行。') }}</div></div>
+    <a class="btn" href="/_gw/admin">{{ _('打开') }}</a></div>
+</div>
+<script>
+jlMe.then(me => {
+  if (!me) return;
+  document.getElementById('me-email').textContent = me.email;
+  document.getElementById('me-credit').textContent = {{ _('剩余 ${b}，共 ${c}')|jsq }}
+    .replace('{b}', me.balance_usd.toFixed(2)).replace('{c}', me.credit_usd.toFixed(2));
+  const m = document.getElementById('me-meter');
+  m.firstElementChild.style.width = (me.credit_usd > 0 ? Math.min(100, me.balance_usd / me.credit_usd * 100) : 0) + '%';
+  m.classList.toggle('low', me.low);
+  document.getElementById('me-admin').hidden = !me.admin;
+});
+</script>
+{% endif %}
+
 <h2 id="data">{{ _('数据与隐私') }}</h2>
 <div class="card setup-step" style="margin-bottom:14px">
   <div class="row"><div class="body"><b>{{ _('导出我的全部数据') }}</b>

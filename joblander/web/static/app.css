@@ -80,6 +80,28 @@ svg.i{flex:none;vertical-align:-3px}
 .side .foot .fl{display:flex;align-items:center;gap:9px;padding:6px 6px;border-radius:8px;color:var(--brand-ink-2)}
 .side .foot a.fl:hover{background:var(--brand-hover);color:var(--brand-ink)}
 .side .foot .fl svg{opacity:.75}
+/* 账户按钮 + 菜单（云端版）：经典侧栏底部账户入口，额度/隐私/后台/退出都收在这里 */
+.acct-btn{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:9px;width:100%;padding:6px;border-radius:9px;margin-top:4px;
+  color:var(--brand-ink);font-size:12.5px;position:relative}
+.acct-btn:hover,.acct-btn[aria-expanded=true]{background:var(--brand-hover)}
+.acct-btn:focus-visible{outline:2px solid var(--mint);outline-offset:1px}
+.acct-btn .av{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;flex:none;font:600 12px/1 var(--sans,inherit);
+  background:var(--mint);color:#0B3B34}
+.acct-btn .em{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acct-btn .chev{opacity:.55;flex:none}
+.acct-btn .lowdot{position:absolute;left:24px;top:5px;width:8px;height:8px;border-radius:50%;background:#F0B34A;box-shadow:0 0 0 2px var(--brand-bg)}
+.acct-menu{position:fixed;z-index:60;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:6px;
+  box-shadow:var(--shadow-lg,0 12px 32px rgba(0,0,0,.18));font-size:13.5px}
+.acct-menu .hd{padding:6px 10px 8px;font-size:12px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acct-menu a{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;color:var(--ink-2);white-space:nowrap}
+.main h2[id]{scroll-margin-top:84px}   /* 锚点跳转别被 sticky 顶栏盖住 */
+.acct-menu a:hover{background:var(--surface-2);color:var(--ink)}
+.acct-menu a svg{opacity:.7}
+.acct-menu hr{border:0;border-top:1px solid var(--line);margin:5px 4px}
+.acct-menu .lowtag{margin-left:auto;font-size:11px;font-weight:600;color:var(--amber)}
+.meter{height:6px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:8px;max-width:320px}
+.meter i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.meter.low i{background:var(--amber)}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;background:var(--mint);box-shadow:0 0 0 3px rgba(125,227,195,.18)}
 .main{padding:0 40px 96px;max-width:1120px;width:100%}
 .main.wide{max-width:none}
@@ -219,6 +241,7 @@ label{font-size:12.5px;font-weight:500;color:var(--ink-2);display:block;margin:1
   .nav a{padding:6px 10px;white-space:nowrap}
   .side .foot{margin:0 0 0 auto;border-top:none;padding:0;flex-direction:row;align-items:center;white-space:nowrap}
   .theme-sw{margin:0}.theme-sw button{width:26px;flex:none}
+  .acct-btn{width:auto;margin:0;padding:4px}.acct-btn .em,.acct-btn .chev{display:none}.acct-btn .lowdot{left:22px;top:3px}
   .main{padding:0 16px 80px}
   .topbar{top:52px;flex-wrap:wrap}
 }

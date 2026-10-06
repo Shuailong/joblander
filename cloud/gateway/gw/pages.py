@@ -419,6 +419,62 @@ MSG = {
 }
 
 
+# ---------- 用量明细（账户与额度本身在应用的「设置 → 账户」里，这里只放数字） ----------
+
+USAGE_CSS = """
+.wrap{max-width:720px;margin:0 auto;padding:28px 20px 60px}
+.top{display:flex;align-items:center;gap:12px;margin-bottom:26px}
+.top img{width:28px;height:28px;border-radius:8px}
+.top a.back{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);text-decoration:none;font-size:13.5px}
+.top a.back:hover{color:var(--ink)}
+h1{font-size:24px;letter-spacing:-.02em;font-weight:650;margin:0 0 4px}
+.sub{color:var(--ink-2);margin:0 0 22px;font-size:14px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.kpi span{display:block;font-size:12px;color:var(--ink-3)} .kpi b{font-size:22px;font-weight:650;letter-spacing:-.01em}
+.meter{height:6px;border-radius:99px;background:var(--line);overflow:hidden;margin:0 0 26px}
+.meter i{display:block;height:100%;background:var(--accent);border-radius:99px}
+h2{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin:0 0 8px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:6px 16px;margin-bottom:22px}
+.card table td{padding:9px 0} .card tr:last-child td{border-bottom:0}
+td.r{text-align:right;font-variant-numeric:tabular-nums} td.m{color:var(--ink-3)}
+.empty{color:var(--ink-3);padding:14px 0;font-size:13.5px}
+.links{display:flex;gap:16px;flex-wrap:wrap;font-size:13.5px}
+.links a{color:var(--ink-2)} .links a:hover{color:var(--ink)}
+@media (max-width:520px){.kpis{grid-template-columns:1fr 1fr}.kpi:last-child{grid-column:span 2}}
+"""
+
+USAGE_TEXT = {
+ "zh": dict(title="用量明细", back="返回设置", sub="AI 生成（评分、定制简历、brief……）按实际用量扣。",
+            bal="剩余", credit="累计获得", spent="已用", day="最近 30 天", calls="次数", cost="花费", empty="最近 30 天还没有用量",
+            export="导出账户记录（JSON）", privacy="隐私说明", call_unit="次"),
+ "en": dict(title="Usage", back="Back to settings", sub="AI generation (scoring, tailored resumes, briefs…) is charged by actual use.",
+            bal="Remaining", credit="Granted", spent="Used", day="Last 30 days", calls="Calls", cost="Cost", empty="No usage in the last 30 days",
+            export="Export account records (JSON)", privacy="Privacy", call_unit=""),
+}
+
+
+def usage_page(*, email: str, balance: float, credit: float, spent: float,
+               days: list[tuple[str, int, float]], lang: str = "zh") -> HTMLResponse:
+    t = USAGE_TEXT["en" if lang == "en" else "zh"]
+    pct = 0 if credit <= 0 else max(0, min(100, round(balance / credit * 100)))
+    rows = "".join(f'<tr><td>{d}</td><td class="r m">{n}{t["call_unit"]}</td><td class="r">${c:.2f}</td></tr>'
+                   for d, n, c in days)
+    body = f"""<div class="wrap">
+<div class="top"><a href="/"><img src="{LOGO}" alt="joblander"></a>
+  <a class="back" href="/settings#account">← {t['back']}</a></div>
+<h1>{t['title']}</h1><p class="sub">{_html.escape(email)} · {t['sub']}</p>
+<div class="kpis"><div class="kpi"><span>{t['bal']}</span><b>${balance:.2f}</b></div>
+  <div class="kpi"><span>{t['credit']}</span><b>${credit:.2f}</b></div>
+  <div class="kpi"><span>{t['spent']}</span><b>${spent:.2f}</b></div></div>
+<div class="meter" title="{pct}%"><i style="width:{pct}%"></i></div>
+<h2>{t['day']}</h2>
+<div class="card">{f'<table>{rows}</table>' if rows else f'<div class="empty">{t["empty"]}</div>'}</div>
+<div class="links"><a href="/_gw/export">{t['export']}</a><a href="/_gw/privacy">{t['privacy']}</a></div>
+</div>"""
+    return _doc(f"{t['title']} · joblander", body, extra_css=USAGE_CSS, lang=lang)
+
+
 def msg(key: str, lang: str, **kw) -> str:
     zh, en = MSG[key]
     return (en if lang == "en" else zh).format(**kw)

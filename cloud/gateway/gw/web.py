@@ -15,7 +15,9 @@ import logging
 import secrets
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import FastAPI, Query, Request
@@ -375,28 +377,34 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         return {"balance_usd": round(max(user.balance_usd, 0), 4),
                 "credit_usd": round(user.credit_usd, 4), "spent_usd": round(user.spent_usd, 4)}
 
+    @app.get("/_gw/me")
+    async def me(request: Request):
+        """应用侧栏的账户菜单与设置页「账户」一节用：同源直接问网关，不经用户 machine。"""
+        email = current(request)
+        user = store.get(email) if email else None
+        if user is None:
+            return Response(status_code=401)
+        bal = max(user.balance_usd, 0)
+        return {"email": user.email, "admin": user.email in settings.admins,
+                "balance_usd": round(bal, 4), "credit_usd": round(user.credit_usd, 4),
+                "spent_usd": round(user.spent_usd, 4), "low": bal < settings.low_balance_usd}
+
     @app.get("/_gw/account")
     async def account(request: Request):
+        """用量明细：近 30 天按天汇总。账户本身（邮箱、退出、额度概览）在应用的设置页。"""
         email = current(request)
         user = store.get(email) if email else None
         if user is None:
             return RedirectResponse("/auth/login", status_code=302)
-        rows = "".join(
-            f"<tr><td>{time.strftime('%m-%d %H:%M', time.localtime(u['at']))}</td>"
-            f"<td>{html.escape(u['model'])}</td><td style='text-align:right'>${u['cost_usd']:.4f}</td></tr>"
-            for u in store.recent_usage(user.email))
-        lg = lang(request)
-        t = pages.msg("account", lg)
-        bal = pages.msg("balance", lg, bal=f"{max(user.balance_usd, 0):.2f}",
-                        credit=f"{user.credit_usd:.2f}", spent=f"{user.spent_usd:.2f}")
-        empty = f"<tr><td>{pages.msg('no_usage', lg)}</td></tr>"
-        return _page(t, f"<h1>{t}</h1><p>{html.escape(user.email)}</p><p>{bal}</p>"
-                     f"<table>{rows or empty}</table>"
-                     f'<p style="margin-top:16px"><a href="/">{pages.msg("back", lg)}</a> · '
-                     f'<a href="/_gw/export">{pages.msg("export_acct", lg)}</a> · '
-                     f'<a href="/_gw/privacy">{pages.msg("privacy", lg)}</a> · '
-                     + ('<a href="/_gw/admin">后台</a> · ' if user.email in settings.admins else '') +
-                     f'<a href="/auth/logout">{pages.msg("logout", lg)}</a></p>', lang=lg)
+        tz = ZoneInfo(settings.timezone)
+        days: dict[str, list] = {}
+        for u in store.usage_since(user.email, time.time() - 30 * 86400):
+            d = days.setdefault(datetime.fromtimestamp(u["at"], tz).strftime("%Y-%m-%d"), [0, 0.0])
+            d[0] += 1
+            d[1] += u["cost_usd"]
+        return pages.usage_page(email=user.email, balance=max(user.balance_usd, 0), credit=user.credit_usd,
+                                spent=user.spent_usd, days=[(k, n, c) for k, (n, c) in days.items()],
+                                lang=lang(request))
 
     # ---------- 管理后台（只给管理员；别人一律 404，不暴露它存在） ----------
 

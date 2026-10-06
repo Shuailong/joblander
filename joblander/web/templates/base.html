@@ -14,6 +14,7 @@ try { var t = localStorage.getItem('jl_theme'); if (t === 'light' || t === 'dark
 <link rel="icon" href="/static/logo.svg?v={{ v }}" type="image/svg+xml">
 {% if lang == 'en' %}<script>window.I18N = {{ i18n_js|tojson }};</script>{% endif %}
 <script src="/static/app.js?v={{ v }}" defer></script>
+{% if cloud %}<script>window.jlMe = fetch('/_gw/me').then(r => r.ok ? r.json() : null).catch(() => null);</script>{% endif %}
 </head>
 <body>
 <div class="frame">
@@ -38,8 +39,18 @@ try { var t = localStorage.getItem('jl_theme'); if (t === 'light' || t === 'dark
         <button type="button" data-t="dark" title="{{ _('深色') }}" aria-label="{{ _('深色') }}">{{ icon("moon", 14) }}</button>
       </div>
       {% if cloud %}<a class="fl" href="#" onclick="dlg('dlg-feedback');return false">{{ icon("message", 15) }}{{ _('反馈') }}</a>{% else %}<a class="fl" href="https://github.com/Shuailong/joblander/issues" target="_blank">{{ icon("message", 15) }}{{ _('反馈') }}</a>{% endif %}
-      {% if cloud %}<a class="fl hide-sm" id="quota" href="/_gw/account">{{ icon("coins", 15) }}<span>{{ _('AI 额度…') }}</span></a>
-      <a class="fl hide-sm" href="/auth/logout">{{ icon("logout", 15) }}{{ _('退出登录') }}</a>
+      {% if cloud %}
+      <button type="button" class="acct-btn" id="acct-btn" aria-haspopup="menu" aria-expanded="false" onclick="acctMenu(event)">
+        <span class="av" id="acct-av">{{ icon("user", 14) }}</span><span class="em" id="acct-em">{{ _('账户') }}</span>
+        <span class="lowdot" id="acct-low" hidden></span>{{ icon("updown", 14, cls="chev") }}</button>
+      <div class="acct-menu" id="acct-menu" role="menu" hidden>
+        <div class="hd" id="acct-hd"></div>
+        <a role="menuitem" href="/settings#account">{{ icon("user", 15) }}{{ _('账户与额度') }}<span class="lowtag" id="acct-lowtag" hidden>{{ _('额度偏低') }}</span></a>
+        <a role="menuitem" href="/_gw/privacy" target="_blank">{{ icon("shield", 15) }}{{ _('隐私说明') }}</a>
+        <a role="menuitem" href="/_gw/admin" id="acct-admin" hidden>{{ icon("gauge", 15) }}{{ _('管理后台') }}</a>
+        <hr>
+        <a role="menuitem" href="/auth/logout">{{ icon("logout", 15) }}{{ _('退出登录') }}</a>
+      </div>
       {% else %}<div class="fl hide-sm"><span class="dot"></span>{{ _('引擎在线（本机）') }}</div>{% endif %}
     </div>
   </aside>
@@ -96,19 +107,43 @@ async function sendFeedback(btn){
 
 {% if cloud %}
 <script>
-// 云端版：AI 额度来自网关（同源 /_gw/balance）；用完时顶部常驻提示，别等任务失败才知道
-fetch('/_gw/balance').then(r => r.ok ? r.json() : null).then(b => {
-  if (!b) return;
-  const q = document.getElementById('quota');
-  q.querySelector('span').textContent = `${ {{ _('AI 额度')|jsq }} } $${b.balance_usd.toFixed(2)}`;
-  if (b.balance_usd <= 0.05) {
+// 云端版：账户信息来自网关（同源 /_gw/me）。额度平时不摆在外面，偏低时头像上一个小点，
+// 用完才在页面顶部常驻提示——别等任务失败才知道。
+jlMe.then(me => {
+  if (!me) return;
+  const $ = id => document.getElementById(id);
+  $('acct-av').textContent = (me.email || '?')[0].toUpperCase();
+  $('acct-em').textContent = me.email;
+  $('acct-btn').title = me.email;
+  $('acct-hd').textContent = me.email;
+  $('acct-admin').hidden = !me.admin;
+  $('acct-low').hidden = $('acct-lowtag').hidden = !me.low;
+  if (me.balance_usd <= 0.05) {
     const bar = document.createElement('div');
     bar.className = 'sentinel warn';
     bar.style.margin = '0 0 12px';
-    bar.innerHTML = {{ _('AI 额度已用完——生成类功能暂停。<a href="/_gw/account">查看用量</a>，或找邀请你的朋友加额度。')|jsq }};
+    bar.innerHTML = {{ _('AI 额度已用完——生成类功能暂停。<a href="/settings#account">查看额度</a>，或找邀请你的朋友加额度。')|jsq }};
     document.querySelector('.main').prepend(bar);
   }
-}).catch(() => {});
+});
+function acctMenu(ev){
+  ev.stopPropagation();
+  const btn = document.getElementById('acct-btn'), m = document.getElementById('acct-menu');
+  const open = m.hidden;
+  m.hidden = !open; btn.setAttribute('aria-expanded', open);
+  if (!open) return;
+  // 侧栏会滚动（窄屏时还是横向滚动条），菜单用 fixed 定位才不被裁掉：宽屏向上弹，窄屏向下弹
+  const r = btn.getBoundingClientRect();
+  m.style.left = m.style.right = m.style.top = m.style.bottom = '';
+  if (innerWidth > 900) { m.style.left = r.left + 'px'; m.style.bottom = (innerHeight - r.top + 6) + 'px'; m.style.width = Math.max(r.width, 260) + 'px'; }
+  else { m.style.right = (innerWidth - r.right) + 'px'; m.style.top = (r.bottom + 6) + 'px'; m.style.width = '240px'; }
+}
+document.addEventListener('click', e => {
+  const m = document.getElementById('acct-menu');
+  // 点菜单外，或点了菜单项（含同页锚点）都收起
+  if (m && !m.hidden && (!m.contains(e.target) || e.target.closest('a'))) { m.hidden = true; document.getElementById('acct-btn').setAttribute('aria-expanded', false); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { const m = document.getElementById('acct-menu'); if (m) m.hidden = true; } });
 </script>
 {% endif %}
 <script>
