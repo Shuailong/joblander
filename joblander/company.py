@@ -772,13 +772,70 @@ def list_files(cfg, company: str, kind: str) -> list[dict[str, str]]:
             for f in sorted(d.iterdir()) if f.is_file()]
 
 
+# pypdf 原样吐出拉丁连字 U+FB00–U+FB06（fi、ffl 这类合字）：「offline」抽出来中间是一个 ffl 合字，进了弹药库后定制简历、
+# ATS 关键词都对不上。只还原这一段码位——NFKC 会把中文全角标点（，（））一并改成半角。
+_LIGATURES = str.maketrans({"\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi",
+                            "\ufb04": "ffl", "\ufb05": "st", "\ufb06": "st"})
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_MC_FALLBACK = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
+
+
+def _docx_text(p: Path) -> str:
+    """Word 是 zip 包，正文在 word/document.xml（页眉常放姓名与联系方式，一并读）。
+    只用标准库：按段落取 w:t，表格单元格、文本框里的段落各占一行；文本框在
+    mc:AlternateContent 里存 Choice / Fallback 两份，只取一份。"""
+    import zipfile
+    from xml.etree import ElementTree as ET
+    lines: list[str] = []
+
+    def walk(el, buf: list[str]) -> None:
+        for ch in el:
+            if ch.tag == _MC_FALLBACK:
+                continue
+            if ch.tag == _W + "p":
+                inner: list[str] = []
+                walk(ch, inner)
+                lines.append("".join(inner))
+            elif ch.tag == _W + "t":
+                buf.append(ch.text or "")
+            elif ch.tag == _W + "tab":
+                buf.append("\t")
+            elif ch.tag in (_W + "br", _W + "cr"):
+                buf.append("\n")
+            else:
+                walk(ch, buf)
+
+    with zipfile.ZipFile(p) as z:
+        names = z.namelist()
+        parts = sorted(n for n in names if re.fullmatch(r"word/header\d*\.xml", n))
+        for name in parts + ["word/document.xml"]:
+            if name in names:
+                walk(ET.fromstring(z.read(name)), [])
+    return "\n".join(line for line in lines if line.strip())
+
+
+def looks_garbled(text: str) -> bool:
+    """抽出来的是不是乱码（二进制当文本读、编码不对）：替换符和控制字符占比过高。
+    在送 LLM 之前拦，不花钱，也不会把「读错了」误报成「简历是扫描版」。"""
+    if not text:
+        return False
+    bad = sum(1 for c in text if c == "\ufffd" or (ord(c) < 32 and c not in "\n\r\t"))
+    return bad / len(text) > 0.02
+
+
 def _file_text(p: Path) -> str:
     if p.suffix.lower() == ".pdf":
         try:
             from pypdf import PdfReader
-            return "\n".join(pg.extract_text() or "" for pg in PdfReader(str(p)).pages)
+            text = "\n".join(pg.extract_text() or "" for pg in PdfReader(str(p)).pages)
+            return text.translate(_LIGATURES)
         except Exception as e:
             return f"（PDF 抽取失败：{e}）"
+    if p.suffix.lower() == ".docx":
+        try:
+            return _docx_text(p)
+        except Exception as e:
+            return f"（Word 抽取失败：{e}）"
     if p.suffix.lower() == ".html":
         raw = p.read_text(encoding="utf-8", errors="replace")
         return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", raw))

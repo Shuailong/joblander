@@ -199,3 +199,51 @@ def test_first_run_narrows_search(tmp_path, monkeypatch):
     S.source_all(None, None, days=7, first_run=True)
     assert seen == {"mcf": (7, {"limit_per_kw": 10, "max_keywords": 3}),
                     "li": (7, {"max_keywords": 3})}
+
+
+def _docx_bytes(text: str) -> bytes:
+    """最小 Word 包：一行一段。"""
+    import io
+    import zipfile
+    from xml.sax.saxutils import escape
+    ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    body = "".join(f"<w:p><w:r><w:t>{escape(line)}</w:t></w:r></w:p>" for line in text.splitlines())
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        z.writestr("word/document.xml", f'<w:document xmlns:w="{ns}"><w:body>{body}</w:body></w:document>')
+    return buf.getvalue()
+
+
+def test_upload_docx_resume_feeds_real_text(cfg, monkeypatch):
+    """2026-10-05 云端实测：Word 简历被当 utf-8 文本读成 zip 乱码，送进 LLM 拆不出条目，
+    报「换文字版简历（不是扫描图片）」还扣费；设置页明写「用 Word 或能选中文字的 PDF」。"""
+    llm = MockLLM([LLM_OUT])
+    monkeypatch.setattr("joblander.web.app.load_config", lambda: cfg)
+    monkeypatch.setenv("JOBLANDER_TASKS_SYNC", "1")
+    monkeypatch.setattr("joblander.llm.from_config", lambda c, tier="pro": llm)
+    from joblander.web.app import TASKS, create_app
+    TASKS.clear()
+    client = TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1")
+    r = client.post("/api/setup/resume", files={"file": (
+        "cv.docx", _docx_bytes(RESUME),
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document")})
+    assert r.status_code == 200 and TASKS[r.json()["task"]]["status"] == "done"
+    prompt = llm.calls[0]["prompt"]
+    assert "主导支付路由重构" in prompt and "[Content_Types].xml" not in prompt
+    assert wizard.status(cfg)["bank"]
+
+
+def test_garbled_upload_rejected_before_spending(cfg, monkeypatch):
+    """读出来是乱码（二进制、编码不对）：在花钱之前拒，报「读不出文字」，不报「扫描版」。"""
+    llm = MockLLM([LLM_OUT])
+    monkeypatch.setattr("joblander.web.app.load_config", lambda: cfg)
+    monkeypatch.setattr("joblander.llm.from_config", lambda c, tier="pro": llm)
+    from joblander.web.app import create_app
+    client = TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1")
+    r = client.post("/api/setup/resume", files={"file": ("cv.txt", bytes(range(256)) * 8, "text/plain")})
+    assert r.status_code == 400 and "文件可能损坏" in r.json()["error"]
+    assert llm.calls == []
+    with pytest.raises(ValueError, match="文件可能损坏"):
+        wizard.bootstrap_from_resume(cfg, llm, bytes(range(256)).decode("utf-8", errors="replace") * 8)
+    assert llm.calls == []
