@@ -73,7 +73,7 @@ cd cloud/gateway && fly deploy -a joblander-gw --ha=false
 
 ### 改了引擎（`joblander/`，用户机器跑的那部分）
 
-vN 取比上一次大一的数字（截至 2026-10-06 线上是 v15）：
+vN 取比上一次大一的数字（截至 2026-10-06 线上是 v16）：
 
 ```bash
 fly deploy --build-only --push -c deploy/fly.users.toml --image-label vN .
