@@ -144,9 +144,21 @@ def _name_ok(entry: str, company: str) -> bool:
     return not b or b <= a
 
 
+def name_from_url(url: str) -> str:
+    host = (urllib.parse.urlparse(url).hostname or "").casefold()
+    parts = [p for p in host.split(".") if p not in {"www", "careers", "jobs", "job", "career", "about", "apply"}]
+    label = parts[-2] if len(parts) >= 2 else (parts[0] if parts else url)
+    if len(parts) >= 3 and parts[-2] in {"co", "com", "gov", "org", "net"}:   # careers.xyz.com.sg
+        label = parts[-3]
+    return label.upper() if len(label) <= 3 else label.capitalize()
+
+
 def resolve(cfg, entry: str, cache: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]] | None]:
     """→ (board 信息, 已拉到的岗位或 None)。board = {ats, slug, name}；ats 为空 = 认不出。"""
     hit = parse_board_url(entry)
+    if not hit and re.match(r"https?://", entry, re.I):
+        # 认不出的招聘页（Google、Workday 等自建/大厂系统）：从域名取公司名，按名字搜，别拿整条网址去搜
+        return {"ats": "", "name": name_from_url(entry), "url": entry}, None
     if hit:
         ats, slug = hit
         jobs = fetch_board(ats, slug)
@@ -222,9 +234,41 @@ SCREEN_SYSTEM = """你是求职侦察的初筛员。候选人点名想去下面�
 输出严格 JSON：{{"picks": [编号, ...]}}"""
 
 
+# 偏好里的地点常写成中文或缩写；岗位地点几乎都是英文。比对前统一成英文词
+LOC_ALIASES = {"新加坡": "singapore", "sg": "singapore", "香港": "hong kong", "hk": "hong kong",
+               "上海": "shanghai", "北京": "beijing", "深圳": "shenzhen", "广州": "guangzhou", "杭州": "hangzhou",
+               "台北": "taipei", "东京": "tokyo", "首尔": "seoul", "吉隆坡": "kuala lumpur", "雅加达": "jakarta",
+               "曼谷": "bangkok", "迪拜": "dubai", "悉尼": "sydney", "墨尔本": "melbourne", "伦敦": "london",
+               "纽约": "new york", "nyc": "new york", "旧金山": "san francisco", "sf": "san francisco",
+               "西雅图": "seattle", "多伦多": "toronto", "温哥华": "vancouver", "远程": "remote"}
+LOC_FILLER = {"city", "the", "of", "area", "greater", "metro", "region"}
+
+
+def _loc_words(text: str) -> set[str]:
+    t = (text or "").casefold()
+    for k, v in LOC_ALIASES.items():
+        if not k.isascii():
+            t = t.replace(k, f" {v} ")
+    words = set(re.findall(r"[a-z]+", t))
+    for k, v in LOC_ALIASES.items():                  # 英文缩写只按整词换（sg 不该命中 sgx）
+        if k.isascii() and k in words:
+            words |= set(v.split())
+    return words - LOC_FILLER
+
+
+def english_location(loc: str) -> str:
+    """拿去搜 LinkedIn 的地点：中文/缩写换成英文，认不出就原样。"""
+    t = (loc or "").strip()
+    return LOC_ALIASES.get(t.casefold(), LOC_ALIASES.get(t, t)).title() if t else t
+
+
 def in_locations(job: dict[str, Any], locations: list[str]) -> bool:
-    loc = (job.get("location") or "").casefold()
-    return not locations or not loc or any(l.casefold() in loc for l in locations)
+    """按词比对，不要求原样包含：「新加坡」「SG」「Singapore City」都算命中 Singapore。"""
+    loc = _loc_words(job.get("location") or "")
+    if not locations or not loc:
+        return True
+    return any(_loc_words(l) & loc for l in locations if _loc_words(l)) or \
+        not any(_loc_words(l) for l in locations)
 
 
 def screen_titles(cfg, llm, company: str, jobs: list[dict[str, Any]],
@@ -303,12 +347,14 @@ def source_targets(cfg, llm, days: int = 2, max_picks: int = MAX_PICKS,
         try:
             board, jobs = resolve(cfg, entry, cache)
             name = board.get("name") or entry
-            st.update(name=name, ats=board.get("ats") or "")
+            st.update(name=name, ats=board.get("ats") or "", locs=locations)
+            if board.get("url"):
+                st["unsupported_url"] = True
             if board.get("ats"):
                 st["board_url"] = ATS[board["ats"]]["board"].format(slug=board["slug"])
                 via = "board"
             else:
-                jobs = search_fallback(cfg, name, (locations or ["Singapore"])[0])
+                jobs = search_fallback(cfg, name, english_location((locations or ["Singapore"])[0]))
                 via = "fallback"
             run.fetched += len(jobs or [])
             verdict = dedupe(run.rows, name, run.groups)

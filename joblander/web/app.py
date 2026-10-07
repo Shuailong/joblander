@@ -603,6 +603,8 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         for t in prefs.get("targets") or []:
             st = tstatus.get(t) or {}
             name = st.get("name") or t
+            if any(g["name"].casefold() == name.casefold() for g in targets):
+                continue                          # 同一家填了两遍（名字 + 招聘页链接）：只显示一张卡
             mine = [p for p in leads if (p.get("lead") or {}).get("target")
                     and ((p.get("lead") or {}).get("company") or "").casefold() == name.casefold()]
             mine.sort(key=lambda p: -(((p.get("fit") or {}).get("fit")) or 0))

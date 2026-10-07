@@ -102,6 +102,7 @@ def test_source_targets_screens_then_scores_and_only_new_next_time(cfg, monkeypa
     st = targets.load_status(cfg)
     assert st["Stripe"] | {"ts": ""} == {"ts": "", "name": "Stripe", "ats": "greenhouse",
                                           "board_url": "https://job-boards.greenhouse.io/stripe",
+                                          "locs": ["Singapore"],
                                           "total": 4, "local": 3, "new": 2, "picked": 1, "proposed": 1,
                                           "proposed_total": 1}
     assert st["https://jobs.lever.co/kite"]["name"] == "Kite"
@@ -237,5 +238,30 @@ def test_sourcing_page_target_section_first_with_clear_empty_states(tmp_path, mo
     assert "Other Co" not in sec and "Other Co" in html.split("其他新机会")[1]
     assert "暂时没有适合你的岗位" in sec and "你的地点在招 11 个都看过了" in sec
     assert "已在你的战线里" in sec and "Acme Corp" in sec
-    assert "你的地点没有在招岗位" in sec and "它在招 9 个" in sec
+    assert "地点对不上" in sec and "它在招 9 个，但都不在「Singapore」" in sec
     assert "还没搜过" in sec                                              # Newco
+
+
+def test_location_matching_tolerates_chinese_and_abbreviations():
+    """2026-10-07 用户反馈：Google 搜到 62 个新加坡岗位，却显示「你的地点 0」——偏好地点写法和岗位地点没原样对上。"""
+    j = lambda loc: {"location": loc}
+    for pref in (["Singapore"], ["新加坡"], ["SG"], ["Singapore City"], ["Singapore（新加坡）"], ["singapore "]):
+        assert targets.in_locations(j("Singapore"), pref), pref
+    assert targets.in_locations(j("Hong Kong SAR"), ["香港"])
+    assert not targets.in_locations(j("Singapore"), ["Hong Kong"])
+    assert not targets.in_locations(j("SGX Tower, London"), ["SG"])          # 缩写只按整词
+    assert targets.english_location("新加坡") == "Singapore"
+
+
+def test_unsupported_careers_url_searches_by_company_name(cfg, monkeypatch):
+    """同一用户反馈：贴了 Google 自建招聘页链接，认不出 → 之前拿整条网址当公司名去搜，0 个还报「地点不对」。"""
+    fake_net(monkeypatch, {})
+    seen = []
+    monkeypatch.setattr(targets, "search_fallback", lambda cfg, name, loc: seen.append((name, loc)) or [
+        {"uid": "mcf:x", "title": "Partnerships Director", "location": "Singapore", "url": "u", "posted": "", "company": "Google", "jd": ""}])
+    url = "https://www.google.com/about/careers/applications/jobs/results?location=Singapore"
+    sourcing.save_prefs(c := cfg, {"targets": [url], "locations": ["新加坡"]})
+    targets.source_targets(c, LLM())
+    assert seen == [("Google", "Singapore")]
+    st = targets.load_status(c)[url]
+    assert st["name"] == "Google" and st["unsupported_url"] and st["total"] == 1 and st["local"] == 1

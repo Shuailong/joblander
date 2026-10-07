@@ -78,7 +78,7 @@
   <div class="thd">
     <b>{{ g.name }}</b>
     {% if st.board_url %}<a class="note" href="{{ st.board_url }}" target="_blank">{{ _('招聘页') }} ↗</a>
-    {% elif st.ts and not st.error and not st.tracked %}<span class="pill amber" title="{{ _('认不出它的招聘系统（Workday 等），改用公司名搜 LinkedIn / MCF——可能漏岗。贴它的招聘页链接（Greenhouse / Lever / Ashby）可以修正。') }}">{{ _('部分覆盖') }}</span>{% endif %}
+    {% elif st.ts and not st.error and not st.tracked %}<span class="pill amber" title="{% if st.unsupported_url %}{{ _('这个招聘页的系统暂时读不了，改按公司名搜 LinkedIn / MCF') }} ｜ {% endif %}{{ _('认不出它的招聘系统（Workday 等），改用公司名搜 LinkedIn / MCF——可能漏岗。贴它的招聘页链接（Greenhouse / Lever / Ashby）可以修正。') }}">{{ _('部分覆盖') }}</span>{% endif %}
     <span class="sp"></span>
     {% if g['items'] %}<span class="pill teal">{{ _('{n} 个待决定', n=g['items']|length) }}</span>{% endif %}
   </div>
@@ -90,7 +90,8 @@
     {% if st.error %}<b style="color:var(--red)">{{ _('上次没搜成') }}</b><span>{{ st.error }}{{ _('——下次「立即搜」或今晚自动重试。') }}</span>
     {% elif st.tracked %}<b>{{ _('已在你的战线里') }}</b><span>{{ _('（{c}）去作战室看它的进展；不再重复提岗位。', c=st.tracked) }}</span>
     {% elif not st.ts %}<b>{{ _('还没搜过') }}</b><span>{{ _('点上面的「立即搜」，或等今晚自动搜。') }}</span>
-    {% elif not st.local %}<b>{{ _('你的地点没有在招岗位') }}</b><span>{{ _('它在招 {a} 个，但不在你偏好的地点。想放宽就去下方改「地点」。', a=st.total or 0) }}</span>
+    {% elif not st.total %}<b>{{ _('没找到在招岗位') }}</b><span>{% if st.unsupported_url %}{{ _('这个招聘页的系统暂时读不了，已按公司名「{n}」搜 LinkedIn / MCF，也没搜到。', n=g.name) }}{% elif st.ats %}{{ _('它的招聘页现在没有挂岗位。每晚继续盯。') }}{% else %}{{ _('按公司名「{n}」在 LinkedIn / MCF 没搜到。检查一下拼写，或贴它的招聘页链接（Greenhouse / Lever / Ashby 最准）。', n=g.name) }}{% endif %}</span>
+    {% elif not st.local %}<b>{{ _('地点对不上') }}</b><span>{{ _('它在招 {a} 个，但都不在「{l}」。想放宽就去下方改「地点」。', a=st.total, l=(st.locs or prefs.get('locations') or [])|join(' / ')) }}</span>
     {% else %}<b>{{ _('暂时没有适合你的岗位') }}</b><span>{{ _('你的地点在招 {b} 个都看过了，没有对口的。每晚继续盯，新挂出来的合适岗位会第一时间出现在这里。', b=st.local) }}</span>{% endif %}
   </div>
   {% endif %}

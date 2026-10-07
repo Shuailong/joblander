@@ -1,6 +1,15 @@
 """界面英文表：键是中文原文（模板里 _() 包住的那句），值是英文。缺键回落中文。"""
 
-EN: dict[str, str] = {'主导航': 'Main navigation',
+EN: dict[str, str] = {'没找到在招岗位': 'No open roles found',
+ '这个招聘页的系统暂时读不了，已按公司名「{n}」搜 LinkedIn / MCF，也没搜到。':
+     'We can’t read this careers site yet, so we searched LinkedIn / MCF for “{n}” — nothing found either.',
+ '它的招聘页现在没有挂岗位。每晚继续盯。': 'Its careers page has no open roles right now. We’ll keep checking nightly.',
+ '按公司名「{n}」在 LinkedIn / MCF 没搜到。检查一下拼写，或贴它的招聘页链接（Greenhouse / Lever / Ashby 最准）。':
+     'Nothing on LinkedIn / MCF for “{n}”. Check the spelling, or paste its careers-page link (Greenhouse / Lever / Ashby work best).',
+ '地点对不上': 'No roles in your locations',
+ '它在招 {a} 个，但都不在「{l}」。想放宽就去下方改「地点」。': 'It has {a} open roles, none in “{l}”. Widen “Locations” below if you’re open to more.',
+ '这个招聘页的系统暂时读不了，改按公司名搜 LinkedIn / MCF': 'We can’t read this careers site yet, so we search LinkedIn / MCF by company name',
+ '主导航': 'Main navigation',
  '更多': 'More',
  '外观': 'Appearance',
  '上次没搜成': 'Last search failed',
@@ -16,11 +25,8 @@ EN: dict[str, str] = {'主导航': 'Main navigation',
  '还没搜过': 'Not searched yet',
  '暂时没有适合你的岗位': 'No fitting roles right now',
  '上次': 'last',
- '它在招 {a} 个，但不在你偏好的地点。想放宽就去下方改「地点」。':
-     'It has {a} open roles, none in your preferred locations. Widen “Locations” below if you’re open to more.',
  '{a} 家 · {b} 个岗位待你决定': '{a} companies · {b} roles to review',
  '其他新机会（{n} 岗 · 按公司聚合，已在库公司不出现在这里）': 'Other leads ({n} roles · grouped by company; companies already in your pipeline are hidden)',
- '你的地点没有在招岗位': 'No open roles in your locations',
  '管理后台': 'Admin',
  'AI 额度已用完——生成类功能暂停。<a href="/settings#account">查看额度</a>，或找邀请你的朋友加额度。':
      'AI credit used up — generation is paused. <a href="/settings#account">See credit</a>, or ask the friend who invited you for more.',
