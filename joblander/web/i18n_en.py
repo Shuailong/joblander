@@ -1,6 +1,9 @@
 """界面英文表：键是中文原文（模板里 _() 包住的那句），值是英文。缺键回落中文。"""
 
-EN: dict[str, str] = {'没找到在招岗位': 'No open roles found',
+EN: dict[str, str] = {'结果是按旧设置搜的': 'These results are from your old settings',
+ '搜索偏好改过（或系统升级过），上面的数字可能已经不准。': 'Your search preferences changed (or the app was updated), so the numbers above may be out of date.',
+ '↻ 按新设置重搜': '↻ Search again with new settings',
+ '没找到在招岗位': 'No open roles found',
  '这个招聘页的系统暂时读不了，已按公司名「{n}」搜 LinkedIn / MCF，也没搜到。':
      'We can’t read this careers site yet, so we searched LinkedIn / MCF for “{n}” — nothing found either.',
  '它的招聘页现在没有挂岗位。每晚继续盯。': 'Its careers page has no open roles right now. We’ll keep checking nightly.',

@@ -87,11 +87,13 @@
     {% for p in g['items'] %}{{ leadrow(p, True) }}{% endfor %}
   {% else %}
   <div class="tempty">
-    {% if st.error %}<b style="color:var(--red)">{{ _('上次没搜成') }}</b><span>{{ st.error }}{{ _('——下次「立即搜」或今晚自动重试。') }}</span>
+    {% if g.stale %}<b>{{ _('结果是按旧设置搜的') }}</b><span>{{ _('搜索偏好改过（或系统升级过），上面的数字可能已经不准。') }}</span>
+      <div style="margin-top:6px"><button class="btn pri" onclick="post('/api/sourcing/targets/rescan',{},{btn:this})">{{ _('↻ 按新设置重搜') }}</button></div>
+    {% elif st.error %}<b style="color:var(--red)">{{ _('上次没搜成') }}</b><span>{{ st.error }}{{ _('——下次「立即搜」或今晚自动重试。') }}</span>
     {% elif st.tracked %}<b>{{ _('已在你的战线里') }}</b><span>{{ _('（{c}）去作战室看它的进展；不再重复提岗位。', c=st.tracked) }}</span>
     {% elif not st.ts %}<b>{{ _('还没搜过') }}</b><span>{{ _('点上面的「立即搜」，或等今晚自动搜。') }}</span>
     {% elif not st.total %}<b>{{ _('没找到在招岗位') }}</b><span>{% if st.unsupported_url %}{{ _('这个招聘页的系统暂时读不了，已按公司名「{n}」搜 LinkedIn / MCF，也没搜到。', n=g.name) }}{% elif st.ats %}{{ _('它的招聘页现在没有挂岗位。每晚继续盯。') }}{% else %}{{ _('按公司名「{n}」在 LinkedIn / MCF 没搜到。检查一下拼写，或贴它的招聘页链接（Greenhouse / Lever / Ashby 最准）。', n=g.name) }}{% endif %}</span>
-    {% elif not st.local %}<b>{{ _('地点对不上') }}</b><span>{{ _('它在招 {a} 个，但都不在「{l}」。想放宽就去下方改「地点」。', a=st.total, l=(st.locs or prefs.get('locations') or [])|join(' / ')) }}</span>
+    {% elif not st.local %}<b>{{ _('地点对不上') }}</b><span>{{ _('它在招 {a} 个，但都不在「{l}」。想放宽就去下方改「地点」。', a=st.total, l=(prefs.get('locations') or st.locs or [])|join(' / ')) }}</span>
     {% else %}<b>{{ _('暂时没有适合你的岗位') }}</b><span>{{ _('你的地点在招 {b} 个都看过了，没有对口的。每晚继续盯，新挂出来的合适岗位会第一时间出现在这里。', b=st.local) }}</span>{% endif %}
   </div>
   {% endif %}

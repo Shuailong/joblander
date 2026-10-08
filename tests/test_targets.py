@@ -216,14 +216,17 @@ def test_sourcing_page_target_section_first_with_clear_empty_states(tmp_path, mo
     from joblander import wizard
     wizard.skip(c)
     sourcing.save_prefs(c, {"keywords": ["AI Engineer"], "locations": ["Singapore"],
-                            "targets": ["Stripe", "Anthropic", "Acme", "Faraway", "Newco"]})
+                            "targets": ["Stripe", "Anthropic", "Acme", "Faraway", "Newco", "Oldco", "Moved"]})
     targets._save_json(targets.status_path(c), {
         "Stripe": {"ts": "2099-01-01T02:30:00", "name": "Stripe", "ats": "greenhouse",
-                   "board_url": "https://job-boards.greenhouse.io/stripe", "total": 720, "local": 52, "proposed_total": 1},
+                   "board_url": "https://job-boards.greenhouse.io/stripe", "total": 720, "local": 52, "proposed_total": 1, "locs": ["Singapore"]},
         "Anthropic": {"ts": "2099-01-01T02:30:00", "name": "Anthropic", "ats": "greenhouse", "board_url": "x",
-                      "total": 642, "local": 11, "proposed_total": 0},
-        "Acme": {"ts": "2099-01-01T02:30:00", "name": "Acme", "tracked": "Acme Corp"},
-        "Faraway": {"ts": "2099-01-01T02:30:00", "name": "Faraway", "ats": "lever", "board_url": "y", "total": 9, "local": 0}})
+                      "total": 642, "local": 11, "proposed_total": 0, "locs": ["Singapore"]},
+        "Acme": {"ts": "2099-01-01T02:30:00", "name": "Acme", "tracked": "Acme Corp", "locs": ["Singapore"]},
+        "Faraway": {"ts": "2099-01-01T02:30:00", "name": "Faraway", "ats": "lever", "board_url": "y", "total": 9, "local": 0, "locs": ["singapore "]},
+        # 升级前的旧记录（没存地点）、和按旧地点搜的：都不该给出「地点对不上」的旧结论
+        "Oldco": {"ts": "2099-01-01T02:30:00", "name": "Oldco", "total": 62, "local": 0},
+        "Moved": {"ts": "2099-01-01T02:30:00", "name": "Moved", "total": 5, "local": 0, "locs": ["Hong Kong"]}})
     intake = ws / "12-intake"
     intake.mkdir()
     for fn, lead in (("a-stripe.json", {"company": "Stripe", "position": "ML Engineer", "target": True}),
@@ -233,7 +236,11 @@ def test_sourcing_page_target_section_first_with_clear_empty_states(tmp_path, mo
     from joblander.web.app import create_app
     html = TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1").get("/sourcing").text
     sec = html.split('id="targets"')[1].split("其他新机会")[0]
-    assert "5 家 · 1 个岗位待你决定" in sec
+    assert "7 家 · 1 个岗位待你决定" in sec
+    oldco = sec.split("Oldco")[1].split('class="card tcard')[0]
+    moved = sec.split("Moved")[1]
+    for card in (oldco, moved):
+        assert "结果是按旧设置搜的" in card and "/api/sourcing/targets/rescan" in card and "地点对不上" not in card
     assert sec.index("ML Engineer") < sec.index("Anthropic")            # Stripe 的岗位在 Stripe 卡里
     assert "Other Co" not in sec and "Other Co" in html.split("其他新机会")[1]
     assert "暂时没有适合你的岗位" in sec and "你的地点在招 11 个都看过了" in sec
@@ -265,3 +272,25 @@ def test_unsupported_careers_url_searches_by_company_name(cfg, monkeypatch):
     assert seen == [("Google", "Singapore")]
     st = targets.load_status(c)[url]
     assert st["name"] == "Google" and st["unsupported_url"] and st["total"] == 1 and st["local"] == 1
+
+
+def test_saving_targets_or_locations_rescans_in_background(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    ws = tmp_path / "ws"
+    (ws / "09-projections").mkdir(parents=True)
+    (ws / "09-projections" / "tracker.json").write_text('{"rows": []}', encoding="utf-8")
+    c = Config(raw={"workspace_dir": str(ws), "sentinel": {"rules": []}}, path=tmp_path / "c.yaml")
+    monkeypatch.setattr("joblander.web.app.load_config", lambda: c)
+    monkeypatch.setenv("JOBLANDER_TASKS_SYNC", "1")
+    runs = []
+    monkeypatch.setattr(targets, "source_targets", lambda cfg, llm, **k: runs.append(1) or [])
+    monkeypatch.setattr("joblander.llm.from_config", lambda cfg, tier="pro": None)
+    from joblander import wizard
+    wizard.skip(c)
+    from joblander.web.app import create_app
+    client = TestClient(create_app(with_daemon=False), base_url="http://127.0.0.1")
+    assert "task" in client.post("/api/sourcing/prefs", data={"targets": "Google", "locations": "Singapore"}).json()
+    assert "task" not in client.post("/api/sourcing/prefs", data={"targets": "Google", "locations": "Singapore",
+                                                                   "intent": "x"}).json()   # 没改目标/地点：不重搜
+    assert "task" in client.post("/api/sourcing/prefs", data={"targets": "Google", "locations": "新加坡"}).json()
+    assert len(runs) == 2

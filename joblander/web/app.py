@@ -605,10 +605,14 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             name = st.get("name") or t
             if any(g["name"].casefold() == name.casefold() for g in targets):
                 continue                          # 同一家填了两遍（名字 + 招聘页链接）：只显示一张卡
+            # 结论是按旧偏好搜出来的（地点改过，或升级前的旧记录没存地点）：别拿旧结论吓人，提示重搜
+            stale = bool(st.get("ts")) and not st.get("error") and \
+                [l.strip().casefold() for l in st.get("locs") or ["\0"]] != \
+                [l.strip().casefold() for l in prefs.get("locations") or []]
             mine = [p for p in leads if (p.get("lead") or {}).get("target")
                     and ((p.get("lead") or {}).get("company") or "").casefold() == name.casefold()]
             mine.sort(key=lambda p: -(((p.get("fit") or {}).get("fit")) or 0))
-            targets.append({"entry": t, "name": name, "st": st, "items": mine})
+            targets.append({"entry": t, "name": name, "st": st, "items": mine, "stale": stale})
         taken = {id(p) for g in targets for p in g["items"]}
         leads = [p for p in leads if id(p) not in taken]
         glist: list[dict] = []
@@ -1138,6 +1142,14 @@ def create_app(with_daemon: bool = True) -> FastAPI:
                          lambda: source_all(cfg, _llm("flash"), days=days))
         return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
 
+    @app.post("/api/sourcing/targets/rescan")
+    def api_targets_rescan():
+        """目标公司卡片上的「按新设置重搜」：只重跑目标公司。"""
+        from joblander.targets import source_targets
+        tid = start_task("targets", "搜目标公司",
+                         lambda: {"proposals": len(source_targets(cfg, _llm("flash")))})
+        return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
+
     @app.post("/api/mcf/scan")
     def api_mcf_scan(days: int = Form(2)):
         from joblander.sourcing import source_mcf
@@ -1568,7 +1580,16 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             items = re.split(r"[\n,，]", form["targets"])
             patch["targets"] = list(dict.fromkeys(t.strip() for t in items if t.strip()))[:30]
         patch["guessed"] = False                 # 他亲手存过一次，就不再是「猜的」
-        save_prefs(cfg, patch)
+        from joblander.sourcing import load_prefs
+        before = load_prefs(cfg)
+        prefs = save_prefs(cfg, patch)
+        # 目标公司或地点改了：后台按新偏好重搜目标公司，不用他记得去点「立即搜」
+        changed = any(k in patch and patch[k] != before.get(k) for k in ("targets", "locations"))
+        if changed and prefs.get("targets"):
+            from joblander.targets import source_targets
+            tid = start_task("targets", "搜目标公司",
+                             lambda: {"proposals": len(source_targets(cfg, _llm("flash")))})
+            return {"ok": True, "task": tid, "label": TASKS[tid]["label"]}
         return {"ok": True}
 
     def _timeline_upsert(co: str, *, title_prefix: str, source: str, **kw):
