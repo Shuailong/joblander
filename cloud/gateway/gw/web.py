@@ -415,6 +415,8 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
     def back(msg: str) -> RedirectResponse:
         return RedirectResponse("/_gw/admin?" + urlencode({"m": msg}), status_code=303)
 
+    from gw.admin import mask
+
     @app.get("/_gw/admin")
     async def admin_page(request: Request, m: str = ""):
         if not admin_of(request):
@@ -447,7 +449,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
                                      to=target, kind="invited", lang=lg)
         except Exception:                                       # noqa: BLE001
             pass
-        return back(f"已邀请 {target}" + ("，已发邮件通知" if mailed else "（没发出邮件，记得自己告诉对方）"))
+        return back(f"已邀请 {mask(target)}" + ("，已发邮件通知" if mailed else "（没发出邮件，记得自己告诉对方）"))
 
     @app.post("/_gw/admin/dismiss")
     async def admin_dismiss(request: Request):
@@ -455,7 +457,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         if got is None:
             return Response(status_code=404)
         target = str(got[1].get("email") or "").strip().lower()
-        return back(f"已清掉 {target}" if store.dismiss(target) else f"{target} 不在被拦名单")
+        return back(f"已清掉 {mask(target)}" if store.dismiss(target) else f"{mask(target)} 不在被拦名单")
 
     @app.post("/_gw/admin/grant")
     async def admin_grant(request: Request):
@@ -471,9 +473,11 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         if not (0 < usd <= 100) or store.get(target) is None:
             return back("没加：金额须在 0–100 之间，且对方已登录过")
         store.grant(target, usd, f"后台手工发放（{admin_email}）")
-        return back(f"已给 {target} 加 ${usd:g}，余额 ${store.get(target).balance_usd:.2f}")
+        return back(f"已给 {mask(target)} 加 ${usd:g}，余额 ${store.get(target).balance_usd:.2f}")
 
     # ---------- 其余一切：转发到这个人自己的 machine ----------
+
+    seen_days: set[tuple[str, str]] = set()
 
     @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
     async def proxy(request: Request, path: str):
@@ -499,6 +503,10 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             return pages.waiting(first_time=not user.machine_id or user.status == "resetting",
                                  lang=lang(request))
 
+        day = datetime.now(ZoneInfo(settings.timezone)).strftime("%Y-%m-%d")
+        if (email, day) not in seen_days:                      # 每人每天写一次库：后台的活跃曲线
+            store.touch_day(email, day)
+            seen_days.add((email, day))
         url = f"http://{fly.address(user.machine_id)}:8899/{path}"
         headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP}
         headers["host"] = settings.public_host

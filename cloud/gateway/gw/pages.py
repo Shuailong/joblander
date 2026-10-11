@@ -536,6 +536,7 @@ _PRIV = {
 <li><b>系统生成的内容</b>：匹配评估、尽调报告、面试 brief、定制简历、日记与周报。</li>
 <li><b>用量记录</b>：每次 AI 调用的模型、token 数、费用与时间（用于额度计费）。</li>
 <li><b>反馈</b>：你主动提交的反馈内容、所在页面和浏览器标识。</li>
+<li><b>使用日期</b>：你哪天打开过应用（只记日期，不记做了什么），用于统计活跃人数。</li>
 <li><b>技术日志</b>：请求时间、状态码、IP 地址，用于排障与防滥用；不记录页面路径与内容。</li>
 <li><b>未受邀的登录</b>：没在邀请名单的人登录时，记下邮箱、尝试次数与时间，并通知运营者以便邀请；获邀或被清除时即删除。</li>
 </ul>
@@ -613,6 +614,7 @@ project's author as a free, invite-only beta. "I" below means the operator.</p>
 <li><b>What the system generates</b>: fit assessments, research reports, interview briefs, tailored resumes, diaries and weekly reports.</li>
 <li><b>Usage records</b>: model, tokens, cost and time of each AI call (for credit metering).</li>
 <li><b>Feedback</b>: what you submit, the page you were on and your browser's user agent.</li>
+<li><b>Days of use</b>: which days you opened the app (the date only, not what you did), to count active users.</li>
 <li><b>Technical logs</b>: request time, status code and IP address for troubleshooting and abuse prevention; page paths and content are not logged.</li>
 <li><b>Uninvited sign-ins</b>: if you sign in without an invite, your email, attempt count and time are kept and the operator is notified so they can invite you; the record is deleted once you're invited or it's cleared.</li>
 </ul>

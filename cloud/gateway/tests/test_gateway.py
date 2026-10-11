@@ -594,7 +594,7 @@ def test_admin_actions_invite_dismiss_grant(store):
     c.post("/_gw/admin/dismiss", data={"email": "spam@x.com"})
     assert store.waitlist() == []
     r = c.post("/_gw/admin/grant", data={"email": "a@x.com", "usd": "5"}, follow_redirects=True)
-    assert store.get("a@x.com").credit_usd == 7.0 and "已给 a@x.com 加 $5" in r.text
+    assert store.get("a@x.com").credit_usd == 7.0 and "已给 a•••@x.com 加 $5" in r.text
     c.post("/_gw/admin/grant", data={"email": "a@x.com", "usd": "500"})                # 超上限不加
     c.post("/_gw/admin/grant", data={"email": "nobody@x.com", "usd": "5"})
     assert store.get("a@x.com").credit_usd == 7.0 and store.get("nobody@x.com") is None
@@ -614,3 +614,24 @@ def test_home_screen_icons_are_public(store):
     assert r.status_code == 200 and r.content[:8] == b"\x89PNG\r\n\x1a\n"
     m = c.get("/_gw/static/manifest.webmanifest")
     assert m.status_code == 200 and m.json()["icons"][0]["src"] == "/_gw/static/icon-192.png"
+
+
+def test_admin_masks_emails_and_charts_growth_and_tokens(store):
+    from gw.admin import mask
+    assert mask("liangshuailong@gmail.com") == "li•••g@gmail.com" and mask("ab@x.com") == "a•••@x.com"
+    store.create("boss@x.com", 2.0)
+    store.create("alice.wong@x.com", 2.0)
+    store.set_status("alice.wong@x.com", "ready", machine_id="m_1")
+    store.charge("alice.wong@x.com", "m-pro", 1234, 567, 0.42)
+    store.add_feedback("alice.wong@x.com", "hi", "/", "zh", "ua")
+    u = _client(store, _fly([]), _upstream([]), "alice.wong@x.com")
+    u.get("/")
+    u.get("/pipeline")
+    assert len(store.export("alice.wong@x.com")["active_days"]) == 1        # 每天只记一条，只记日期
+    r = _client(store, _fly([]), _upstream([]), "boss@x.com").get("/_gw/admin")
+    assert "用户增长与活跃" in r.text and "每日 token 与花费" in r.text
+    assert "输入 1,234　输出 567 token　$0.420" in r.text and "累计 2" in r.text
+    assert "al•••g@x.com" in r.text
+    assert ">alice.wong@x.com<" not in r.text                                 # 只在表单的隐藏字段里出现全名
+    store.delete_user("alice.wong@x.com")
+    assert store.db.execute("SELECT COUNT(*) FROM active_days").fetchone()[0] == 0

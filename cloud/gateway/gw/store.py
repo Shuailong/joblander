@@ -42,6 +42,9 @@ CREATE TABLE IF NOT EXISTS feedback (
   email TEXT NOT NULL, message TEXT NOT NULL, page TEXT, lang TEXT, user_agent TEXT,
   emailed INTEGER NOT NULL DEFAULT 0, at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS active_days (            -- 哪天用过（只记日期，不记做了什么）：后台的活跃曲线
+  email TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (email, day)
+);
 CREATE TABLE IF NOT EXISTS grants (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL, amount_usd REAL NOT NULL, reason TEXT NOT NULL, at REAL NOT NULL
@@ -240,12 +243,17 @@ class Store:
                        "LEFT JOIN usage g ON g.email = u.email GROUP BY u.email ORDER BY last_at DESC, u.created_at DESC"),
             "usage": q("SELECT email, model, prompt_tokens, completion_tokens, cost_usd, at FROM usage "
                        "WHERE at >= ? ORDER BY at", since),
+            "active_days": q("SELECT email, day FROM active_days WHERE day >= ?",
+                             time.strftime("%Y-%m-%d", time.gmtime(since - 86400))),
             "waitlist": self.waitlist(),
             "pending_invites": q("SELECT i.email, i.created_at FROM invites i LEFT JOIN users u ON u.email = i.email "
                                  "WHERE u.email IS NULL ORDER BY i.created_at DESC"),
             "feedback": self.list_feedback(20),
             "grants": q("SELECT email, amount_usd, reason, at FROM grants ORDER BY id DESC LIMIT 20"),
         }
+
+    def touch_day(self, email: str, day: str) -> None:
+        self.db.execute("INSERT OR IGNORE INTO active_days VALUES (?, ?)", (email.lower(), day))
 
     # ---------- 隐私：同意、导出、彻底删除 ----------
 
@@ -264,11 +272,12 @@ class Store:
                 "grants": q("SELECT amount_usd, reason, at FROM grants WHERE email=? ORDER BY id"),
                 "usage": q("SELECT model, prompt_tokens, completion_tokens, cost_usd, at FROM usage "
                            "WHERE email=? ORDER BY id"),
-                "feedback": q("SELECT message, page, lang, user_agent, at FROM feedback WHERE email=? ORDER BY id")}
+                "feedback": q("SELECT message, page, lang, user_agent, at FROM feedback WHERE email=? ORDER BY id"),
+                "active_days": [r["day"] for r in q("SELECT day FROM active_days WHERE email=? ORDER BY day")]}
 
     def delete_user(self, email: str) -> None:
         """彻底删除：账户、邀请、额度流水、用量、反馈一并删掉。机器与卷由调用方先销毁。"""
         e = email.lower()
         with self.lock:
-            for t in ("usage", "grants", "feedback", "invites", "waitlist", "users"):
+            for t in ("usage", "active_days", "grants", "feedback", "invites", "waitlist", "users"):
                 self.db.execute(f"DELETE FROM {t} WHERE email=?", (e,))

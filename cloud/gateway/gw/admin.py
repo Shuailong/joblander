@@ -37,7 +37,7 @@ CSS = """
 .card h2{font-size:14.5px;margin:0 0 12px;font-weight:620;display:flex;align-items:center;gap:8px}
 .card h2 small{color:var(--ink-3);font-weight:450;font-size:12.5px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-.grid2 .card{margin-bottom:0}
+.grid2 .card{margin-bottom:0;min-width:0}
 .adm table{font-size:13px}
 .adm th{text-align:left;font-weight:550;color:var(--ink-3);font-size:12px;padding:0 10px 8px 0;border-bottom:1px solid var(--line);white-space:nowrap}
 .adm td{padding:8px 10px 8px 0;vertical-align:middle}
@@ -52,9 +52,21 @@ CSS = """
 .adm input.usd{width:62px}
 .adm .tbtn{height:28px}
 .adm .tbtn.go{background:var(--accent);color:var(--on-accent);border-color:transparent}
-.chart{display:flex;align-items:flex-end;gap:3px;height:120px;padding-top:6px}
-.chart div{flex:1;background:var(--accent);opacity:.85;border-radius:3px 3px 0 0;min-height:1px}
-.chart div.z{background:var(--line);opacity:1}
+.plot{position:relative}
+.chart{display:flex;align-items:flex-end;gap:3px;height:140px;padding-top:6px}
+.chart>div{flex:1;display:flex;flex-direction:column-reverse;height:100%;justify-content:flex-start}
+.chart>div:hover{background:var(--surface-2)}
+.chart i{display:block;min-height:0}
+.chart i.a{background:var(--accent);opacity:.85}
+.chart i.b{background:var(--accent);opacity:.4}
+.chart i.z{background:var(--line);min-height:1px}
+.chart>div>i:last-child{border-radius:3px 3px 0 0}
+.plot svg{position:absolute;inset:6px 0 0 0;width:100%;height:calc(100% - 6px);pointer-events:none;overflow:visible}
+.plot polyline{fill:none;stroke:var(--ink-2);stroke-width:1.6;vector-effect:non-scaling-stroke}
+.legend{display:flex;flex-wrap:wrap;gap:14px;color:var(--ink-3);font-size:12px;margin:-4px 0 10px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;background:var(--accent)}
+.legend i.a{opacity:.85}.legend i.b{opacity:.4}
+.legend i.l{height:2px;width:14px;background:var(--ink-2);vertical-align:3px}
 .axis{display:flex;justify-content:space-between;color:var(--ink-3);font-size:11.5px;margin-top:6px}
 .fb{white-space:pre-wrap;max-width:560px}
 .empty{color:var(--ink-3);font-size:13px}
@@ -80,6 +92,40 @@ def _usd(v: float) -> str:
     return f"-${-v:.2f}" if v < 0 else f"${v:.2f}"
 
 
+def mask(email: str) -> str:
+    """后台里显示的邮箱打码：用户名只留头两位和末位（liangshuailong@gmail.com → li•••g@gmail.com）。"""
+    name, at, dom = str(email or "").partition("@")
+    if len(name) <= 3:
+        name = name[:1] + "•••"
+    else:
+        name = name[:2] + "•••" + name[-1]
+    return name + at + dom
+
+
+def _tok(n: float) -> str:
+    return f"{n / 1e6:.1f}M" if n >= 1e6 else f"{n / 1e3:.0f}k" if n >= 1e3 else f"{n:.0f}"
+
+
+ZERO = '<i class="z"></i>'
+
+
+def _plot(days: list[str], stacks: list[tuple[float, float]], tips: list[str],
+          line: list[float] | None = None) -> str:
+    """按天的柱图：每天两段堆叠（a 深、b 浅），可选一条折线（自己的纵轴，顶到最高点）。"""
+    peak = max((a + b for a, b in stacks), default=0) or 1
+    cols = []
+    for (a, b), tip in zip(stacks, tips):
+        segs = "".join(f'<i class="{c}" style="height:{v / peak * 100:.2f}%"></i>' for c, v in (("a", a), ("b", b)) if v)
+        cols.append(f'<div title="{_e(tip)}">{segs or ZERO}</div>')
+    svg = ""
+    if line:
+        top = max(line) or 1
+        n = len(line)
+        pts = " ".join(f"{(i + .5) / n * 100:.2f},{100 - v / top * 96:.2f}" for i, v in enumerate(line))
+        svg = f'<svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="{pts}"/></svg>'
+    return f'<div class="plot"><div class="chart">{"".join(cols)}</div>{svg}</div>'
+
+
 def _e(s) -> str:
     return html.escape(str(s if s is not None else ""))
 
@@ -92,7 +138,9 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
     day = 86400
 
     # ---- 汇总 ----
-    active7 = {u["email"] for u in usage if u["at"] >= now - 7 * day}
+    week = {datetime.fromtimestamp(now - i * day, tz).strftime("%Y-%m-%d") for i in range(7)}
+    active7 = ({u["email"] for u in usage if u["at"] >= now - 7 * day}
+               | {a["email"] for a in snap.get("active_days", []) if a["day"] in week})
     cost = lambda since: sum(u["cost_usd"] for u in usage if u["at"] >= since)          # noqa: E731
     today0 = datetime.fromtimestamp(now, tz).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
     total_spent = sum(u["spent_usd"] for u in users)
@@ -108,20 +156,39 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
     ]
     kpi_html = "".join(f'<div class="kpi {c}"><b>{v}</b><span>{label}</span></div>' for v, label, c in kpis)
 
-    # ---- 30 天每日花费 ----
-    per_day: dict[str, list] = defaultdict(lambda: [0.0, 0])
-    for u in usage:
-        k = _t(u["at"], tz, "%Y-%m-%d")
-        per_day[k][0] += u["cost_usd"]
-        per_day[k][1] += 1
     days = [datetime.fromtimestamp(now - i * day, tz).strftime("%Y-%m-%d") for i in range(DAYS - 1, -1, -1)]
-    top = max(per_day[d][0] for d in days)
-    peak = top or 1
-    bars = "".join(
-        f'<div class="{"z" if not per_day[d][0] else ""}" style="height:{max(per_day[d][0] / peak * 100, 1):.1f}%" '
-        f'title="{d}　${per_day[d][0]:.3f}　{per_day[d][1]} 次"></div>' for d in days)
-    chart = (f'<div class="chart">{bars}</div><div class="axis"><span>{days[0][5:]}</span>'
-             f'<span>单日最高 ${top:.2f}</span><span>{days[-1][5:]}</span></div>')
+    axis = lambda mid: (f'<div class="axis"><span>{days[0][5:]}</span><span>{mid}</span>'   # noqa: E731
+                        f'<span>{days[-1][5:]}</span></div>')
+
+    # ---- 用户增长与每日活跃（新 = 当天注册；老 = 之前注册、当天用过）----
+    joined = {u["email"]: _t(u["created_at"], tz, "%Y-%m-%d") for u in users}
+    active: dict[str, set] = defaultdict(set)
+    for a in snap.get("active_days", []):
+        active[a["day"]].add(a["email"])
+    for u in usage:                                          # 记活跃日之前的日子：调过 AI 也算用过
+        active[_t(u["at"], tz, "%Y-%m-%d")].add(u["email"])
+    new = [sum(1 for j in joined.values() if j == d) for d in days]
+    old = [len({e for e in active[d] if e in joined and joined[e] < d}) for d in days]
+    total = [sum(1 for j in joined.values() if j <= d) for d in days]
+    grow = _plot(days, list(zip(new, old)),
+                 [f"{d}　新用户 {n}　老用户活跃 {o}　累计 {t}" for d, n, o, t in zip(days, new, old, total)], total)
+    grow_html = ('<div class="legend"><span><i class="a"></i>新用户（当天注册）</span>'
+                 '<span><i class="b"></i>老用户（当天用过）</span><span><i class="l"></i>累计用户</span></div>'
+                 + grow + axis(f"{DAYS} 天新增 {sum(new)} · 累计 {total[-1]}"))
+
+    # ---- 每日 token 与花费 ----
+    per_day: dict[str, list] = defaultdict(lambda: [0, 0, 0.0, 0])
+    for u in usage:
+        k = per_day[_t(u["at"], tz, "%Y-%m-%d")]
+        k[0] += u["prompt_tokens"]; k[1] += u["completion_tokens"]; k[2] += u["cost_usd"]; k[3] += 1
+    tok = _plot(days, [(per_day[d][1], per_day[d][0]) for d in days],
+                [f"{d}　输入 {per_day[d][0]:,}　输出 {per_day[d][1]:,} token　${per_day[d][2]:.3f}　{per_day[d][3]} 次"
+                 for d in days], [per_day[d][2] for d in days])
+    top = max(per_day[d][2] for d in days)
+    tok_html = ('<div class="legend"><span><i class="a"></i>输出 token</span><span><i class="b"></i>输入 token</span>'
+                '<span><i class="l"></i>花费</span></div>' + tok +
+                axis(f"{DAYS} 天 {_tok(sum(per_day[d][0] + per_day[d][1] for d in days))} token · "
+                     f"${sum(per_day[d][2] for d in days):.2f} · 单日最高 ${top:.2f}"))
 
     # ---- 用户 ----
     calls7 = defaultdict(int)
@@ -138,7 +205,7 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
         consent = ("✓" if u["privacy_version"] == privacy_version
                    else ("旧版" if u["privacy_version"] else "未同意"))
         err = f'<br><span class="dim" title="{_e(u["error"])}">{_e(u["error"])[:60]}</span>' if u["error"] else ""
-        return (f'<tr><td>{_e(u["email"])}{err}</td>'
+        return (f'<tr><td>{_e(mask(u["email"]))}{err}</td>'
                 f'<td><span class="pill {pill}">{_STATUS.get(st, _e(st))}</span></td>'
                 f'<td class="dim">{_e(u["lang"] or "—")}</td>'
                 f'<td class="dim">{_t(u["created_at"], tz)}</td>'
@@ -160,7 +227,7 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
     # ---- 名单 ----
     def wl_row(w: dict) -> str:
         e = _e(w["email"])
-        return (f'<tr><td>{e}</td><td class="n">{w["attempts"]} 次</td><td class="dim">{_t(w["last_at"], tz)}</td>'
+        return (f'<tr><td>{_e(mask(w["email"]))}</td><td class="n">{w["attempts"]} 次</td><td class="dim">{_t(w["last_at"], tz)}</td>'
                 f'<td class="dim">{_e(w["lang"] or "—")}</td><td style="white-space:nowrap">'
                 f'<form class="inl" method="post" action="/_gw/admin/invite"><input type="hidden" name="email" value="{e}">'
                 f'<button class="tbtn go">邀请</button></form> '
@@ -169,7 +236,7 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
 
     wl_html = ('<table>' + "".join(wl_row(w) for w in snap["waitlist"]) + '</table>'
                if snap["waitlist"] else '<p class="empty">没有被拦的人</p>')
-    pend_html = ('<table>' + "".join(f'<tr><td>{_e(i["email"])}</td><td class="dim">邀请于 {_t(i["created_at"], tz)}</td></tr>'
+    pend_html = ('<table>' + "".join(f'<tr><td>{_e(mask(i["email"]))}</td><td class="dim">邀请于 {_t(i["created_at"], tz)}</td></tr>'
                                      for i in snap["pending_invites"]) + '</table>'
                  if snap["pending_invites"] else '<p class="empty">邀请过的人都已登录</p>')
     invite_form = ('<form class="inl" method="post" action="/_gw/admin/invite" style="margin-bottom:12px">'
@@ -190,11 +257,11 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
 
     # ---- 反馈 / 发放 ----
     fb_html = ('<table>' + "".join(
-        f'<tr><td class="dim">{_t(f["at"], tz)}</td><td>{_e(f["email"])}<br><span class="dim">{_e(f["page"])}</span></td>'
+        f'<tr><td class="dim">{_t(f["at"], tz)}</td><td>{_e(mask(f["email"]))}<br><span class="dim">{_e(f["page"])}</span></td>'
         f'<td class="fb">{_e(f["message"][:600])}</td><td class="dim">{"✉" if f["emailed"] else "·"}</td></tr>'
         for f in snap["feedback"]) + '</table>' if snap["feedback"] else '<p class="empty">还没有反馈</p>')
     gr_html = ('<table>' + "".join(
-        f'<tr><td class="dim">{_t(g["at"], tz)}</td><td>{_e(g["email"])}</td>'
+        f'<tr><td class="dim">{_t(g["at"], tz)}</td><td>{_e(mask(g["email"]))}</td>'
         f'<td class="n">${g["amount_usd"]:.2f}</td><td class="dim">{_e(g["reason"])}</td></tr>'
         for g in snap["grants"]) + '</table>' if snap["grants"] else '<p class="empty">没有发放记录</p>')
 
@@ -205,7 +272,10 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
 <a class="tbtn" href="/">返回</a></header>
 {f'<div class="flash">{_e(flash)}</div>' if flash else ''}
 <div class="kpis">{kpi_html}</div>
-<div class="card"><h2>每日花费 <small>近 {DAYS} 天 · 悬停看明细</small></h2>{chart}</div>
+<div class="grid2">
+<div class="card"><h2>用户增长与活跃 <small>近 {DAYS} 天 · 悬停看明细</small></h2>{grow_html}</div>
+<div class="card"><h2>每日 token 与花费 <small>近 {DAYS} 天 · 悬停看明细</small></h2>{tok_html}</div>
+</div><div style="height:18px"></div>
 <div class="card"><h2>用户 <small>按最近活跃排序 · 余额低于 ${low_usd:g} 标红</small></h2>{users_html}</div>
 <div class="grid2">
 <div class="card"><h2>被拦的登录 <small>邀请会给对方发邮件</small></h2>{wl_html}</div>

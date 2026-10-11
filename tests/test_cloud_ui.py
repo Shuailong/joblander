@@ -63,3 +63,10 @@ def test_mobile_tabbar_and_menu(tmp_path, monkeypatch):
 def test_local_icons_from_engine_static(tmp_path, monkeypatch):
     html = _client(tmp_path, monkeypatch, cloud=False).get("/").text
     assert 'rel="apple-touch-icon" href="/static/icon-180.png"' in html
+
+
+def test_hidden_attribute_beats_component_display():
+    """管理员入口靠 hidden 藏起来；.acct-menu a / .row 的 display:flex 不能把它顶出来。"""
+    from pathlib import Path
+    css = (Path(__file__).parent.parent / "joblander/web/static/app.css").read_text()
+    assert "[hidden]{display:none!important}" in css

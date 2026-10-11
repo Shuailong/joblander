@@ -3,6 +3,8 @@
    - 色板：带一点绿调的暖灰阶 + 深青品牌色（侧栏/登录页主视觉）+ 薄荷高光；组件只引用变量
    - 主题：默认跟随系统；<html data-theme="light|dark"> 手动覆盖（侧栏切换，存本机）
    ========================================================================= */
+/* hidden 属性永远赢：组件的 display:flex/block 会压过浏览器默认的 [hidden]{display:none}（曾让管理员入口对所有人可见） */
+[hidden]{display:none!important}
 :root{
   color-scheme:light;
   --bg:#F4F6F3; --surface:#FFFFFF; --surface-2:#F9FAF8;
