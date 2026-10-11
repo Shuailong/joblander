@@ -247,7 +247,7 @@ def test_me_endpoint_and_usage_page(store):
     store.charge("a@x.com", "m-flash", 0, 0, 1.25)
     c = _client(store, _fly([]), _upstream([]), "a@x.com")
     assert c.get("/_gw/me").json() == {"email": "a@x.com", "admin": False, "balance_usd": 0.25,
-                                       "credit_usd": 2.0, "spent_usd": 1.75, "low": True}
+                                       "credit_usd": 2.0, "spent_usd": 1.75, "low": True, "request": None}
     assert _client(store, _fly([]), _upstream([])).get("/_gw/me").status_code == 401
     page = c.get("/_gw/account").text
     assert "用量明细" in page and "$0.25" in page and "/settings#account" in page
@@ -635,3 +635,50 @@ def test_admin_masks_emails_and_charts_growth_and_tokens(store):
     assert ">alice.wong@x.com<" not in r.text                                 # 只在表单的隐藏字段里出现全名
     store.delete_user("alice.wong@x.com")
     assert store.db.execute("SELECT COUNT(*) FROM active_days").fetchone()[0] == 0
+
+
+def test_credit_request_flow(store, monkeypatch):
+    mails = []
+
+    async def fake_post(self, url, **kw):
+        mails.append(kw["json"])
+        return httpx.Response(200)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    monkeypatch.setattr(SETTINGS, "resend_api_key", "re_x")
+    monkeypatch.setattr(SETTINGS, "mail_from", "joblander <hi@x.com>")
+    monkeypatch.setattr(SETTINGS, "feedback_to", "boss@x.com")
+    store.create("boss@x.com", 2.0)
+    store.create("a@x.com", 2.0)
+    store.charge("a@x.com", "m-pro", 0, 0, 1.9)
+    u = _client(store, _fly([]), _upstream([]), "a@x.com")
+    ok = {"Origin": "https://app.test"}
+    assert u.post("/_gw/credit-request", data={"message": "多给点"}, headers=ok).json() == {"error": "short"}
+    assert u.post("/_gw/credit-request", data={"message": "x" * 20},
+                  headers={"Origin": "https://evil.example"}).status_code == 403
+    out = u.post("/_gw/credit-request", data={"message": "在投三家公司，尽调很好用；希望简历定制能更快"}, headers=ok).json()
+    assert out["ok"] and out["request"]["status"] == "pending"
+    assert u.post("/_gw/credit-request", data={"message": "再来一次申请更多的额度"}, headers=ok).json() == {"error": "pending"}
+    assert u.get("/_gw/me").json()["request"]["status"] == "pending"
+    assert mails[-1]["to"] == [SETTINGS.feedback_to] and mails[-1]["reply_to"] == "a@x.com"
+    assert "尽调很好用" in mails[-1]["html"]
+
+    rid = out["request"]["id"]
+    assert u.post("/_gw/admin/request", data={"id": rid, "usd": "5", "action": "approve"}).status_code == 404
+    boss = _client(store, _fly([]), _upstream([]), "boss@x.com")
+    page = boss.get("/_gw/admin").text
+    assert 'id="requests"' in page and "尽调很好用" in page and "a•••@x.com" in page
+    r = boss.post("/_gw/admin/request", data={"id": rid, "usd": "5", "action": "approve"}, follow_redirects=True)
+    assert "已批：给 a•••@x.com 加 $5" in r.text
+    assert store.get("a@x.com").credit_usd == 7.0
+    assert mails[-1]["to"] == ["a@x.com"] and "$5" in mails[-1]["html"] and "$5.10" in mails[-1]["html"]
+    assert u.get("/_gw/me").json()["request"]["status"] == "approved"
+    r = boss.post("/_gw/admin/request", data={"id": rid, "usd": "5", "action": "approve"}, follow_redirects=True)
+    assert "已处理过" in r.text and store.get("a@x.com").credit_usd == 7.0            # 不会重复发
+    # 批完可以再申请；不批不发额度
+    rid2 = u.post("/_gw/credit-request", data={"message": "还想再多一点额度试试"}, headers=ok).json()["request"]["id"]
+    boss.post("/_gw/admin/request", data={"id": rid2, "usd": "5", "action": "decline"})
+    assert store.get("a@x.com").credit_usd == 7.0
+    assert u.get("/_gw/me").json()["request"]["status"] == "declined"
+    assert len(store.export("a@x.com")["credit_requests"]) == 2
+    store.delete_user("a@x.com")
+    assert store.db.execute("SELECT COUNT(*) FROM credit_requests").fetchone()[0] == 0

@@ -43,6 +43,7 @@ CSS = """
 .adm td{padding:8px 10px 8px 0;vertical-align:middle}
 .adm td.n,.adm th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .adm td.dim{color:var(--ink-3);white-space:nowrap}
+.adm span.dim{color:var(--ink-3);font-size:12px}
 .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11.5px;background:var(--surface-2);border:1px solid var(--line);color:var(--ink-2);white-space:nowrap}
 .pill.ok{background:var(--accent-soft);border-color:transparent;color:var(--accent-ink)}
 .pill.bad{color:var(--red)}
@@ -145,12 +146,15 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
     today0 = datetime.fromtimestamp(now, tz).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
     total_spent = sum(u["spent_usd"] for u in users)
     lows = [u for u in users if u["credit_usd"] - u["spent_usd"] < low_usd]
+    reqs = snap.get("credit_requests", [])
+    pending_reqs = [r for r in reqs if r["status"] == "pending"]
     kpis = [
         (len(users), "用户", ""),
         (len(active7), "7 天活跃", ""),
         (f"${cost(today0):.2f}", "今天花费", ""),
         (f"${cost(now - 7 * day):.2f}", "7 天花费", ""),
         (f"${total_spent:.2f}", "累计花费", ""),
+        (len(pending_reqs), "额度申请待批", "warn" if pending_reqs else ""),
         (len(snap["waitlist"]), "被拦待处理", "warn" if snap["waitlist"] else ""),
         (len(lows), f"余额 < ${low_usd:g}", "warn" if lows else ""),
     ]
@@ -255,6 +259,24 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
                       for k, v in sorted(by_model.items(), key=lambda kv: -kv[1][3])) + '</table>'
                   if by_model else f'<p class="empty">{DAYS} 天内没有调用</p>')
 
+    # ---- 额度申请 ----
+    def req_row(r: dict) -> str:
+        bal = (r["credit_usd"] or 0) - (r["spent_usd"] or 0)
+        who = (f'<td>{_e(mask(r["email"]))}<br><span class="dim">{_t(r["at"], tz)} · 余额 {_usd(bal)} · '
+               f'已花 ${r["spent_usd"] or 0:.2f}</span></td><td class="fb">{_e(r["message"][:1200])}</td>')
+        if r["status"] != "pending":
+            done = (f'<span class="pill ok">已批 ${r["amount_usd"]:g}</span>' if r["status"] == "approved"
+                    else '<span class="pill">未批准</span>')
+            return f'<tr>{who}<td style="white-space:nowrap">{done} <span class="dim">{_t(r["decided_at"], tz)}</span></td></tr>'
+        return (f'<tr>{who}<td style="white-space:nowrap"><form class="inl" method="post" action="/_gw/admin/request">'
+                f'<input type="hidden" name="id" value="{r["id"]}">'
+                f'<input class="usd" name="usd" type="number" step="0.5" min="0.5" max="100" value="5" aria-label="美元">'
+                f'<button class="tbtn go" name="action" value="approve">批准</button>'
+                f'<button class="tbtn" name="action" value="decline">不批</button></form></td></tr>')
+
+    req_html = ('<table>' + "".join(req_row(r) for r in reqs) + '</table>' if reqs
+                else '<p class="empty">没有额度申请</p>')
+
     # ---- 反馈 / 发放 ----
     fb_html = ('<table>' + "".join(
         f'<tr><td class="dim">{_t(f["at"], tz)}</td><td>{_e(mask(f["email"]))}<br><span class="dim">{_e(f["page"])}</span></td>'
@@ -272,6 +294,7 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
 <a class="tbtn" href="/">返回</a></header>
 {f'<div class="flash">{_e(flash)}</div>' if flash else ''}
 <div class="kpis">{kpi_html}</div>
+<div class="card" id="requests"><h2>额度申请 <small>用户在应用里写的用途与反馈 · 批准即发额度并邮件通知</small></h2>{req_html}</div>
 <div class="grid2">
 <div class="card"><h2>用户增长与活跃 <small>近 {DAYS} 天 · 悬停看明细</small></h2>{grow_html}</div>
 <div class="card"><h2>每日 token 与花费 <small>近 {DAYS} 天 · 悬停看明细</small></h2>{tok_html}</div>

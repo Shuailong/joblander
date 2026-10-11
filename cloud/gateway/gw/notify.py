@@ -46,6 +46,22 @@ async def send_blocked(http: httpx.AsyncClient, api_key: str, to: str, *, sender
     return r.status_code < 300
 
 
+async def send_credit_request(http: httpx.AsyncClient, api_key: str, to: str, *, sender: str,
+                              user: str, message: str, balance: float, spent: float, rid: int) -> bool:
+    """用户在应用里申请加额度：通知管理员去后台批（reply-to 是对方）。"""
+    if not (api_key and to):
+        return False
+    body = (f"<p><b>{html.escape(user)}</b> asks for more AI credit (#{rid}) — "
+            f"balance ${balance:.2f}, spent ${spent:.2f} so far.</p>"
+            f"<blockquote style='white-space:pre-wrap;border-left:3px solid #0E6E62;padding-left:10px'>"
+            f"{html.escape(message)}</blockquote>"
+            f"<p><a href='{APP_URL}/_gw/admin#requests'>Approve or decline in the admin page</a></p>")
+    r = await http.post(RESEND_URL, headers={"Authorization": f"Bearer {api_key}"}, json={
+        "from": sender, "to": [to], "reply_to": user,
+        "subject": f"[joblander] {user} asks for more credit", "html": body})
+    return r.status_code < 300
+
+
 # ---------- 发给用户本人的邮件（需要已验证的发件域名：MAIL_FROM） ----------
 
 APP_URL = "https://app.ailayoff.me"
@@ -82,8 +98,20 @@ _USER = {
         "en": ("Your AI credit is running low",
                "<p>Hi,</p><p>You have <b>${balance}</b> of AI credit left on joblander. Once it runs out, AI features "
                "(scoring, research, tailored CVs) pause; your data stays as is.</p>"
-               "<p>Want to keep going during the beta? Just reply to this email.</p>"
+               "<p>Want to keep going during the beta? Click “Request more credit” under Settings › Account in the app, "
+               "or just reply to this email.</p>"
                "<p><a href='{url}/_gw/account'>See usage</a></p>"),
+    },
+    "credit_granted": {
+        "zh": ("你的 AI 额度已追加",
+               "<p>你好，</p><p>你申请的额度批了：已给 <b>{email}</b> 追加 <b>${amount}</b>，现在余额 <b>${balance}</b>。"
+               "暂停的 AI 功能可以接着用了。</p><p>谢谢你的反馈，有想法随时在应用里点「反馈」或回复这封邮件。</p>"
+               "<p><a href='{url}'>打开 joblander</a></p>"),
+        "en": ("More AI credit added",
+               "<p>Hi,</p><p>Your request was approved: <b>${amount}</b> has been added to <b>{email}</b>, "
+               "and your balance is now <b>${balance}</b>. Paused AI features work again.</p>"
+               "<p>Thanks for the feedback — use Feedback in the app or reply to this email any time.</p>"
+               "<p><a href='{url}'>Open joblander</a></p>"),
     },
 }
 

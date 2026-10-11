@@ -82,9 +82,12 @@
     <div class="meta">{{ _('用 Google 登录') }}</div></div>
     <a class="btn" href="/auth/logout">{{ icon("logout", 14) }}{{ _('退出登录') }}</a></div>
   <div class="row"><div class="body"><b>{{ _('AI 额度') }}</b>
-    <div class="meta"><span id="me-credit">—</span> ｜ {{ _('评分、定制简历、brief 等 AI 生成按实际用量扣；用完找邀请你的朋友加。') }}</div>
+    <div class="meta"><span id="me-credit">—</span> ｜ {{ _('评分、定制简历、brief 等 AI 生成按实际用量扣；不够用可以申请追加。') }}</div>
     <div class="meter" id="me-meter"><i style="width:0"></i></div></div>
     <a class="btn" href="/_gw/account">{{ _('用量明细') }}</a></div>
+  <div class="row"><div class="body"><b>{{ _('申请更多额度') }}</b>
+    <div class="meta" id="me-req">{{ _('写几句你在用它做什么、哪里好用哪里不好用；批准后额度自动到账，并发邮件告诉你。') }}</div></div>
+    <button class="btn" id="me-req-btn" onclick="dlg('dlg-credit')">{{ _('申请') }}</button></div>
   <div class="row" id="me-admin" hidden><div class="body"><b>{{ _('管理后台') }}</b>
     <div class="meta">{{ _('用户、用量、邀请与反馈——只有管理员看得到这一行。') }}</div></div>
     <a class="btn" href="/_gw/admin">{{ _('打开') }}</a></div>
@@ -99,7 +102,22 @@ jlMe.then(me => {
   m.firstElementChild.style.width = (me.credit_usd > 0 ? Math.min(100, me.balance_usd / me.credit_usd * 100) : 0) + '%';
   m.classList.toggle('low', me.low);
   document.getElementById('me-admin').hidden = !me.admin;
+  reqState(me.request);
 });
+// 额度申请的状态：待批时按钮变灰；批过 / 没批的结果留在这一行，提交后由 base.html 的对话框发事件刷新
+function reqState(r){
+  if (!r) return;
+  const meta = document.getElementById('me-req'), btn = document.getElementById('me-req-btn');
+  const day = ts => new Date(ts * 1000).toLocaleDateString();
+  const pending = r.status === 'pending';
+  btn.disabled = pending;
+  btn.textContent = pending ? {{ _('已申请')|jsq }} : {{ _('申请')|jsq }};
+  if (pending) meta.textContent = {{ _('{d} 已提交，等待批准——批了会发邮件告诉你。')|jsq }}.replace('{d}', day(r.at));
+  else if (r.status === 'approved') meta.textContent = {{ _('上次申请（{d}）已批，追加了 ${a}。还需要可以再申请。')|jsq }}
+    .replace('{d}', day(r.at)).replace('{a}', r.amount_usd);
+  else meta.textContent = {{ _('上次申请（{d}）这次没批。有疑问可以点「反馈」问问。')|jsq }}.replace('{d}', day(r.at));
+}
+document.addEventListener('jl-credit-req', e => reqState(e.detail));
 </script>
 {% endif %}
 

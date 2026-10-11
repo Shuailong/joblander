@@ -147,7 +147,9 @@ class OpenAIChat:
                 timeout=600 if effort == "high" else 300))
         except LLMError as e:
             if _is_budget_error(e):
-                raise QuotaExceeded("AI 额度已用完——充值或订阅后继续使用") from e
+                raise QuotaExceeded("AI 额度已用完——在「设置 › 账户」里申请更多额度"
+                                    if os.environ.get("JOBLANDER_GATEWAY_TOKEN")
+                                    else "AI 额度已用完——充值或订阅后继续使用") from e
             raise
 
 

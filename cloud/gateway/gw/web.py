@@ -387,7 +387,33 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         bal = max(user.balance_usd, 0)
         return {"email": user.email, "admin": user.email in settings.admins,
                 "balance_usd": round(bal, 4), "credit_usd": round(user.credit_usd, 4),
-                "spent_usd": round(user.spent_usd, 4), "low": bal < settings.low_balance_usd}
+                "spent_usd": round(user.spent_usd, 4), "low": bal < settings.low_balance_usd,
+                "request": store.latest_request(user.email)}
+
+    @app.post("/_gw/credit-request")
+    async def credit_request(request: Request):
+        """应用里「申请更多额度」：写几句用途 / 反馈，存库并通知管理员；同一时间只能有一条待批。"""
+        email = current(request)
+        user = store.get(email) if email else None
+        if user is None:
+            return Response(status_code=401)
+        if not same_origin(request):
+            return Response(status_code=403)
+        form = await request.form()
+        message = str(form.get("message") or "").strip()[:3000]
+        if len(message) < 10:
+            return {"error": "short"}
+        rid = store.request_credit(email, message)
+        if rid is None:
+            return {"error": "pending"}
+        try:
+            from gw.notify import send_credit_request
+            await send_credit_request(google, settings.resend_api_key, settings.feedback_to,
+                                      sender=settings.feedback_from, user=email, message=message,
+                                      balance=max(user.balance_usd, 0), spent=user.spent_usd, rid=rid)
+        except Exception:                                       # noqa: BLE001  邮件失败不影响收下申请
+            pass
+        return {"ok": True, "request": store.latest_request(email)}
 
     @app.get("/_gw/account")
     async def account(request: Request):
@@ -474,6 +500,35 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             return back("没加：金额须在 0–100 之间，且对方已登录过")
         store.grant(target, usd, f"后台手工发放（{admin_email}）")
         return back(f"已给 {mask(target)} 加 ${usd:g}，余额 ${store.get(target).balance_usd:.2f}")
+
+    @app.post("/_gw/admin/request")
+    async def admin_request(request: Request):
+        """批 / 不批一条额度申请；批了就发额度并邮件告诉对方。"""
+        got = await admin_form(request)
+        if got is None:
+            return Response(status_code=404)
+        admin_email, form = got
+        try:
+            rid, usd = int(form.get("id") or 0), float(form.get("usd") or 0)
+        except ValueError:
+            return back("申请编号或金额不对")
+        approve = form.get("action") == "approve"
+        if approve and not 0 < usd <= 100:
+            return back("没批：金额须在 0–100 之间")
+        r = store.decide_request(rid, approve, usd, f"额度申请 #{rid} 批准（{admin_email}）")
+        if r is None:
+            return back("这条申请已处理过或不存在")
+        if not approve:
+            return back(f"已婉拒 {mask(r['email'])} 的申请（应用里会显示「未批准」）")
+        mailed = False
+        try:
+            from gw.notify import send_user
+            mailed = await send_user(google, settings.resend_api_key, settings.mail_from, settings.feedback_to,
+                                     to=r["email"], kind="credit_granted", lang=store.get(r["email"]).lang,
+                                     amount=f"{usd:g}", balance=f"{max(store.get(r['email']).balance_usd, 0):.2f}")
+        except Exception:                                       # noqa: BLE001
+            pass
+        return back(f"已批：给 {mask(r['email'])} 加 ${usd:g}" + ("，已发邮件通知" if mailed else ""))
 
     # ---------- 其余一切：转发到这个人自己的 machine ----------
 

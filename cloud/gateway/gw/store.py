@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS feedback (
 CREATE TABLE IF NOT EXISTS active_days (            -- 哪天用过（只记日期，不记做了什么）：后台的活跃曲线
   email TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (email, day)
 );
+CREATE TABLE IF NOT EXISTS credit_requests (        -- 用户在应用里申请加额度，管理员在后台批
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL, message TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',          -- pending | approved | declined
+  amount_usd REAL, at REAL NOT NULL, decided_at REAL
+);
 CREATE TABLE IF NOT EXISTS grants (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL, amount_usd REAL NOT NULL, reason TEXT NOT NULL, at REAL NOT NULL
@@ -245,12 +251,48 @@ class Store:
                        "WHERE at >= ? ORDER BY at", since),
             "active_days": q("SELECT email, day FROM active_days WHERE day >= ?",
                              time.strftime("%Y-%m-%d", time.gmtime(since - 86400))),
+            "credit_requests": q("SELECT r.*, u.credit_usd, u.spent_usd FROM credit_requests r "
+                                 "LEFT JOIN users u ON u.email = r.email "
+                                 "WHERE r.status='pending' OR r.decided_at >= ? ORDER BY r.status != 'pending', r.id DESC",
+                                 since),
             "waitlist": self.waitlist(),
             "pending_invites": q("SELECT i.email, i.created_at FROM invites i LEFT JOIN users u ON u.email = i.email "
                                  "WHERE u.email IS NULL ORDER BY i.created_at DESC"),
             "feedback": self.list_feedback(20),
             "grants": q("SELECT email, amount_usd, reason, at FROM grants ORDER BY id DESC LIMIT 20"),
         }
+
+    # ---------- 额度申请 ----------
+
+    def request_credit(self, email: str, message: str) -> int | None:
+        """新申请；已有一条待批的就不再收（返回 None）。"""
+        e = email.lower()
+        with self.lock:
+            if self.db.execute("SELECT 1 FROM credit_requests WHERE email=? AND status='pending'", (e,)).fetchone():
+                return None
+            return self.db.execute("INSERT INTO credit_requests (email, message, at) VALUES (?,?,?)",
+                                   (e, message, time.time())).lastrowid
+
+    def latest_request(self, email: str) -> dict | None:
+        r = self.db.execute("SELECT id, status, amount_usd, at, decided_at FROM credit_requests WHERE email=? "
+                            "ORDER BY id DESC LIMIT 1", (email.lower(),)).fetchone()
+        return dict(r) if r else None
+
+    def credit_request(self, rid: int) -> dict | None:
+        r = self.db.execute("SELECT * FROM credit_requests WHERE id=?", (rid,)).fetchone()
+        return dict(r) if r else None
+
+    def decide_request(self, rid: int, approve: bool, amount: float, reason: str) -> dict | None:
+        """批（同时发额度）或不批；只对待批的生效，返回那条申请。"""
+        with self.lock:
+            r = self.db.execute("SELECT * FROM credit_requests WHERE id=? AND status='pending'", (rid,)).fetchone()
+            if r is None:
+                return None
+            if approve:
+                self._grant(r["email"], amount, reason)
+            self.db.execute("UPDATE credit_requests SET status=?, amount_usd=?, decided_at=? WHERE id=?",
+                            ("approved" if approve else "declined", amount if approve else None, time.time(), rid))
+        return dict(r)
 
     def touch_day(self, email: str, day: str) -> None:
         self.db.execute("INSERT OR IGNORE INTO active_days VALUES (?, ?)", (email.lower(), day))
@@ -273,11 +315,13 @@ class Store:
                 "usage": q("SELECT model, prompt_tokens, completion_tokens, cost_usd, at FROM usage "
                            "WHERE email=? ORDER BY id"),
                 "feedback": q("SELECT message, page, lang, user_agent, at FROM feedback WHERE email=? ORDER BY id"),
+                "credit_requests": q("SELECT message, status, amount_usd, at, decided_at FROM credit_requests "
+                                     "WHERE email=? ORDER BY id"),
                 "active_days": [r["day"] for r in q("SELECT day FROM active_days WHERE email=? ORDER BY day")]}
 
     def delete_user(self, email: str) -> None:
         """彻底删除：账户、邀请、额度流水、用量、反馈一并删掉。机器与卷由调用方先销毁。"""
         e = email.lower()
         with self.lock:
-            for t in ("usage", "active_days", "grants", "feedback", "invites", "waitlist", "users"):
+            for t in ("usage", "active_days", "credit_requests", "grants", "feedback", "invites", "waitlist", "users"):
                 self.db.execute(f"DELETE FROM {t} WHERE email=?", (e,))

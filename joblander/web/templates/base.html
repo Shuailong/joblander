@@ -102,7 +102,35 @@ try { var t = localStorage.getItem('jl_theme'); if (t === 'light' || t === 'dark
     <button class="btn pri" onclick="sendFeedback(this)">{{ _('发送') }}</button>
   </div>
 </dialog>
+<dialog id="dlg-credit">
+  <h3>{{ _('申请更多额度') }}</h3>
+  <div class="note" style="margin:0 0 8px">{{ _('内测期间额度免费，由作者手动批。写几句：你在用它做什么、哪些功能有用、哪里不好用或想要什么。批准后额度自动到账，并发邮件到你的登录邮箱。') }}</div>
+  <textarea id="cr-text" style="min-height:140px" placeholder="{{ _('比如：在准备几家公司的面试，尽调和 brief 很有用；希望……') }}"></textarea>
+  <div class="dlg-ft">
+    <button class="btn" onclick="this.closest('dialog').close()">{{ _('取消') }}</button>
+    <button class="btn pri" onclick="sendCreditReq(this)">{{ _('提交申请') }}</button>
+  </div>
+</dialog>
 <script>
+async function sendCreditReq(btn){
+  const msg = gv('cr-text').trim();
+  if (msg.length < 10) { toast({{ _('多写几句吧（至少 10 个字）')|jsq }}); return; }
+  btn.disabled = true;
+  const fd = new FormData();
+  fd.append('message', msg);
+  try {
+    const r = await fetch('/_gw/credit-request', {method: 'POST', body: fd});
+    const out = r.ok ? await r.json() : {error: r.status};
+    if (out.ok) {
+      toast({{ _('已提交，批准后会发邮件告诉你')|jsq }});
+      document.getElementById('cr-text').value = '';
+      btn.closest('dialog').close();
+      document.dispatchEvent(new CustomEvent('jl-credit-req', {detail: out.request}));
+    } else toast(out.error === 'pending' ? {{ _('已经有一条申请在等批准了')|jsq }}
+                 : out.error === 'short' ? {{ _('多写几句吧（至少 10 个字）')|jsq }}
+                 : {{ _('提交失败：')|jsq }} + out.error);
+  } finally { btn.disabled = false; }
+}
 async function sendFeedback(btn){
   const msg = gv('fb-text').trim();
   if (msg.length < 3) { toast({{ _('先写点内容')|jsq }}); return; }
@@ -151,7 +179,11 @@ jlMe.then(me => {
     const bar = document.createElement('div');
     bar.className = 'sentinel warn';
     bar.style.margin = '0 0 12px';
-    bar.innerHTML = {{ _('AI 额度已用完——生成类功能暂停。<a href="/settings#account">查看额度</a>，或找邀请你的朋友加额度。')|jsq }};
+    bar.innerHTML = me.request && me.request.status === 'pending'
+      ? {{ _('AI 额度已用完——生成类功能暂停。额度申请已提交，批准后会发邮件告诉你。')|jsq }}
+      : {{ _('AI 额度已用完——生成类功能暂停。')|jsq }} + ' <a href="#">' + {{ _('申请更多额度')|jsq }} + '</a>';
+    const a = bar.querySelector('a');
+    if (a) a.onclick = e => { e.preventDefault(); dlg('dlg-credit'); };
     document.querySelector('.main').prepend(bar);
   }
 });
