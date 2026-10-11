@@ -630,7 +630,8 @@ def test_admin_masks_emails_and_charts_growth_and_tokens(store):
     assert len(store.export("alice.wong@x.com")["active_days"]) == 1        # 每天只记一条，只记日期
     r = _client(store, _fly([]), _upstream([]), "boss@x.com").get("/_gw/admin")
     assert "用户增长" in r.text and "每日活跃" in r.text and "每日 token 与花费" in r.text
-    assert "输入 1,234　输出 567 token　$0.420" in r.text and "累计 2" in r.text
+    assert "b|输入 1,234 token" in r.text and "a|输出 567 token" in r.text and "l|花费 $0.420" in r.text
+    assert "a|已注册 2" in r.text and "className='tip'" in r.text
     assert "al•••g@x.com" in r.text
     assert ">alice.wong@x.com<" not in r.text                                 # 只在表单的隐藏字段里出现全名
     store.delete_user("alice.wong@x.com")
@@ -694,4 +695,4 @@ def test_growth_counts_blocked_and_invited(store):
     store.dismiss("spam@x.com")                                # 清掉的不计
     assert store.db.execute("SELECT requested_at FROM invites WHERE email='w2@x.com'").fetchone()[0]
     html = _client(store, _fly([]), _upstream([]), "boss@x.com").get("/_gw/admin").text
-    assert "累计 4：注册 1　已邀请未登录 2　被拦待处理 1" in html
+    assert "a|已注册 1\nb|已邀请未登录 2\nc|被拦待处理 1\n|累计 4" in html

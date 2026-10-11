@@ -58,7 +58,15 @@ CSS = """
 .plot{position:relative}
 .chart{display:flex;align-items:flex-end;gap:3px;height:140px;padding-top:6px}
 .chart>div{flex:1;display:flex;flex-direction:column-reverse;height:100%;justify-content:flex-start}
-.chart>div:hover{background:var(--surface-2)}
+.chart>div{cursor:default;border-radius:3px 3px 0 0}
+.chart>div:hover,.chart>div.on{background:var(--accent-soft)}
+.tip{position:fixed;z-index:50;pointer-events:none;background:var(--surface);border:1px solid var(--line-strong);
+  border-radius:10px;padding:8px 11px;font-size:12.5px;line-height:1.6;box-shadow:var(--shadow-lg);
+  white-space:nowrap;font-variant-numeric:tabular-nums}
+.tip b{display:block;font-weight:620;margin-bottom:2px}
+.tip i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;background:var(--accent)}
+.tip i.a{opacity:.85}.tip i.b{opacity:.4}.tip i.c{background:#D99A2B;opacity:.7}
+.tip i.l{height:2px;width:12px;vertical-align:3px;background:var(--ink-2)}
 .chart i{display:block;min-height:0}
 .chart i.a{background:var(--accent);opacity:.85}
 .chart i.b{background:var(--accent);opacity:.4}
@@ -111,16 +119,43 @@ def _tok(n: float) -> str:
 
 
 ZERO = '<i class="z"></i>'
+_WEEK = "一二三四五六日"
 
 
-def _plot(days: list[str], stacks: list[tuple[float, ...]], tips: list[str],
+def _day(d: str) -> str:
+    return f"{d[5:]} 周{_WEEK[datetime.strptime(d, '%Y-%m-%d').weekday()]}"
+
+
+# 图表浮层：悬停（或手机上点按）某天的柱子，显示那天每一项的具体数字
+TIP_JS = """(()=>{const t=document.createElement('div');t.className='tip';t.hidden=true;document.body.append(t);
+let cur=null;const hov=matchMedia('(hover:hover)').matches;
+function show(c){cur=c;t.replaceChildren();const [h,...ls]=c.dataset.tip.split('\\n');
+const b=document.createElement('b');b.textContent=h;t.append(b);
+for(const l of ls){const i=l.indexOf('|'),d=document.createElement('div');
+if(i>0){const s=document.createElement('i');s.className=l.slice(0,i);d.append(s);}
+d.append(l.slice(i+1));t.append(d);}
+t.hidden=false;const r=c.getBoundingClientRect(),w=t.offsetWidth,h2=t.offsetHeight;
+let x=r.left+r.width/2-w/2;x=Math.max(8,Math.min(x,innerWidth-w-8));
+let y=r.top-h2-8;if(y<8)y=r.bottom+8;
+t.style.left=x+'px';t.style.top=y+'px';c.classList.add('on');}
+function hide(){t.hidden=true;if(cur)cur.classList.remove('on');cur=null;}
+document.querySelectorAll('.chart>div[data-tip]').forEach(c=>{
+if(hov){c.addEventListener('mouseenter',()=>{hide();show(c)});c.addEventListener('mouseleave',hide);}
+c.addEventListener('click',e=>{e.stopPropagation();if(hov){hide();show(c)}else cur===c?hide():(hide(),show(c))});});
+document.addEventListener('click',hide);addEventListener('scroll',hide,{passive:true});})();"""
+
+
+def _plot(days: list[str], stacks: list[tuple[float, ...]], tips: list[list[str]],
           line: list[float] | None = None) -> str:
-    """按天的柱图：每天几段自下而上堆叠（a 深、b 浅、c 琥珀），可选一条折线（自己的纵轴，顶到最高点）。"""
+    """按天的柱图：每天几段自下而上堆叠（a 深、b 浅、c 琥珀），可选一条折线（自己的纵轴，顶到最高点）。
+
+    tips：每天一组行，第一行是标题；其余行写成「色块|文字」（色块 a/b/c/l 对应图例，空 = 不带色块），
+    悬停 / 点按时由 TIP_JS 画成浮层。"""
     peak = max((sum(st) for st in stacks), default=0) or 1
     cols = []
     for st, tip in zip(stacks, tips):
         segs = "".join(f'<i class="{c}" style="height:{v / peak * 100:.2f}%"></i>' for c, v in zip("abc", st) if v)
-        cols.append(f'<div title="{_e(tip)}">{segs or ZERO}</div>')
+        cols.append(f'<div data-tip="{_e(chr(10).join(tip))}">{segs or ZERO}</div>')
     svg = ""
     if line:
         top = max(line) or 1
@@ -188,8 +223,8 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
         st = [stage_on(m, d) for m in marks.values()]
         funnel.append((st.count(2), st.count(1), st.count(0)))
         new_in.append(sum(1 for m in marks.values() if min(x for x in m if x) == d))
-    grow = _plot(days, funnel, [f"{d}　累计 {sum(f)}：注册 {f[0]}　已邀请未登录 {f[1]}　被拦待处理 {f[2]}　当天新来 {n}"
-                                for d, f, n in zip(days, funnel, new_in)])
+    grow = _plot(days, funnel, [[_day(d), f"a|已注册 {f[0]}", f"b|已邀请未登录 {f[1]}", f"c|被拦待处理 {f[2]}",
+                                 f"|累计 {sum(f)} · 当天新来 {n}"] for d, f, n in zip(days, funnel, new_in)])
     grow_html = ('<div class="legend"><span><i class="a"></i>已注册</span><span><i class="b"></i>已邀请未登录</span>'
                  '<span><i class="c"></i>被拦待处理</span></div>'
                  + grow + axis(f"{DAYS} 天新来 {sum(new_in)} · 累计 {sum(funnel[-1])}（注册 {funnel[-1][0]}）"))
@@ -203,7 +238,8 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
         active[_t(u["at"], tz, "%Y-%m-%d")].add(u["email"])
     new = [sum(1 for j in joined.values() if j == d) for d in days]
     old = [len({e for e in active[d] if e in joined and joined[e] < d}) for d in days]
-    act = _plot(days, list(zip(new, old)), [f"{d}　新注册 {n}　老用户活跃 {o}" for d, n, o in zip(days, new, old)])
+    act = _plot(days, list(zip(new, old)), [[_day(d), f"a|新用户 {n}", f"b|老用户 {o}", f"|合计活跃 {n + o}"]
+                                            for d, n, o in zip(days, new, old)])
     act_html = ('<div class="legend"><span><i class="a"></i>新用户（当天注册）</span>'
                 '<span><i class="b"></i>老用户（当天用过）</span></div>'
                 + act + axis(f"今天活跃 {new[-1] + old[-1]} · {DAYS} 天新注册 {sum(new)}"))
@@ -214,8 +250,9 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
         k = per_day[_t(u["at"], tz, "%Y-%m-%d")]
         k[0] += u["prompt_tokens"]; k[1] += u["completion_tokens"]; k[2] += u["cost_usd"]; k[3] += 1
     tok = _plot(days, [(per_day[d][1], per_day[d][0]) for d in days],
-                [f"{d}　输入 {per_day[d][0]:,}　输出 {per_day[d][1]:,} token　${per_day[d][2]:.3f}　{per_day[d][3]} 次"
-                 for d in days], [per_day[d][2] for d in days])
+                [[_day(d), f"a|输出 {per_day[d][1]:,} token", f"b|输入 {per_day[d][0]:,} token",
+                  f"l|花费 ${per_day[d][2]:.3f}", f"|{per_day[d][3]} 次调用"] for d in days],
+                [per_day[d][2] for d in days])
     top = max(per_day[d][2] for d in days)
     tok_html = ('<div class="legend"><span><i class="a"></i>输出 token</span><span><i class="b"></i>输入 token</span>'
                 '<span><i class="l"></i>花费</span></div>' + tok +
@@ -324,9 +361,9 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
 <div class="kpis">{kpi_html}</div>
 <div class="card" id="requests"><h2>额度申请 <small>用户在应用里写的用途与反馈 · 批准即发额度并邮件通知</small></h2>{req_html}</div>
 <div class="grid3">
-<div class="card"><h2>用户增长 <small>累计 · 含被拦与已邀请 · 悬停看明细</small></h2>{grow_html}</div>
-<div class="card"><h2>每日活跃 <small>近 {DAYS} 天 · 悬停看明细</small></h2>{act_html}</div>
-<div class="card"><h2>每日 token 与花费 <small>近 {DAYS} 天 · 悬停看明细</small></h2>{tok_html}</div>
+<div class="card"><h2>用户增长 <small>累计 · 含被拦与已邀请 · 悬停或点按看明细</small></h2>{grow_html}</div>
+<div class="card"><h2>每日活跃 <small>近 {DAYS} 天 · 悬停或点按看明细</small></h2>{act_html}</div>
+<div class="card"><h2>每日 token 与花费 <small>近 {DAYS} 天 · 悬停或点按看明细</small></h2>{tok_html}</div>
 </div>
 <div class="card"><h2>用户 <small>按最近活跃排序 · 余额低于 ${low_usd:g} 标红</small></h2>{users_html}</div>
 <div class="grid2">
@@ -337,5 +374,5 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
 <div class="card"><h2>最近反馈</h2>{fb_html}</div>
 <div class="card"><h2>额度发放</h2>{gr_html}</div>
 <p class="empty">这里只有账户汇总与用量元数据，不含任何用户空间里的内容。</p>
-</div><script>{pages.THEME_TOGGLE_JS}</script>"""
+</div><script>{pages.THEME_TOGGLE_JS}{TIP_JS}</script>"""
     return pages._doc("后台 · joblander", body, extra_css=CSS)
