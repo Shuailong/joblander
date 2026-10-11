@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import html
+import math
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -55,8 +56,16 @@ CSS = """
 .adm input.usd{width:62px}
 .adm .tbtn{height:28px}
 .adm .tbtn.go{background:var(--accent);color:var(--on-accent);border-color:transparent}
-.plot{position:relative}
-.chart{display:flex;align-items:flex-end;gap:3px;height:140px;padding-top:6px}
+.plot{display:grid;grid-template-columns:auto 1fr auto;column-gap:6px;margin-top:8px}
+.pa{position:relative;height:140px;min-width:0}
+.yax{position:relative;height:140px;font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.yax span{position:absolute;right:0;transform:translateY(50%);line-height:1}
+.yax.r span{right:auto;left:0}
+.yax .w{display:block;visibility:hidden;height:0;font-weight:inherit}
+.gl{position:absolute;left:0;right:0;border-top:1px dashed var(--line);pointer-events:none}
+.gl.z{border-top-style:solid;border-color:var(--line-strong)}
+.plot .axis{grid-column:2}
+.chart{position:relative;display:flex;align-items:flex-end;gap:3px;height:100%}
 .chart>div{flex:1;display:flex;flex-direction:column-reverse;height:100%;justify-content:flex-start}
 .chart>div{cursor:default;border-radius:3px 3px 0 0}
 .chart>div:hover,.chart>div.on{background:var(--accent-soft)}
@@ -73,13 +82,15 @@ CSS = """
 .chart i.c{background:#D99A2B;opacity:.7}
 .chart i.z{background:var(--line);min-height:1px}
 .chart>div>i:last-child{border-radius:3px 3px 0 0}
-.plot svg{position:absolute;inset:6px 0 0 0;width:100%;height:calc(100% - 6px);pointer-events:none;overflow:visible}
-.plot polyline{fill:none;stroke:var(--ink-2);stroke-width:1.6;vector-effect:non-scaling-stroke}
+.plot svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.plot path{fill:none;stroke:var(--ink-2);stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
 .legend{display:flex;flex-wrap:wrap;gap:14px;color:var(--ink-3);font-size:12px;margin:-4px 0 10px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;background:var(--accent)}
 .legend i.a{opacity:.85}.legend i.b{opacity:.4}.legend i.c{background:#D99A2B;opacity:.7}
 .legend i.l{height:2px;width:14px;background:var(--ink-2);vertical-align:3px}
 .axis{display:flex;justify-content:space-between;color:var(--ink-3);font-size:11.5px;margin-top:6px}
+.axis span{white-space:nowrap}
+.axis span:nth-child(2){overflow:hidden;text-overflow:ellipsis;min-width:0;padding:0 8px}
 .fb{white-space:pre-wrap;max-width:560px}
 .empty{color:var(--ink-3);font-size:13px}
 @media (max-width:820px){.grid2{grid-template-columns:1fr}.adm{padding:18px 16px 40px}.adm header .when{display:none}}
@@ -145,24 +156,73 @@ c.addEventListener('click',e=>{e.stopPropagation();if(hov){hide();show(c)}else c
 document.addEventListener('click',hide);addEventListener('scroll',hide,{passive:true});})();"""
 
 
+def _nice(peak: float, n: int = 4, whole: bool = False) -> tuple[float, float]:
+    """纵轴取整：顶到不小于 peak 的「1 / 2 / 2.5 / 5 × 10^k」档，返回 (顶, 步长)，约 n 格。"""
+    if peak <= 0:
+        return (4.0, 1.0) if whole else (1.0, .25)
+    raw = peak / n
+    mag = 10 ** math.floor(math.log10(raw))
+    step = next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw)
+    if whole:                                              # 人数：刻度只用整数
+        step = max(1, math.ceil(step)) if step < 10 else step
+    return step * math.ceil(peak / step - 1e-9), step
+
+
+def _smooth(pts: list[tuple[float, float]]) -> str:
+    """单调三次插值（Fritsch–Carlson）的 SVG 路径：曲线平滑，但不会冲过相邻点（花费不会画成负数）。"""
+    n = len(pts)
+    if n < 3:
+        return "M" + " L".join(f"{x:.2f},{y:.2f}" for x, y in pts)
+    d = [(pts[k + 1][1] - pts[k][1]) / (pts[k + 1][0] - pts[k][0]) for k in range(n - 1)]
+    m = [d[0]] + [0.0 if d[k - 1] * d[k] <= 0 else (d[k - 1] + d[k]) / 2 for k in range(1, n - 1)] + [d[-1]]
+    for k in range(n - 1):
+        if d[k] == 0:
+            m[k] = m[k + 1] = 0.0
+            continue
+        a, b = m[k] / d[k], m[k + 1] / d[k]
+        if a * a + b * b > 9:
+            t = 3 / math.hypot(a, b)
+            m[k], m[k + 1] = t * a * d[k], t * b * d[k]
+    out = [f"M{pts[0][0]:.2f},{pts[0][1]:.2f}"]
+    for k in range(n - 1):
+        (x0, y0), (x1, y1) = pts[k], pts[k + 1]
+        h = (x1 - x0) / 3
+        out.append(f"C{x0 + h:.2f},{y0 + m[k] * h:.2f} {x1 - h:.2f},{y1 - m[k + 1] * h:.2f} {x1:.2f},{y1:.2f}")
+    return " ".join(out)
+
+
+def _ticks(top: float, step: float, fmt) -> str:
+    labels = [fmt(k * step) for k in range(round(top / step) + 1)]
+    # 刻度绝对定位、不占宽；放一份看不见的最长标签把这一列撑开
+    return (f'<b class="w">{max(labels, key=len)}</b>' +
+            "".join(f'<span style="bottom:{k * step / top * 100:.2f}%">{t}</span>' for k, t in enumerate(labels)))
+
+
 def _plot(days: list[str], stacks: list[tuple[float, ...]], tips: list[list[str]],
-          line: list[float] | None = None) -> str:
-    """按天的柱图：每天几段自下而上堆叠（a 深、b 浅、c 琥珀），可选一条折线（自己的纵轴，顶到最高点）。
+          line: list[float] | None = None, *, fmt=lambda v: f"{v:g}", line_fmt=lambda v: f"{v:g}",
+          foot: str = "", whole: bool = False) -> str:
+    """按天的柱图：每天几段自下而上堆叠（a 深、b 浅、c 琥珀），左侧纵轴刻度 + 横向网格线；
+    可选一条平滑曲线，用右侧自己的纵轴。
 
     tips：每天一组行，第一行是标题；其余行写成「色块|文字」（色块 a/b/c/l 对应图例，空 = 不带色块），
     悬停 / 点按时由 TIP_JS 画成浮层。"""
-    peak = max((sum(st) for st in stacks), default=0) or 1
+    top, step = _nice(max((sum(st) for st in stacks), default=0), whole=whole)
     cols = []
     for st, tip in zip(stacks, tips):
-        segs = "".join(f'<i class="{c}" style="height:{v / peak * 100:.2f}%"></i>' for c, v in zip("abc", st) if v)
+        segs = "".join(f'<i class="{c}" style="height:{v / top * 100:.2f}%"></i>' for c, v in zip("abc", st) if v)
         cols.append(f'<div data-tip="{_e(chr(10).join(tip))}">{segs or ZERO}</div>')
-    svg = ""
+    grid = "".join(f'<div class="gl{" z" if k == 0 else ""}" style="bottom:{k * step / top * 100:.2f}%"></div>'
+                   for k in range(round(top / step) + 1))
+    svg, right = "", ""
     if line:
-        top = max(line) or 1
+        ltop, lstep = _nice(max(line))
         n = len(line)
-        pts = " ".join(f"{(i + .5) / n * 100:.2f},{100 - v / top * 96:.2f}" for i, v in enumerate(line))
-        svg = f'<svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="{pts}"/></svg>'
-    return f'<div class="plot"><div class="chart">{"".join(cols)}</div>{svg}</div>'
+        path = _smooth([((i + .5) / n * 100, 100 - v / ltop * 100) for i, v in enumerate(line)])
+        svg = f'<svg viewBox="0 0 100 100" preserveAspectRatio="none"><path d="{path}"/></svg>'
+        right = _ticks(ltop, lstep, line_fmt)
+    return (f'<div class="plot"><div class="yax">{_ticks(top, step, fmt)}</div>'
+            f'<div class="pa">{grid}<div class="chart">{"".join(cols)}</div>{svg}</div>'
+            f'<div class="yax r">{right}</div>{foot}</div>')
 
 
 def _e(s) -> str:
@@ -224,10 +284,11 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
         funnel.append((st.count(2), st.count(1), st.count(0)))
         new_in.append(sum(1 for m in marks.values() if min(x for x in m if x) == d))
     grow = _plot(days, funnel, [[_day(d), f"a|已注册 {f[0]}", f"b|已邀请未登录 {f[1]}", f"c|被拦待处理 {f[2]}",
-                                 f"|累计 {sum(f)} · 当天新来 {n}"] for d, f, n in zip(days, funnel, new_in)])
+                                 f"|累计 {sum(f)} · 当天新来 {n}"] for d, f, n in zip(days, funnel, new_in)],
+                 whole=True, foot=axis(f"{DAYS} 天新来 {sum(new_in)} · 累计 {sum(funnel[-1])}（注册 {funnel[-1][0]}）"))
     grow_html = ('<div class="legend"><span><i class="a"></i>已注册</span><span><i class="b"></i>已邀请未登录</span>'
                  '<span><i class="c"></i>被拦待处理</span></div>'
-                 + grow + axis(f"{DAYS} 天新来 {sum(new_in)} · 累计 {sum(funnel[-1])}（注册 {funnel[-1][0]}）"))
+                 + grow)
 
     # ---- 每日活跃（新 = 当天注册；老 = 之前注册、当天用过）----
     joined = {u["email"]: _t(u["created_at"], tz, "%Y-%m-%d") for u in users}
@@ -239,10 +300,11 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
     new = [sum(1 for j in joined.values() if j == d) for d in days]
     old = [len({e for e in active[d] if e in joined and joined[e] < d}) for d in days]
     act = _plot(days, list(zip(new, old)), [[_day(d), f"a|新用户 {n}", f"b|老用户 {o}", f"|合计活跃 {n + o}"]
-                                            for d, n, o in zip(days, new, old)])
+                                            for d, n, o in zip(days, new, old)],
+                whole=True, foot=axis(f"今天活跃 {new[-1] + old[-1]} · {DAYS} 天新注册 {sum(new)}"))
     act_html = ('<div class="legend"><span><i class="a"></i>新用户（当天注册）</span>'
                 '<span><i class="b"></i>老用户（当天用过）</span></div>'
-                + act + axis(f"今天活跃 {new[-1] + old[-1]} · {DAYS} 天新注册 {sum(new)}"))
+                + act)
 
     # ---- 每日 token 与花费 ----
     per_day: dict[str, list] = defaultdict(lambda: [0, 0, 0.0, 0])
@@ -252,12 +314,11 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
     tok = _plot(days, [(per_day[d][1], per_day[d][0]) for d in days],
                 [[_day(d), f"a|输出 {per_day[d][1]:,} token", f"b|输入 {per_day[d][0]:,} token",
                   f"l|花费 ${per_day[d][2]:.3f}", f"|{per_day[d][3]} 次调用"] for d in days],
-                [per_day[d][2] for d in days])
-    top = max(per_day[d][2] for d in days)
+                [per_day[d][2] for d in days], fmt=_tok, line_fmt=lambda v: f"${v:g}",
+                foot=axis(f"{DAYS} 天 {_tok(sum(per_day[d][0] + per_day[d][1] for d in days))} token · "
+                          f"${sum(per_day[d][2] for d in days):.2f}"))
     tok_html = ('<div class="legend"><span><i class="a"></i>输出 token</span><span><i class="b"></i>输入 token</span>'
-                '<span><i class="l"></i>花费</span></div>' + tok +
-                axis(f"{DAYS} 天 {_tok(sum(per_day[d][0] + per_day[d][1] for d in days))} token · "
-                     f"${sum(per_day[d][2] for d in days):.2f} · 单日最高 ${top:.2f}"))
+                '<span><i class="l"></i>花费（右轴）</span></div>' + tok)
 
     # ---- 用户 ----
     calls7 = defaultdict(int)
