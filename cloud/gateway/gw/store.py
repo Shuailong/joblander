@@ -95,6 +95,10 @@ class Store:
                 self.db.execute(f"ALTER TABLE users ADD COLUMN {col}")
             except sqlite3.OperationalError:
                 pass
+        try:                                                       # 被拦过的人获邀时记下首次被拦时间（增长曲线用）
+            self.db.execute("ALTER TABLE invites ADD COLUMN requested_at REAL")
+        except sqlite3.OperationalError:
+            pass
         self.lock = threading.Lock()
 
     def _user(self, row) -> User | None:
@@ -105,7 +109,10 @@ class Store:
     # ---------- 邀请 ----------
 
     def invite(self, email: str) -> None:
-        self.db.execute("INSERT OR IGNORE INTO invites VALUES (?, ?)", (email.lower(), time.time()))
+        e = email.lower()
+        w = self.db.execute("SELECT first_at FROM waitlist WHERE email=?", (e,)).fetchone()
+        self.db.execute("INSERT OR IGNORE INTO invites (email, created_at, requested_at) VALUES (?, ?, ?)",
+                        (e, time.time(), w["first_at"] if w else None))
         self.db.execute("DELETE FROM waitlist WHERE email=?", (email.lower(),))
 
     def is_invited(self, email: str) -> bool:
@@ -255,6 +262,7 @@ class Store:
                                  "LEFT JOIN users u ON u.email = r.email "
                                  "WHERE r.status='pending' OR r.decided_at >= ? ORDER BY r.status != 'pending', r.id DESC",
                                  since),
+            "invites": q("SELECT email, created_at, requested_at FROM invites"),
             "waitlist": self.waitlist(),
             "pending_invites": q("SELECT i.email, i.created_at FROM invites i LEFT JOIN users u ON u.email = i.email "
                                  "WHERE u.email IS NULL ORDER BY i.created_at DESC"),

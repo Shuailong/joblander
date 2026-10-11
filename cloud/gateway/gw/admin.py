@@ -37,6 +37,8 @@ CSS = """
 .card h2{font-size:14.5px;margin:0 0 12px;font-weight:620;display:flex;align-items:center;gap:8px}
 .card h2 small{color:var(--ink-3);font-weight:450;font-size:12.5px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;margin-bottom:18px}
+.grid3 .card{margin-bottom:0;min-width:0}
 .grid2 .card{margin-bottom:0;min-width:0}
 .adm table{font-size:13px}
 .adm th{text-align:left;font-weight:550;color:var(--ink-3);font-size:12px;padding:0 10px 8px 0;border-bottom:1px solid var(--line);white-space:nowrap}
@@ -60,13 +62,14 @@ CSS = """
 .chart i{display:block;min-height:0}
 .chart i.a{background:var(--accent);opacity:.85}
 .chart i.b{background:var(--accent);opacity:.4}
+.chart i.c{background:#D99A2B;opacity:.7}
 .chart i.z{background:var(--line);min-height:1px}
 .chart>div>i:last-child{border-radius:3px 3px 0 0}
 .plot svg{position:absolute;inset:6px 0 0 0;width:100%;height:calc(100% - 6px);pointer-events:none;overflow:visible}
 .plot polyline{fill:none;stroke:var(--ink-2);stroke-width:1.6;vector-effect:non-scaling-stroke}
 .legend{display:flex;flex-wrap:wrap;gap:14px;color:var(--ink-3);font-size:12px;margin:-4px 0 10px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;background:var(--accent)}
-.legend i.a{opacity:.85}.legend i.b{opacity:.4}
+.legend i.a{opacity:.85}.legend i.b{opacity:.4}.legend i.c{background:#D99A2B;opacity:.7}
 .legend i.l{height:2px;width:14px;background:var(--ink-2);vertical-align:3px}
 .axis{display:flex;justify-content:space-between;color:var(--ink-3);font-size:11.5px;margin-top:6px}
 .fb{white-space:pre-wrap;max-width:560px}
@@ -110,13 +113,13 @@ def _tok(n: float) -> str:
 ZERO = '<i class="z"></i>'
 
 
-def _plot(days: list[str], stacks: list[tuple[float, float]], tips: list[str],
+def _plot(days: list[str], stacks: list[tuple[float, ...]], tips: list[str],
           line: list[float] | None = None) -> str:
-    """按天的柱图：每天两段堆叠（a 深、b 浅），可选一条折线（自己的纵轴，顶到最高点）。"""
-    peak = max((a + b for a, b in stacks), default=0) or 1
+    """按天的柱图：每天几段自下而上堆叠（a 深、b 浅、c 琥珀），可选一条折线（自己的纵轴，顶到最高点）。"""
+    peak = max((sum(st) for st in stacks), default=0) or 1
     cols = []
-    for (a, b), tip in zip(stacks, tips):
-        segs = "".join(f'<i class="{c}" style="height:{v / peak * 100:.2f}%"></i>' for c, v in (("a", a), ("b", b)) if v)
+    for st, tip in zip(stacks, tips):
+        segs = "".join(f'<i class="{c}" style="height:{v / peak * 100:.2f}%"></i>' for c, v in zip("abc", st) if v)
         cols.append(f'<div title="{_e(tip)}">{segs or ZERO}</div>')
     svg = ""
     if line:
@@ -164,7 +167,34 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
     axis = lambda mid: (f'<div class="axis"><span>{days[0][5:]}</span><span>{mid}</span>'   # noqa: E731
                         f'<span>{days[-1][5:]}</span></div>')
 
-    # ---- 用户增长与每日活跃（新 = 当天注册；老 = 之前注册、当天用过）----
+    # ---- 用户增长：每天结束时的累计人数，按所处阶段堆叠（注册 / 已邀请未登录 / 被拦待处理）----
+    # 每人取三个时间点：首次被拦、获邀、注册；当天处于最靠后的那一阶段。被清掉的被拦记录不计。
+    stages: dict[str, list] = defaultdict(lambda: [None, None, None])
+    for w in snap["waitlist"]:
+        stages[w["email"]][0] = w["first_at"]
+    for i in snap.get("invites", []):
+        stages[i["email"]][1] = i["created_at"]
+        if i.get("requested_at"):
+            stages[i["email"]][0] = i["requested_at"]
+    for u in users:
+        stages[u["email"]][2] = u["created_at"]
+    marks = {e: [_t(t, tz, "%Y-%m-%d") if t else None for t in ts] for e, ts in stages.items()}
+
+    def stage_on(m: list, d: str) -> int:              # 2 注册 / 1 已邀请 / 0 被拦 / -1 还没出现
+        return next((k for k in (2, 1, 0) if m[k] and m[k] <= d), -1)
+
+    funnel, new_in = [], []
+    for d in days:
+        st = [stage_on(m, d) for m in marks.values()]
+        funnel.append((st.count(2), st.count(1), st.count(0)))
+        new_in.append(sum(1 for m in marks.values() if min(x for x in m if x) == d))
+    grow = _plot(days, funnel, [f"{d}　累计 {sum(f)}：注册 {f[0]}　已邀请未登录 {f[1]}　被拦待处理 {f[2]}　当天新来 {n}"
+                                for d, f, n in zip(days, funnel, new_in)])
+    grow_html = ('<div class="legend"><span><i class="a"></i>已注册</span><span><i class="b"></i>已邀请未登录</span>'
+                 '<span><i class="c"></i>被拦待处理</span></div>'
+                 + grow + axis(f"{DAYS} 天新来 {sum(new_in)} · 累计 {sum(funnel[-1])}（注册 {funnel[-1][0]}）"))
+
+    # ---- 每日活跃（新 = 当天注册；老 = 之前注册、当天用过）----
     joined = {u["email"]: _t(u["created_at"], tz, "%Y-%m-%d") for u in users}
     active: dict[str, set] = defaultdict(set)
     for a in snap.get("active_days", []):
@@ -173,12 +203,10 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
         active[_t(u["at"], tz, "%Y-%m-%d")].add(u["email"])
     new = [sum(1 for j in joined.values() if j == d) for d in days]
     old = [len({e for e in active[d] if e in joined and joined[e] < d}) for d in days]
-    total = [sum(1 for j in joined.values() if j <= d) for d in days]
-    grow = _plot(days, list(zip(new, old)),
-                 [f"{d}　新用户 {n}　老用户活跃 {o}　累计 {t}" for d, n, o, t in zip(days, new, old, total)], total)
-    grow_html = ('<div class="legend"><span><i class="a"></i>新用户（当天注册）</span>'
-                 '<span><i class="b"></i>老用户（当天用过）</span><span><i class="l"></i>累计用户</span></div>'
-                 + grow + axis(f"{DAYS} 天新增 {sum(new)} · 累计 {total[-1]}"))
+    act = _plot(days, list(zip(new, old)), [f"{d}　新注册 {n}　老用户活跃 {o}" for d, n, o in zip(days, new, old)])
+    act_html = ('<div class="legend"><span><i class="a"></i>新用户（当天注册）</span>'
+                '<span><i class="b"></i>老用户（当天用过）</span></div>'
+                + act + axis(f"今天活跃 {new[-1] + old[-1]} · {DAYS} 天新注册 {sum(new)}"))
 
     # ---- 每日 token 与花费 ----
     per_day: dict[str, list] = defaultdict(lambda: [0, 0, 0.0, 0])
@@ -295,10 +323,11 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
 {f'<div class="flash">{_e(flash)}</div>' if flash else ''}
 <div class="kpis">{kpi_html}</div>
 <div class="card" id="requests"><h2>额度申请 <small>用户在应用里写的用途与反馈 · 批准即发额度并邮件通知</small></h2>{req_html}</div>
-<div class="grid2">
-<div class="card"><h2>用户增长与活跃 <small>近 {DAYS} 天 · 悬停看明细</small></h2>{grow_html}</div>
+<div class="grid3">
+<div class="card"><h2>用户增长 <small>累计 · 含被拦与已邀请 · 悬停看明细</small></h2>{grow_html}</div>
+<div class="card"><h2>每日活跃 <small>近 {DAYS} 天 · 悬停看明细</small></h2>{act_html}</div>
 <div class="card"><h2>每日 token 与花费 <small>近 {DAYS} 天 · 悬停看明细</small></h2>{tok_html}</div>
-</div><div style="height:18px"></div>
+</div>
 <div class="card"><h2>用户 <small>按最近活跃排序 · 余额低于 ${low_usd:g} 标红</small></h2>{users_html}</div>
 <div class="grid2">
 <div class="card"><h2>被拦的登录 <small>邀请会给对方发邮件</small></h2>{wl_html}</div>

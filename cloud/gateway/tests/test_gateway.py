@@ -629,7 +629,7 @@ def test_admin_masks_emails_and_charts_growth_and_tokens(store):
     u.get("/pipeline")
     assert len(store.export("alice.wong@x.com")["active_days"]) == 1        # 每天只记一条，只记日期
     r = _client(store, _fly([]), _upstream([]), "boss@x.com").get("/_gw/admin")
-    assert "用户增长与活跃" in r.text and "每日 token 与花费" in r.text
+    assert "用户增长" in r.text and "每日活跃" in r.text and "每日 token 与花费" in r.text
     assert "输入 1,234　输出 567 token　$0.420" in r.text and "累计 2" in r.text
     assert "al•••g@x.com" in r.text
     assert ">alice.wong@x.com<" not in r.text                                 # 只在表单的隐藏字段里出现全名
@@ -682,3 +682,16 @@ def test_credit_request_flow(store, monkeypatch):
     assert len(store.export("a@x.com")["credit_requests"]) == 2
     store.delete_user("a@x.com")
     assert store.db.execute("SELECT COUNT(*) FROM credit_requests").fetchone()[0] == 0
+
+
+def test_growth_counts_blocked_and_invited(store):
+    store.create("boss@x.com", 2.0)
+    store.record_blocked("w1@x.com", "zh")
+    store.record_blocked("w2@x.com", "zh")
+    store.invite("w2@x.com")                                   # 被拦后获邀：仍记得首次被拦的时间
+    store.invite("fresh@x.com")
+    store.record_blocked("spam@x.com", "en")
+    store.dismiss("spam@x.com")                                # 清掉的不计
+    assert store.db.execute("SELECT requested_at FROM invites WHERE email='w2@x.com'").fetchone()[0]
+    html = _client(store, _fly([]), _upstream([]), "boss@x.com").get("/_gw/admin").text
+    assert "累计 4：注册 1　已邀请未登录 2　被拦待处理 1" in html
