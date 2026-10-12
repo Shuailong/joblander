@@ -18,7 +18,7 @@ from gw import pages
 
 DAYS = 30
 
-_STATUS = {"ready": "就绪", "new": "未开通", "provisioning": "开通中", "failed": "开通失败", "deleting": "删除中"}
+_STATUS = {"ready": "就绪", "asleep": "休眠", "new": "未开通", "provisioning": "开通中", "failed": "开通失败", "deleting": "删除中"}
 
 CSS = """
 .adm{max-width:1180px;margin:0 auto;padding:28px 24px 60px}
@@ -230,6 +230,7 @@ def _e(s) -> str:
 
 
 def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, flash: str = "",
+           asleep: set[str] | None = None,
            now: float | None = None) -> HTMLResponse:
     now = now or time.time()
     tz = ZoneInfo(tz_name)
@@ -255,6 +256,9 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
         (f"${cost(now - 7 * day):.2f}", "7 天花费", ""),
         (f"${total_spent:.2f}", "累计花费", ""),
         (len(errs24), "24 小时 AI 失败", "warn" if errs24 else ""),
+        *([(f'{sum(1 for u in users if u["status"] == "ready" and u["email"] not in asleep)}'
+            f' / {sum(1 for u in users if u["status"] == "ready")}', "机器在线（其余休眠）", "")]
+          if asleep is not None else []),
         (len(pending_reqs), "额度申请待批", "warn" if pending_reqs else ""),
         (len(snap["waitlist"]), "被拦待处理", "warn" if snap["waitlist"] else ""),
         (len(lows), f"余额 < ${low_usd:g}", "warn" if lows else ""),
@@ -352,6 +356,8 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
         bal = u["credit_usd"] - u["spent_usd"]
         st = u["status"]
         pill = "ok" if st == "ready" else "bad" if st == "failed" else ""
+        if st == "ready" and asleep is not None and u["email"] in asleep:
+            st, pill = "asleep", ""
         consent = ("✓" if u["privacy_version"] == privacy_version
                    else ("旧版" if u["privacy_version"] else "未同意"))
         err = f'<br><span class="dim" title="{_e(u["error"])}">{_e(u["error"])[:60]}</span>' if u["error"] else ""

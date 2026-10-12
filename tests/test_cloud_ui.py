@@ -70,3 +70,13 @@ def test_hidden_attribute_beats_component_display():
     from pathlib import Path
     css = (Path(__file__).parent.parent / "joblander/web/static/app.css").read_text()
     assert "[hidden]{display:none!important}" in css
+
+
+def test_busy_endpoint_reports_running_tasks(tmp_path, monkeypatch):
+    """网关据 /api/busy 决定能否让机器休眠：有任务在跑就不能。"""
+    from joblander.web import app as appmod
+    c = _client(tmp_path, monkeypatch, cloud=True)
+    assert c.get("/api/busy").json() == {"busy": False, "tasks": [], "job": None}
+    monkeypatch.setitem(appmod.TASKS, "t1", {"id": "t1", "kind": "research", "label": "x", "status": "running"})
+    assert c.get("/api/busy").json()["busy"] is True
+    assert TestClient(c.app, base_url="http://127.0.0.1").get("/api/busy").status_code == 403   # 没网关口令不让问

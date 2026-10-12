@@ -102,6 +102,8 @@ $GW "python -m gw.cli upgrade registry.fly.io/joblander-users:vN"               
 | `FREE_CREDIT_USD` | 新用户赠送额度，默认 2 |
 | `USER_IMAGE` | 新用户机器用的镜像 |
 | `USER_MEMORY_MB` | 用户机器内存，默认 1024 |
+| `IDLE_MINUTES` | 用户机器闲置多少分钟后挂起，默认 15；设 `0` = 关掉休眠、机器常开 |
+| `WAKE_AT` | 定时叫醒挂起的机器，默认 `02:35,08:20,21:35,sun 20:05`（夜扫 / 晨报 / 日记 / 周报之后，网关时区） |
 | `OPENAI_API_KEY` / `TAVILY_API_KEY` | 上游 key（只在网关，用户机器拿到的是计量子 key） |
 | `MODEL_PRICES` | 计费单价 JSON |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `SESSION_SECRET` / `PUBLIC_HOST` | 登录与会话 |
@@ -112,6 +114,14 @@ $GW "python -m gw.cli upgrade registry.fly.io/joblander-users:vN"               
   `GET /auth/ 200`（几百毫秒）通常就是有人被拦或登录失败；正常登录是 `302`。
 - **某个用户卡在开通**：`users` 看状态与报错；必要时 `reset` 让其下次登录重新开通。
 - **备份**：用户卷由 Fly 每天自动快照，保留 5 天。
+- **AI 调用失败**：后台「24 小时 AI 失败」与「AI 调用失败」表按状态码 / 类型汇总；同类错误首次出现会邮件告警（3 小时一封）。
+  `rate_limit_exceeded` = OpenAI 限流（引擎会自动退避重试，频繁出现就升 OpenAI 的 usage tier）；
+  `insufficient_quota` = OpenAI 账户没钱了，去 platform.openai.com 充值。
+- **闲置休眠**：网关每分钟检查一次，闲置超过 `IDLE_MINUTES` 且引擎 `/api/busy` 说没在跑任务的机器会被挂起（每轮最多 3 台），
+  有请求或到 `WAKE_AT` 的点再启动（挂起的恢复约几百毫秒，部署新镜像后的第一次是冷启动，慢几秒）。
+  后台「机器在线」看当前几台醒着，用户表里「休眠」= 正在睡。日志里 `put N idle machine(s) to sleep` /
+  `scheduled wake` 是它在干活。怀疑它出问题：`fly secrets set -a joblander-gw IDLE_MINUTES=0` 立刻回到常开，
+  已挂起的机器有人访问时会被叫醒。
 
 ## 发信域名（Resend）
 

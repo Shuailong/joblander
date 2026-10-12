@@ -25,6 +25,7 @@ class Daemon:
         self.state: dict[str, Any] = self._load_state()
         self._state_lock = threading.Lock()
         self._stop = threading.Event()
+        self.running: str | None = None      # 正在跑的 job：云端网关据此判断能不能让机器休眠
         self.jobs: list[tuple[str, Callable[[], Any]]] = [
             ("transcript_watch", self.job_transcript_watch),   # 每 tick
             ("calendar_watch", self.job_calendar_watch),       # 30min
@@ -318,12 +319,15 @@ class Daemon:
 
     def tick(self):
         for name, fn in self.jobs:
+            self.running = name
             try:
                 fn()
             except Exception as e:                      # DLQ 语义：失败入账不静默
                 self._log().append("job.failed", "daemon",
                                    {"job": name, "error": str(e)[:300],
                                     "trace": traceback.format_exc()[-500:]})
+            finally:
+                self.running = None
         self._save_state()
 
     def run_forever(self, interval: int = 60):

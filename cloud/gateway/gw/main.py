@@ -49,6 +49,8 @@ def build():
         resend_api_key=env("RESEND_API_KEY", ""),
         mail_from=env("MAIL_FROM", ""),
         low_balance_usd=float(env("LOW_BALANCE_USD", "0.5")),
+        idle_minutes=int(env("IDLE_MINUTES", "15")),
+        wake_at=env("WAKE_AT", "02:35,08:20,21:35,sun 20:05"),
     )
     if settings.mail_from:                   # 有了已验证域名，给管理员的通知也用它发
         settings.feedback_from = settings.mail_from

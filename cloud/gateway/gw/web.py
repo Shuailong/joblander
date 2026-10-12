@@ -55,6 +55,8 @@ class Settings:
     feedback_from: str = "joblander <onboarding@resend.dev>"
     low_balance_usd: float = 0.5  # 额度提醒线（后台标红也用它）
     mail_from: str = ""          # 已验证域名的发件人，如 "joblander <hello@ailayoff.me>"；空 = 不给用户发信
+    idle_minutes: int = 0        # 用户 machine 闲置多久就挂起；0 = 不休眠（常开）
+    wake_at: str = "02:35,08:20,21:35,sun 20:05"   # 定时叫醒（引擎夜扫 / 晨报 / 日记 / 周报之后）
 
 
 # ---------- 会话：HMAC 签名的 email|过期时间，不存服务端 ----------
@@ -97,6 +99,15 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
     http = upstream or httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10))
     google = httpx.AsyncClient(timeout=20)
     provisioning: dict[str, asyncio.Task] = {}
+    from gw.sleep import Sleeper
+    sleeper = Sleeper(store, fly, http, idle_minutes=settings.idle_minutes, wake_at=settings.wake_at,
+                      tz=settings.timezone)
+    app.state.sleeper = sleeper
+
+    async def start_sleeper():
+        if settings.idle_minutes:
+            app.state.sleeper_task = asyncio.create_task(sleeper.run())
+    app.router.on_startup.append(start_sleeper)
     redirect_uri = f"https://{settings.public_host}/auth/callback"
 
     log = logging.getLogger("uvicorn.error")
@@ -450,6 +461,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         from gw import admin
         snap = store.admin_snapshot(time.time() - admin.DAYS * 86400)
         return admin.render(snap, low_usd=settings.low_balance_usd, tz_name=settings.timezone,
+                            asleep=sleeper.asleep if settings.idle_minutes else None,
                             privacy_version=pages.PRIVACY_VERSION, flash=m[:200])
 
     async def admin_form(request: Request) -> tuple[str, dict] | None:
@@ -571,10 +583,26 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         chosen = request.cookies.get("jl_lang_set")
         if chosen in ("zh", "en"):
             headers["x-joblander-set-lang"] = chosen
-        req = http.build_request(request.method, url, params=request.query_params,
-                                 headers=headers, content=request.stream())
+        sleeper.seen(email)
         try:
-            resp = await http.send(req, stream=True)
+            await sleeper.ensure_awake(user)
+        except Exception:                                       # noqa: BLE001  叫不醒就按连不上处理
+            pass
+        body_bytes = await request.body()                       # 先读出来：连不上要叫醒后重发一次
+        req = http.build_request(request.method, url, params=request.query_params,
+                                 headers=headers, content=body_bytes)
+        try:
+            try:
+                resp = await http.send(req, stream=True)
+            except httpx.ConnectError:
+                try:
+                    woke = await sleeper.recover(user)
+                except Exception:                               # noqa: BLE001
+                    woke = False
+                if not woke:                                    # 不是在睡：真连不上
+                    raise
+                resp = await http.send(http.build_request(request.method, url, params=request.query_params,
+                                                          headers=headers, content=body_bytes), stream=True)
         except httpx.HTTPError:
             lg = lang(request)
             return _page(pages.msg("unreachable_t", lg), pages.msg("unreachable", lg), refresh=5, lang=lg)

@@ -154,6 +154,11 @@ class Store:
     def all(self) -> list[User]:
         return [self._user(r) for r in self.db.execute("SELECT * FROM users ORDER BY created_at")]
 
+    def ready_users(self) -> list[User]:
+        """有机器、已就绪的用户（休眠 / 叫醒只管这些）。"""
+        return [self._user(r) for r in self.db.execute(
+            "SELECT * FROM users WHERE status='ready' AND machine_id IS NOT NULL ORDER BY created_at")]
+
     def create(self, email: str, free_credit: float) -> tuple[User, str]:
         """新建用户；返回 (user, 子 key 明文)。明文只此一次，随即写进该用户 machine 的环境变量。"""
         meter_key = "jlm-" + secrets.token_urlsafe(32)

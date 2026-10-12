@@ -1,4 +1,4 @@
-"""Fly Machines API 的最小封装：给新用户开一块卷 + 一台常开 machine，或把全体升级到新镜像。
+"""Fly Machines API 的最小封装：给新用户开一块卷 + 一台 machine，闲置时挂起 / 有人来再启动，或把全体升级到新镜像。
 
 用户 machine 不挂任何 services：公网不可达，只有网关经私网 <id>.vm.<app>.internal 访问。
 """
@@ -53,6 +53,19 @@ class Fly:
     async def wait_started(self, machine_id: str, timeout_s: int = 60) -> None:
         await self._call("GET", f"/machines/{machine_id}/wait",
                          params={"state": "started", "timeout": timeout_s})
+
+    async def start_machine(self, machine_id: str) -> None:
+        """停着的冷启动；挂起的从快照恢复（约几百毫秒）。"""
+        await self._call("POST", f"/machines/{machine_id}/start")
+
+    async def suspend_machine(self, machine_id: str) -> None:
+        await self._call("POST", f"/machines/{machine_id}/suspend")
+
+    async def stop_machine(self, machine_id: str) -> None:
+        await self._call("POST", f"/machines/{machine_id}/stop")
+
+    async def machine_state(self, machine_id: str) -> str:
+        return (await self.get_machine(machine_id)).get("state", "")
 
     async def get_machine(self, machine_id: str) -> dict:
         return await self._call("GET", f"/machines/{machine_id}")

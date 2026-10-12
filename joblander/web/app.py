@@ -1372,6 +1372,13 @@ def create_app(with_daemon: bool = True) -> FastAPI:
     def api_tasks():
         return recent_tasks()
 
+    @app.get("/api/busy")
+    def api_busy():
+        """云端网关问：现在能不能让这台机器休眠？有任务在跑（用户点的或定时 job）就不能。"""
+        tasks = [t["kind"] for t in TASKS.values() if t["status"] == "running"]
+        job = daemon.running if daemon else None
+        return {"busy": bool(tasks or job), "tasks": tasks, "job": job}
+
     @app.post("/api/tasks/dismiss")
     def api_tasks_dismiss(id: str = Form(...)):
         t = TASKS.get(id)
