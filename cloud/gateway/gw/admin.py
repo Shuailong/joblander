@@ -244,6 +244,8 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
     today0 = datetime.fromtimestamp(now, tz).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
     total_spent = sum(u["spent_usd"] for u in users)
     lows = [u for u in users if u["credit_usd"] - u["spent_usd"] < low_usd]
+    errs = snap.get("ai_errors", [])
+    errs24 = [e for e in errs if e["at"] >= now - day]
     reqs = snap.get("credit_requests", [])
     pending_reqs = [r for r in reqs if r["status"] == "pending"]
     kpis = [
@@ -252,6 +254,7 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
         (f"${cost(today0):.2f}", "今天花费", ""),
         (f"${cost(now - 7 * day):.2f}", "7 天花费", ""),
         (f"${total_spent:.2f}", "累计花费", ""),
+        (len(errs24), "24 小时 AI 失败", "warn" if errs24 else ""),
         (len(pending_reqs), "额度申请待批", "warn" if pending_reqs else ""),
         (len(snap["waitlist"]), "被拦待处理", "warn" if snap["waitlist"] else ""),
         (len(lows), f"余额 < ${low_usd:g}", "warn" if lows else ""),
@@ -307,18 +310,35 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
                 + act)
 
     # ---- 每日 token 与花费 ----
+    fail_day: dict[str, int] = defaultdict(int)
+    for e in errs:
+        fail_day[_t(e["at"], tz, "%Y-%m-%d")] += 1
     per_day: dict[str, list] = defaultdict(lambda: [0, 0, 0.0, 0])
     for u in usage:
         k = per_day[_t(u["at"], tz, "%Y-%m-%d")]
         k[0] += u["prompt_tokens"]; k[1] += u["completion_tokens"]; k[2] += u["cost_usd"]; k[3] += 1
     tok = _plot(days, [(per_day[d][1], per_day[d][0]) for d in days],
                 [[_day(d), f"a|输出 {per_day[d][1]:,} token", f"b|输入 {per_day[d][0]:,} token",
-                  f"l|花费 ${per_day[d][2]:.3f}", f"|{per_day[d][3]} 次调用"] for d in days],
+                  f"l|花费 ${per_day[d][2]:.3f}", f"|{per_day[d][3]} 次调用"
+                  + (f" · 失败 {fail_day[d]} 次" if fail_day[d] else "")] for d in days],
                 [per_day[d][2] for d in days], fmt=_tok, line_fmt=lambda v: f"${v:g}",
                 foot=axis(f"{DAYS} 天 {_tok(sum(per_day[d][0] + per_day[d][1] for d in days))} token · "
                           f"${sum(per_day[d][2] for d in days):.2f}"))
     tok_html = ('<div class="legend"><span><i class="a"></i>输出 token</span><span><i class="b"></i>输入 token</span>'
                 '<span><i class="l"></i>花费（右轴）</span></div>' + tok)
+
+    # ---- AI 失败（按天 × 状态码 × 类型汇总）----
+    eg: dict[tuple, list] = {}
+    for e in errs:
+        k = (_t(e["at"], tz, "%Y-%m-%d"), e["status"], e["kind"])
+        g = eg.setdefault(k, [0, set(), 0.0])
+        g[0] += 1; g[1].add(e["email"]); g[2] = e["at"]
+    err_html = ('<table><tr><th>日期</th><th>状态</th><th>类型</th><th class="n">次数</th><th class="n">涉及用户</th>'
+                '<th>最近一次</th></tr>' + "".join(
+                    f'<tr><td class="dim">{k[0][5:]}</td><td>{k[1]}</td><td>{_e(k[2])}</td><td class="n">{v[0]}</td>'
+                    f'<td class="n">{len(v[1])}</td><td class="dim">{_t(v[2], tz, "%H:%M")}</td></tr>'
+                    for k, v in sorted(eg.items(), key=lambda kv: -kv[1][2])[:15]) + '</table>'
+                if eg else f'<p class="empty">{DAYS} 天内没有失败</p>')
 
     # ---- 用户 ----
     calls7 = defaultdict(int)
@@ -432,6 +452,7 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
 <div class="card"><h2>邀请 <small>已邀请、还没登录的人</small></h2>{invite_form}{pend_html}</div>
 </div><div style="height:18px"></div>
 <div class="card"><h2>按模型 <small>近 {DAYS} 天</small></h2>{model_html}</div>
+<div class="card"><h2>AI 调用失败 <small>上游限流 / 额度 / 网络 · 首次出现会邮件告警</small></h2>{err_html}</div>
 <div class="card"><h2>最近反馈</h2>{fb_html}</div>
 <div class="card"><h2>额度发放</h2>{gr_html}</div>
 <p class="empty">这里只有账户汇总与用量元数据，不含任何用户空间里的内容。</p>

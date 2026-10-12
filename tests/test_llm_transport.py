@@ -159,3 +159,42 @@ def test_cloud_search_goes_through_gateway(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", over)
     with pytest.raises(S.SearchError, match="额度已用完"):
         S.web_search(cfg, "Acme")
+
+
+def test_rate_limit_backs_off_then_succeeds(monkeypatch):
+    from joblander.llm import RateLimited
+    slept, calls = [], []
+    monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
+
+    def fn():
+        calls.append(1)
+        if len(calls) < 3:
+            raise RateLimited("429: rate_limit_exceeded", retry_after=7 if len(calls) == 2 else None)
+        return "ok"
+    assert _with_retry(fn) == "ok"
+    assert slept == [10, 7]                                     # 先按默认退避，上游给了 Retry-After 就照它
+
+
+def test_rate_limit_gives_up_with_clear_message(monkeypatch):
+    import pytest
+    from joblander.llm import RateLimited
+    slept = []
+    monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
+    with pytest.raises(LLMError, match="上游限流"):
+        _with_retry(lambda: (_ for _ in ()).throw(RateLimited("429: x")))
+    assert slept == [10, 30, 60]
+
+
+def test_http_errors_classified():
+    import io
+    import urllib.error
+    from joblander.llm import RateLimited, _http_error
+
+    def err(code, body, headers=None):
+        return _http_error(urllib.error.HTTPError("u", code, "m", headers or {}, io.BytesIO(body.encode())))
+    e = err(429, '{"error":{"code":"rate_limit_exceeded"}}', {"retry-after": "3"})
+    assert isinstance(e, RateLimited) and e.retry_after == 3
+    assert isinstance(err(503, "busy"), RateLimited)
+    q = err(429, '{"error":{"code":"insufficient_quota"}}')
+    assert not isinstance(q, RateLimited) and "额度耗尽" in str(q)        # 没钱了重试没用
+    assert type(err(400, "bad")) is LLMError

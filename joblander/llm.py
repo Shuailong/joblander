@@ -21,6 +21,34 @@ class QuotaExceeded(LLMError):
     """计量代理（云端版）按用户额度拒绝了请求——不是故障，不重试，提示充值。"""
 
 
+class RateLimited(LLMError):
+    """上游限流（429）或临时故障（5xx）：等一会儿再试通常就好，由 _with_retry 退避重试。"""
+
+    def __init__(self, msg: str, retry_after: float | None = None):
+        super().__init__(msg)
+        self.retry_after = retry_after
+
+
+# 限流退避：等 10s → 30s → 60s 再试；上游给了 Retry-After 就照它（最多 60s）
+RATE_WAITS = (10, 30, 60)
+
+
+def _http_error(e: urllib.error.HTTPError) -> LLMError:
+    body = e.read().decode(errors="replace")
+    msg = f"{e.code}: {body[:300]}"
+    if "insufficient_quota" in body:             # 平台账户没钱了：重试没用，说清楚是谁的问题
+        return LLMError("AI 服务暂时不可用：平台的 OpenAI 账户额度耗尽，运营方已收到告警"
+                        if os.environ.get("JOBLANDER_GATEWAY_TOKEN")
+                        else f"OpenAI 账户额度耗尽（insufficient_quota），请到 OpenAI 后台充值：{msg}")
+    if e.code == 429 or e.code in (500, 502, 503, 504):
+        try:
+            ra = float(e.headers.get("retry-after") or "") if e.headers else None
+        except ValueError:
+            ra = None
+        return RateLimited(msg, ra)
+    return LLMError(msg)
+
+
 USAGE = {"prompt": 0, "completion": 0, "calls": 0}   # 进程内累计（OpenAI 流式回报），成本测量用
 
 
@@ -52,7 +80,7 @@ def _http_json(url: str, body: dict, headers: dict) -> dict:
         with urllib.request.urlopen(req, timeout=180) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
-        raise LLMError(f"{e.code}: {e.read().decode(errors='replace')[:300]}") from e
+        raise _http_error(e) from e
 
 
 def _http_sse_text(url: str, body: dict, headers: dict, timeout: int = 300) -> str:
@@ -86,23 +114,33 @@ def _http_sse_text(url: str, body: dict, headers: dict, timeout: int = 300) -> s
                 if delta.get("content"):
                     parts.append(delta["content"])
     except urllib.error.HTTPError as e:
-        raise LLMError(f"{e.code}: {e.read().decode(errors='replace')[:300]}") from e
+        raise _http_error(e) from e
     return "".join(parts)
 
 
 def _with_retry(fn, tries: int = 3):
-    """网络级瞬断（连接重置/超时）重试；HTTP 4xx（LLMError）不重试。"""
+    """网络级瞬断（连接重置/超时）重试 tries 次；限流 / 5xx（RateLimited）按 RATE_WAITS 退避重试；
+    其余 HTTP 错误（LLMError）不重试。"""
     import time
     last: Exception | None = None
-    for i in range(tries):
+    waits = list(RATE_WAITS)
+    i = 0
+    while i < tries:
         try:
             return fn()
+        except RateLimited as e:
+            if not waits:
+                raise LLMError("AI 服务繁忙（上游限流），自动重试几次仍没成功，请过几分钟再试") from e
+            w = waits.pop(0)
+            time.sleep(min(e.retry_after, 60) if e.retry_after else w)
+            continue
         except LLMError:
             raise
         except (ConnectionError, urllib.error.URLError, TimeoutError, OSError) as e:
             last = e
-            if i < tries - 1:
-                time.sleep(2 * (i + 1))
+            i += 1
+            if i < tries:
+                time.sleep(2 * i)
     raise LLMError(f"网络错误（重试 {tries} 次后放弃）：{last}") from last
 
 

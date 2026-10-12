@@ -62,6 +62,24 @@ async def send_credit_request(http: httpx.AsyncClient, api_key: str, to: str, *,
     return r.status_code < 300
 
 
+async def send_ai_alert(http: httpx.AsyncClient, api_key: str, to: str, *, sender: str,
+                        status: int, kind: str, recent: int) -> bool:
+    """上游 AI 调用开始失败（限流、额度耗尽、网络）：告诉管理员，别等用户来报。"""
+    if not (api_key and to):
+        return False
+    hint = {"insufficient_quota": "The OpenAI account is out of credit — top up at platform.openai.com/settings/billing.",
+            "rate_limit_exceeded": "OpenAI is rate-limiting the platform key — the app retries automatically; "
+                                   "if it keeps happening, raise the usage tier."}.get(kind, "")
+    body = (f"<p>Upstream AI calls are failing: <b>{status} {html.escape(kind)}</b> "
+            f"({recent} failure(s) in the last hour).</p>"
+            f"<p>{html.escape(hint)}</p>"
+            f"<p><a href='{APP_URL}/_gw/admin'>Admin page</a></p>"
+            "<p style='color:#6F6D64;font-size:12px'>At most one email per error type every 3 hours.</p>")
+    r = await http.post(RESEND_URL, headers={"Authorization": f"Bearer {api_key}"}, json={
+        "from": sender, "to": [to], "subject": f"[joblander] AI calls failing: {status} {kind}", "html": body})
+    return r.status_code < 300
+
+
 # ---------- 发给用户本人的邮件（需要已验证的发件域名：MAIL_FROM） ----------
 
 APP_URL = "https://app.ailayoff.me"

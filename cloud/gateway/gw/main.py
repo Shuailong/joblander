@@ -9,13 +9,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 
 import httpx
 import uvicorn
 
 from gw.flyapi import Fly
 from gw.meter import create_meter_app
-from gw.notify import send_user
+from gw.notify import send_ai_alert, send_user
 from gw.store import Store
 from gw.web import Settings, create_web_app
 
@@ -63,11 +64,26 @@ def build():
         except Exception:                                       # noqa: BLE001  提醒失败不影响计量
             pass
 
+    alerted: dict[str, float] = {}
+
+    async def on_error(status: int, kind: str) -> None:
+        """同一类上游错误 3 小时内最多告警一次。"""
+        now = time.time()
+        if now - alerted.get(kind, 0) < 3 * 3600:
+            return
+        alerted[kind] = now
+        recent = sum(1 for e in store.ai_errors_since(now - 3600) if e["kind"] == kind)
+        try:
+            await send_ai_alert(mail_http, settings.resend_api_key, settings.feedback_to,
+                                sender=settings.feedback_from, status=status, kind=kind, recent=recent)
+        except Exception:                                       # noqa: BLE001
+            pass
+
     meter = create_meter_app(store, env("OPENAI_API_KEY"), prices,
                              tavily_key=env("TAVILY_API_KEY", ""),
                              search_price_usd=float(env("SEARCH_PRICE_USD", "0.01")),
                              low_balance_usd=settings.low_balance_usd,
-                             on_low=on_low if settings.mail_from else None)
+                             on_low=on_low if settings.mail_from else None, on_error=on_error)
     return web, meter
 
 

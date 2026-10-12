@@ -696,3 +696,28 @@ def test_growth_counts_blocked_and_invited(store):
     assert store.db.execute("SELECT requested_at FROM invites WHERE email='w2@x.com'").fetchone()[0]
     html = _client(store, _fly([]), _upstream([]), "boss@x.com").get("/_gw/admin").text
     assert "a|已注册 1\nb|已邀请未登录 2\nc|被拦待处理 1\n|累计 4" in html
+
+
+def test_meter_records_upstream_failures_and_alerts(store):
+    _, key = store.create("a@x.com", 5.0)
+    store.create("boss@x.com", 2.0)
+    alerts = []
+
+    async def on_error(status, kind):
+        alerts.append((status, kind))
+
+    def handler(req: httpx.Request):
+        return httpx.Response(429, json={"error": {"message": "slow down", "type": "requests",
+                                                   "code": "rate_limit_exceeded"}})
+    client = TestClient(create_meter_app(store, "sk", PRICES, httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+                                         on_error=on_error))
+    for stream in (True, False):
+        r = client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {key}"},
+                        json={"model": "m-pro", "stream": stream, "messages": []})
+        assert r.status_code == 429 and "rate_limit_exceeded" in r.text      # 原样回给引擎，引擎据此退避重试
+    errs = store.ai_errors_since(0)
+    assert [(e["status"], e["kind"]) for e in errs] == [(429, "rate_limit_exceeded")] * 2
+    assert alerts == [(429, "rate_limit_exceeded")] * 2                   # 去重在 main.on_error 里做
+    assert store.get("a@x.com").spent_usd == 0
+    html = _client(store, _fly([]), _upstream([]), "boss@x.com").get("/_gw/admin").text
+    assert "AI 调用失败" in html and "rate_limit_exceeded" in html and "24 小时 AI 失败" in html

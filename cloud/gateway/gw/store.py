@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS credit_requests (        -- 用户在应用里申请�
   status TEXT NOT NULL DEFAULT 'pending',          -- pending | approved | declined
   amount_usd REAL, at REAL NOT NULL, decided_at REAL
 );
+CREATE TABLE IF NOT EXISTS ai_errors (              -- 上游（OpenAI / 搜索）调用失败：只记状态码与错误类型，不记内容
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL, model TEXT NOT NULL, status INTEGER NOT NULL, kind TEXT NOT NULL, at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS grants (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL, amount_usd REAL NOT NULL, reason TEXT NOT NULL, at REAL NOT NULL
@@ -263,6 +267,7 @@ class Store:
                                  "WHERE r.status='pending' OR r.decided_at >= ? ORDER BY r.status != 'pending', r.id DESC",
                                  since),
             "invites": q("SELECT email, created_at, requested_at FROM invites"),
+            "ai_errors": q("SELECT email, model, status, kind, at FROM ai_errors WHERE at >= ? ORDER BY at", since),
             "waitlist": self.waitlist(),
             "pending_invites": q("SELECT i.email, i.created_at FROM invites i LEFT JOIN users u ON u.email = i.email "
                                  "WHERE u.email IS NULL ORDER BY i.created_at DESC"),
@@ -302,6 +307,16 @@ class Store:
                             ("approved" if approve else "declined", amount if approve else None, time.time(), rid))
         return dict(r)
 
+    # ---------- 上游失败 ----------
+
+    def record_ai_error(self, email: str, model: str, status: int, kind: str) -> None:
+        self.db.execute("INSERT INTO ai_errors (email, model, status, kind, at) VALUES (?,?,?,?,?)",
+                        (email.lower(), model, status, kind[:80], time.time()))
+
+    def ai_errors_since(self, since: float) -> list[dict]:
+        return [dict(r) for r in self.db.execute(
+            "SELECT email, model, status, kind, at FROM ai_errors WHERE at >= ? ORDER BY at", (since,))]
+
     def touch_day(self, email: str, day: str) -> None:
         self.db.execute("INSERT OR IGNORE INTO active_days VALUES (?, ?)", (email.lower(), day))
 
@@ -331,5 +346,5 @@ class Store:
         """彻底删除：账户、邀请、额度流水、用量、反馈一并删掉。机器与卷由调用方先销毁。"""
         e = email.lower()
         with self.lock:
-            for t in ("usage", "active_days", "credit_requests", "grants", "feedback", "invites", "waitlist", "users"):
+            for t in ("usage", "ai_errors", "active_days", "credit_requests", "grants", "feedback", "invites", "waitlist", "users"):
                 self.db.execute(f"DELETE FROM {t} WHERE email=?", (e,))

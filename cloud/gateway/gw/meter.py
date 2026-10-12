@@ -37,7 +37,8 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
                      client: httpx.AsyncClient | None = None, *,
                      tavily_key: str = "", search_price_usd: float = 0.01,
                      low_balance_usd: float | None = None,
-                     on_low: Callable[[str], Awaitable[None]] | None = None) -> FastAPI:
+                     on_low: Callable[[str], Awaitable[None]] | None = None,
+                     on_error: Callable[[int, str], Awaitable[None]] | None = None) -> FastAPI:
     app = FastAPI(title="joblander-meter")
     http = client or httpx.AsyncClient(timeout=httpx.Timeout(600, connect=10))
     pending: set[asyncio.Task] = set()
@@ -46,6 +47,20 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
         """记账；余额首次跌破提醒线时异步发提醒（发信失败不影响计量）。"""
         if store.charge(email, model, pt, ct, cost, low_at=low_balance_usd if on_low else None):
             t = asyncio.create_task(on_low(email))
+            pending.add(t)
+            t.add_done_callback(pending.discard)
+
+    def failed(email: str, model: str, status: int, body: bytes | dict | None) -> None:
+        """上游失败记一条（状态码 + OpenAI 的错误类型，如 rate_limit_exceeded / insufficient_quota），并通知告警。"""
+        try:
+            err = (json.loads(body) if isinstance(body, bytes) else body or {}).get("error") or {}
+            kind = str(err.get("code") or err.get("type") or "")
+        except (ValueError, AttributeError):
+            kind = ""
+        kind = kind or f"http_{status}"
+        store.record_ai_error(email, model, status, kind)
+        if on_error:
+            t = asyncio.create_task(on_error(status, kind))
             pending.add(t)
             t.add_done_callback(pending.discard)
 
@@ -66,8 +81,13 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
         if not q:
             return _reject("empty query", 400)
         n = max(1, min(int(body.get("max_results") or 6), 10))
-        r = await http.post(TAVILY_URL, json={"api_key": tavily_key, "query": q, "max_results": n})
+        try:
+            r = await http.post(TAVILY_URL, json={"api_key": tavily_key, "query": q, "max_results": n})
+        except httpx.HTTPError:
+            failed(user.email, "search:tavily", 502, {"error": {"type": "network"}})
+            return _reject("search upstream unreachable", 502)
         if r.status_code >= 400:
+            failed(user.email, "search:tavily", r.status_code, None)
             return _reject(f"search upstream {r.status_code}", 502)
         charge(user.email, "search:tavily", 0, 0, search_price_usd)
         return {"results": [{"title": x.get("title", ""), "url": x.get("url", ""),
@@ -93,8 +113,14 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
         headers = {"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"}
 
         if not stream:
-            r = await http.post(OPENAI_URL, json=body, headers=headers)
+            try:
+                r = await http.post(OPENAI_URL, json=body, headers=headers)
+            except httpx.HTTPError:
+                failed(user.email, model, 502, {"error": {"type": "network"}})
+                return _reject("upstream unreachable", 502, "upstream")
             out = r.json()
+            if r.status_code >= 400:
+                failed(user.email, model, r.status_code, out)
             u = out.get("usage") or {}
             if r.status_code < 400:
                 pt, ct = u.get("prompt_tokens") or 0, u.get("completion_tokens") or 0
@@ -102,10 +128,15 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
             return JSONResponse(out, status_code=r.status_code)
 
         req = http.build_request("POST", OPENAI_URL, json=body, headers=headers)
-        upstream = await http.send(req, stream=True)
+        try:
+            upstream = await http.send(req, stream=True)
+        except httpx.HTTPError:
+            failed(user.email, model, 502, {"error": {"type": "network"}})
+            return _reject("upstream unreachable", 502, "upstream")
         if upstream.status_code >= 400:
             text = await upstream.aread()
             await upstream.aclose()
+            failed(user.email, model, upstream.status_code, text)
             return JSONResponse(json.loads(text or b"{}"), status_code=upstream.status_code)
 
         async def relay():
