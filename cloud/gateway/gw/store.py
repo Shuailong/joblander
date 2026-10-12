@@ -116,7 +116,8 @@ class Store:
             except sqlite3.OperationalError:
                 pass
         for col in ("requested_at REAL",      # 被拦过的人获邀时记下首次被拦时间（增长曲线用）
-                    "mailed_at REAL"):        # 邀请邮件发出的时间；空 = 没发出（后台可重发）
+                    "mailed_at REAL",         # 邀请邮件发出的时间；空 = 没发出（后台可重发）
+                    "lang TEXT"):             # 被拦时的界面语言（获邀后被拦记录就删了，语言留在这里）
             try:
                 self.db.execute(f"ALTER TABLE invites ADD COLUMN {col}")
                 if col.startswith("mailed_at"):          # 加列之前的邀请当时都发过信了
@@ -134,9 +135,9 @@ class Store:
 
     def invite(self, email: str) -> None:
         e = email.lower()
-        w = self.db.execute("SELECT first_at FROM waitlist WHERE email=?", (e,)).fetchone()
-        self.db.execute("INSERT OR IGNORE INTO invites (email, created_at, requested_at) VALUES (?, ?, ?)",
-                        (e, time.time(), w["first_at"] if w else None))
+        w = self.db.execute("SELECT first_at, lang FROM waitlist WHERE email=?", (e,)).fetchone()
+        self.db.execute("INSERT OR IGNORE INTO invites (email, created_at, requested_at, lang) VALUES (?, ?, ?, ?)",
+                        (e, time.time(), w["first_at"] if w else None, w["lang"] if w else None))
         self.db.execute("DELETE FROM waitlist WHERE email=?", (email.lower(),))
 
     def mark_invite_mailed(self, email: str) -> None:
@@ -257,6 +258,20 @@ class Store:
     def blocked_lang(self, email: str) -> str | None:
         r = self.db.execute("SELECT lang FROM waitlist WHERE email=?", (email.lower(),)).fetchone()
         return r[0] if r else None
+
+    def mail_lang(self, email: str) -> str | None:
+        """给此人发信用哪种语言：账户的界面语言 → 获邀时记下的 → 被拦时的 → 按 IP 所在国家推断
+        （中国大陆 / 港澳台中文，其他英文）→ 都不知道返回 None（中英都放）。"""
+        e = email.lower()
+        for sql in ("SELECT lang FROM users WHERE email=?", "SELECT lang FROM invites WHERE email=?",
+                    "SELECT lang FROM waitlist WHERE email=?"):
+            r = self.db.execute(sql, (e,)).fetchone()
+            if r and r[0] in ("zh", "en"):
+                return r[0]
+        r = self.db.execute("SELECT country FROM geo WHERE email=?", (e,)).fetchone()
+        if r and r[0]:
+            return "zh" if r[0] in ("CN", "HK", "MO", "TW") else "en"
+        return None
 
     # ---------- 反馈 ----------
 

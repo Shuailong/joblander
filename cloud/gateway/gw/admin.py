@@ -585,6 +585,9 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
         f'<td>{inv_mail(i)}</td></tr>'
         for i in page_inv) + '</table>' + _pager("pi", p, n, len(shown_inv), params, "invites")
                  if shown_inv else '<p class="empty">邀请过的人都已登录</p>')
+    if snap["pending_invites"]:
+        pend_html += (f'<form class="inl" method="post" action="/_gw/admin/remind-invites" style="margin:10px 8px 0 0">{ret}'
+                      f'<button class="tbtn">给这 {len(snap["pending_invites"])} 人发登录提醒</button></form>')
     if unmailed:
         pend_html += (f'<form class="inl" method="post" action="/_gw/admin/resend-invites" style="margin-top:10px">{ret}'
                       f'<button class="tbtn">重发 {unmailed} 封没发出的邀请邮件</button></form>')

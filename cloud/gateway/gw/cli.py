@@ -29,7 +29,7 @@ def main(argv: list[str]) -> None:
     if cmd == "invite":
         quiet = "--quiet" in args
         emails = [a for a in args if a != "--quiet"]
-        langs = {e: store.blocked_lang(e) for e in emails}          # 被拦时记下的界面语言，invite 会清掉
+        langs = {e: store.mail_lang(e) for e in emails}             # 界面语言 / IP 所在国家；都不知道就中英都放
         for e in emails:
             store.invite(e)
         print(f"已邀请 {len(emails)} 人")

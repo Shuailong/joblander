@@ -122,6 +122,10 @@ _USER = {
     },
 }
 
+# 提醒：已邀请、还没登录的人再收一封（正文同邀请信，标题点明是提醒）
+_USER["invite_reminder"] = {lg: (("提醒：你的 joblander 内测已开通" if lg == "zh" else "Reminder: you're in — joblander beta"),
+                                 _USER["invited"][lg][1]) for lg in ("zh", "en")}
+
 _FOOT = ("<p style='color:#6F6D64;font-size:12px;margin-top:24px'>joblander · <a href='{url}/_gw/privacy'>"
          "{privacy}</a></p>")
 

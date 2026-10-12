@@ -995,3 +995,29 @@ def test_mail_queue_pauses_on_resend_quota_without_dropping(store, monkeypatch):
     m = store.next_mail()
     assert len(calls) == 1 and m["status"] == "pending" and m["tries"] == 0      # 额度用完：停下等，不算失败
     c.__exit__(None, None, None)
+
+
+def test_admin_reminds_invited_but_not_signed_in(store, monkeypatch):
+    mails = []
+
+    async def fake_post(self, url, **kw):
+        mails.append(kw["json"])
+        return httpx.Response(200)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    store.record_blocked("en@x.com", "en")
+    for e in ("en@x.com", "zh@x.com", "cn@x.com", "done@x.com"):
+        store.invite(e)                                                          # 被拦记录删了，语言留在邀请里
+    store.set_geo("cn@x.com", "1.2.3.4", {"country": "CN"})                    # 不知道界面语言：按 IP 国家推断
+    store.create("done@x.com", 2.0)                                             # 已登录的不提醒
+    c = _boss(store, mail=True)
+    assert "给这 3 人发登录提醒" in c.get("/_gw/admin").text
+    r = c.post("/_gw/admin/remind-invites", follow_redirects=True)
+    assert "3 封提醒已排队" in r.text
+    _wait(lambda: len(mails) == 3)
+    by = {m["to"][0]: m for m in mails}
+    assert set(by) == {"en@x.com", "zh@x.com", "cn@x.com"}
+    assert by["en@x.com"]["subject"] == "Reminder: you're in — joblander beta" and "已加入" not in by["en@x.com"]["html"]
+    assert by["cn@x.com"]["subject"] == "提醒：你的 joblander 内测已开通" and "You're" not in by["cn@x.com"]["html"]
+    assert "/" in by["zh@x.com"]["subject"]                                    # 什么线索都没有：中英都放
+    assert all(i["mailed_at"] for i in store.admin_snapshot(0)["pending_invites"])
+    c.__exit__(None, None, None)

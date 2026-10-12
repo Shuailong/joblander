@@ -155,7 +155,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
                                     to=m["to_email"], kind=m["kind"], lang=m["lang"], **m["ctx"])
                 if r.status_code < 300:
                     store.mail_done(m["id"])
-                    if m["kind"] == "invited":
+                    if m["kind"] in ("invited", "invite_reminder"):
                         store.mark_invite_mailed(m["to_email"])
                 elif r.status_code == 429:
                     quota = "quota" in r.text
@@ -571,7 +571,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         return email, await request.form()
 
     def invite_and_mail(target: str) -> bool:
-        lg = store.blocked_lang(target)
+        lg = store.mail_lang(target)
         store.invite(target)
         return queue_mail(target, "invited", lg)
 
@@ -625,8 +625,20 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             return Response(status_code=404)
         todo = [i["email"] for i in store.admin_snapshot(time.time())["pending_invites"]
                 if not i["mailed_at"] and not store.mail_pending(i["email"], "invited")]      # 还在排队的不重复排
-        n = sum(queue_mail(e, "invited", store.blocked_lang(e)) for e in todo)
+        n = sum(queue_mail(e, "invited", store.mail_lang(e)) for e in todo)
         return back(f"{n} 封邀请邮件已重新排队" if n else "没有要重发的（或没配发信）", got[1], "invites")
+
+    @app.post("/_gw/admin/remind-invites")
+    async def admin_remind_invites(request: Request):
+        """已邀请、还没登录的人：每人再发一封提醒（已在队列里等着发的跳过）。"""
+        got = await admin_form(request)
+        if got is None:
+            return Response(status_code=404)
+        todo = [i["email"] for i in store.admin_snapshot(time.time())["pending_invites"]
+                if not store.mail_pending(i["email"], "invited") and not store.mail_pending(i["email"], "invite_reminder")]
+        n = sum(queue_mail(e, "invite_reminder", store.mail_lang(e)) for e in todo)
+        return back(f"{n} 封提醒已排队（每天最多 {settings.mail_daily_limit} 封，多的顺延）" if n
+                    else "没有要提醒的人（或没配发信）", got[1], "invites")
 
     @app.post("/_gw/admin/dismiss")
     async def admin_dismiss(request: Request):
@@ -657,7 +669,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         """批 / 不批一条；批了就发额度，并把通知邮件排进队列。"""
         r = store.decide_request(rid, approve, usd, f"额度申请 #{rid} 批准（{admin_email}）")
         if r and approve and (u := store.get(r["email"])):
-            r["mailed"] = queue_mail(u.email, "credit_granted", u.lang, amount=f"{usd:g}",
+            r["mailed"] = queue_mail(u.email, "credit_granted", store.mail_lang(u.email), amount=f"{usd:g}",
                                      balance=f"{max(u.balance_usd, 0):.2f}")
         return r
 

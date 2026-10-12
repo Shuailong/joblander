@@ -61,7 +61,7 @@ def build():
 
     async def on_low(email: str) -> None:
         u = store.get(email)                                    # 进发信队列，和别的信一起按每日上限发
-        store.enqueue_mail(email, "low_balance", u.lang if u else None,
+        store.enqueue_mail(email, "low_balance", store.mail_lang(email),
                            {"balance": f"{max(u.balance_usd, 0) if u else 0:.2f}"})
 
     alerted: dict[str, float] = {}
