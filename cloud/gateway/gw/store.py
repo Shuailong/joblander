@@ -331,7 +331,7 @@ class Store:
             "queued_invites": [r["to_email"] for r in q("SELECT DISTINCT to_email FROM mail_queue "
                                                         "WHERE kind='invited' AND status='pending'")],
             "geo": q("SELECT email, ip, country, country_name, region, city, lat, lon, at FROM geo"),
-            "grants": q("SELECT email, amount_usd, reason, at FROM grants ORDER BY id DESC LIMIT 20"),
+            "grants": q("SELECT email, amount_usd, reason, at FROM grants ORDER BY id DESC LIMIT 2000"),
         }
 
     # ---------- 发信队列 ----------

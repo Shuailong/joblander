@@ -575,6 +575,11 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         store.invite(target)
         return queue_mail(target, "invited", lg)
 
+    def ret_q(form) -> str:
+        """表单带回来的搜索词（「选中全部」只作用于当前搜索结果）。"""
+        from urllib.parse import parse_qs
+        return (parse_qs(str(form.get("ret") or "")).get("q") or [""])[0].strip().lower()
+
     def emails_of(vals) -> list[str]:
         out = []
         for v in vals:
@@ -605,7 +610,13 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         form = got[1]
         # 行内按钮 act="invite:邮箱"；表头按钮 act="invite"，对象是勾选的 sel
         action, _, one = str(form.get("act") or "").partition(":")
-        targets = emails_of([one] if one else form.getlist("sel"))
+        if one:
+            targets = emails_of([one])
+        elif form.get("all") == "1":                            # 「选中全部」：当前搜索下的整个名单
+            q = ret_q(form)
+            targets = [w["email"] for w in store.waitlist() if q in w["email"]]
+        else:
+            targets = emails_of(form.getlist("sel"))
         if not targets:
             return back("没勾选任何人", form, "waitlist")
         if action == "dismiss":
@@ -705,7 +716,14 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         # 行内按钮 act="approve:编号"（金额取那一行的 usd_编号）；表头按钮 act="approve"，对象是勾选的 sel
         action, _, one = str(form.get("act") or "").partition(":")
         try:
-            ids = [int(one)] if one else sorted({int(v) for v in form.getlist("sel")})
+            if one:
+                ids = [int(one)]
+            elif form.get("all") == "1":                        # 「选中全部」：当前搜索下所有待批的
+                q = ret_q(form)
+                ids = [r["id"] for r in store.admin_snapshot(time.time())["credit_requests"]
+                       if r["status"] == "pending" and q in r["email"]]
+            else:
+                ids = sorted({int(v) for v in form.getlist("sel")})
             usd = float(form.get(f"usd_{one}" if one else "usd") or 0)
         except ValueError:
             return back("申请编号或金额不对", form, "requests")

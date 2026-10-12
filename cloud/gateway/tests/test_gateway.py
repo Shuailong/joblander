@@ -809,21 +809,50 @@ def test_admin_tables_paginate_and_search(store):
         store.create(f"user{i:03d}@x.com", 2.0)
     for i in range(60):
         store.record_blocked(f"wait{i:02d}@x.com", "zh")
+    for i in range(12):
+        store.charge(f"user{i:03d}@x.com", f"model-{i}", 10, 10, 0.01 * (i + 1))      # 12 个模型
     c = _boss(store)
     p1 = c.get("/_gw/admin").text
-    assert "第 1–50 条 · 共 121 条" in p1 and "第 1–50 条 · 共 60 条" in p1
-    assert 'href="?pu=3#users"' in p1 and "<b>1</b>" in p1
-    p3 = c.get("/_gw/admin?pu=3").text
-    assert "第 101–121 条 · 共 121 条" in p3
-    assert c.get("/_gw/admin?pu=999").status_code == 200 and "第 101–121 条" in c.get("/_gw/admin?pu=999").text
-    assert "第 1–50 条" in c.get("/_gw/admin?pu=abc").text                     # 乱写页码当第一页
+    assert "第 1–10 条 · 共 121 条" in p1 and "第 1–10 条 · 共 60 条" in p1           # 每页 10 条
+    assert 'href="?pu=13#users"' in p1 and "<b>1</b>" in p1
+    assert "第 1–10 条 · 共 12 条" in p1 and 'href="?pm=2#models"' in p1             # 按模型也分页
+    assert 'href="?pg=2#grants"' in p1                                              # 发放记录（121 条）也分页
+    assert p1.count('class="pager"') == 4                                     # 用户 / 名单 / 模型 / 发放
+    p13 = c.get("/_gw/admin?pu=13").text
+    assert "第 121–121 条 · 共 121 条" in p13
+    assert "第 121–121 条" in c.get("/_gw/admin?pu=999").text                       # 越界夹到末页
+    assert "第 1–10 条 · 共 121 条" in c.get("/_gw/admin?pu=abc").text               # 乱写页码当第一页
     q = c.get("/_gw/admin?q=user007").text
     assert 'value="user007@x.com"' in q and 'value="user008@x.com"' not in q and "没有匹配的人" in q
+    # 不超过 10 条的表不出翻页条
+    assert "共 1 条" not in q
     # 操作完回到原来那页、原来的搜索
     r = c.post("/_gw/admin/dismiss", data={"email": "wait00@x.com", "ret": "pw=2&q=wait&evil=1"},
                follow_redirects=False)
     loc = r.headers["location"]
     assert loc.startswith("/_gw/admin?pw=2&q=wait&m=") and loc.endswith("#waitlist") and "evil" not in loc
+
+
+def test_admin_select_all_across_pages(store):
+    for i in range(25):
+        store.record_blocked(f"wait{i:02d}@x.com", "zh")
+    store.record_blocked("other@y.com", "zh")
+    ids = []
+    for i in range(14):
+        store.create(f"a{i}@x.com", 2.0)
+        ids.append(store.request_credit(f"a{i}@x.com", "想多试几家公司的尽调"))
+    c = _boss(store)
+    page = c.get("/_gw/admin").text
+    assert "选中全部 26 人（含其他页）" in page and "选中全部 14 条待批（含其他页）" in page
+    # 「选中全部」只作用于当前搜索结果
+    r = c.post("/_gw/admin/waitlist", data={"act": "dismiss", "all": "1", "ret": "q=wait"}, follow_redirects=True)
+    assert "已清掉 25 人" in r.text and [w["email"] for w in store.waitlist()] == ["other@y.com"]
+    r = c.post("/_gw/admin/requests", data={"act": "approve", "usd": "2", "all": "1"}, follow_redirects=True)
+    assert "已批 14 条" in r.text and all(store.get(f"a{i}@x.com").credit_usd == 4.0 for i in range(14))
+    # 行内按钮不受 all 影响
+    store.record_blocked("x1@x.com", "zh")
+    c.post("/_gw/admin/waitlist", data={"act": "dismiss:x1@x.com", "all": "1"})
+    assert [w["email"] for w in store.waitlist()] == ["other@y.com"]
 
 
 def test_admin_bulk_invite_and_dismiss_waitlist(store, monkeypatch):
