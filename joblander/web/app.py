@@ -217,6 +217,8 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             from joblander.daemon import Daemon
             daemon = Daemon(cfg)
             daemon.start_background()
+        from joblander import telemetry
+        telemetry.start()                        # 云端版才真的启动
         yield
         if daemon:
             daemon.stop()
@@ -286,6 +288,17 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             except OSError:
                 pass
         return await call_next(request)
+
+    @app.middleware("http")
+    async def _usage_events(request, call_next):
+        """云端版：成功的请求记「方法 + 路由模板」，供网关后台画漏斗与功能使用（见 telemetry.py）。"""
+        resp = await call_next(request)
+        if resp.status_code < 400:
+            from joblander import telemetry
+            if telemetry.enabled():
+                route = request.scope.get("route")
+                telemetry.record(request.method, getattr(route, "path", None))
+        return resp
 
     @app.middleware("http")
     async def _no_cache_html(request, call_next):

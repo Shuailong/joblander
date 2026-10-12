@@ -721,3 +721,38 @@ def test_meter_records_upstream_failures_and_alerts(store):
     assert store.get("a@x.com").spent_usd == 0
     html = _client(store, _fly([]), _upstream([]), "boss@x.com").get("/_gw/admin").text
     assert "AI 调用失败" in html and "rate_limit_exceeded" in html and "24 小时 AI 失败" in html
+
+
+def test_usage_events_feed_funnel_and_features(store):
+    import time as _t
+    now = _t.time()
+    _, key = store.create("a@x.com", 2.0)
+    store.create("b@x.com", 2.0)
+    store.create("boss@x.com", 2.0)
+    store.invite("c@x.com")                                       # 获邀未注册
+    store.record_blocked("d@x.com", "en")                         # 被拦
+    from gw.pages import PRIVACY_VERSION
+    for e in ("a@x.com", "b@x.com"):
+        store.consent(e, PRIVACY_VERSION)
+    client = TestClient(create_meter_app(store, "sk", PRICES, httpx.AsyncClient(transport=httpx.MockTransport(_openai([])))))
+    evs = [{"name": "GET /sourcing", "at": now}, {"name": "POST /api/setup/resume", "at": now},
+           {"name": "POST /api/proposal/apply", "at": now}, {"name": "GET /sourcing", "at": now},
+           {"name": "GET /company/Acme Secret", "at": now},           # 夹带具体值：丢
+           {"name": "rm -rf", "at": now}, {"name": "GET /", "at": now - 30 * 86400}]   # 格式不对 / 太旧：丢
+    r = client.post("/v1/events", headers={"Authorization": f"Bearer {key}"}, json={"events": evs})
+    assert r.json() == {"ok": True, "n": 4}
+    assert client.post("/v1/events", headers={"Authorization": "Bearer nope"}, json={"events": evs}).status_code == 401
+    rows = store.db.execute("SELECT name, n FROM events WHERE email='a@x.com' ORDER BY name").fetchall()
+    assert [tuple(r) for r in rows] == [("GET /sourcing", 2), ("POST /api/proposal/apply", 1), ("POST /api/setup/resume", 1)]
+    store.charge("b@x.com", "m-pro", 1, 1, 0.01)                  # b 没有使用记录、但用过 AI：前面各步补齐
+
+    html = _client(store, _fly([]), _upstream([]), "boss@x.com").get("/_gw/admin").text
+    assert "转化漏斗" in html and "功能使用" in html and "新用户回访" in html
+    from gw import bi
+    from zoneinfo import ZoneInfo
+    b = bi.compute(store.admin_snapshot(0), ZoneInfo("Asia/Singapore"), now)
+    f = dict(b["funnel"])
+    assert f["来过（被拦 / 获邀 / 注册）"] == 5 and f["注册"] == 3 and f["同意隐私说明"] == 3      # 管理员也同意过
+    assert f["看过新机会"] == 2 and f["用上 AI"] == 2 and f["批准第一条机会进作战室"] == 1
+    assert ("新机会", "GET /sourcing", 1, 2) in b["features"]
+    assert "Acme" not in html

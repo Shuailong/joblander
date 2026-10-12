@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+import time
 from collections.abc import Awaitable, Callable
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import FastAPI, Request
@@ -19,6 +23,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from gw.store import Store
 
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+# 使用记录只收「方法 + 路由模板」：路径里只许出现字母数字与 / _ - . { } :，挡住任何夹带内容的尝试
+EVENT_NAME = re.compile(r"(GET|POST|PUT|PATCH|DELETE) /[A-Za-z0-9_/{}:.\-]{0,100}")
 
 
 def _reject(msg: str, status: int = 400, kind: str = "invalid_request") -> JSONResponse:
@@ -38,10 +44,12 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
                      tavily_key: str = "", search_price_usd: float = 0.01,
                      low_balance_usd: float | None = None,
                      on_low: Callable[[str], Awaitable[None]] | None = None,
-                     on_error: Callable[[int, str], Awaitable[None]] | None = None) -> FastAPI:
+                     on_error: Callable[[int, str], Awaitable[None]] | None = None,
+                     timezone: str = "Asia/Singapore") -> FastAPI:
     app = FastAPI(title="joblander-meter")
     http = client or httpx.AsyncClient(timeout=httpx.Timeout(600, connect=10))
     pending: set[asyncio.Task] = set()
+    tz = ZoneInfo(timezone)
 
     def charge(email: str, model: str, pt: int, ct: int, cost: float) -> None:
         """记账；余额首次跌破提醒线时异步发提醒（发信失败不影响计量）。"""
@@ -63,6 +71,28 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
             t = asyncio.create_task(on_error(status, kind))
             pending.add(t)
             t.add_done_callback(pending.discard)
+
+    @app.post("/v1/events")
+    async def events(request: Request):
+        """引擎每分钟报一批使用记录（方法 + 路由模板 + 时间），后台画漏斗用。格式不对的条目直接丢。"""
+        auth = request.headers.get("authorization") or ""
+        user = store.by_meter_key(auth.removeprefix("Bearer ").strip()) if auth else None
+        if user is None:
+            return _reject("unknown key", 401, "auth")
+        try:
+            raw = (await request.json()).get("events") or []
+        except ValueError:
+            return _reject("bad json", 400)
+        now = time.time()
+        rows = []
+        for ev in raw[:2000] if isinstance(raw, list) else []:
+            name, at = str((ev or {}).get("name") or ""), (ev or {}).get("at")
+            if not EVENT_NAME.fullmatch(name) or not isinstance(at, (int, float)) or not now - 7 * 86400 < at <= now + 300:
+                continue
+            rows.append((name, datetime.fromtimestamp(at, tz).strftime("%Y-%m-%d"), float(at)))
+        if rows:
+            store.add_events(user.email, rows)
+        return {"ok": True, "n": len(rows)}
 
     @app.post("/v1/search")
     async def search(request: Request):

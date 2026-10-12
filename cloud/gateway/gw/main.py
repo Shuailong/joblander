@@ -85,7 +85,8 @@ def build():
                              tavily_key=env("TAVILY_API_KEY", ""),
                              search_price_usd=float(env("SEARCH_PRICE_USD", "0.01")),
                              low_balance_usd=settings.low_balance_usd,
-                             on_low=on_low if settings.mail_from else None, on_error=on_error)
+                             on_low=on_low if settings.mail_from else None, on_error=on_error,
+                             timezone=settings.timezone)
     return web, meter
 
 

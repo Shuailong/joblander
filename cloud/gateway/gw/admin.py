@@ -93,6 +93,13 @@ CSS = """
 .axis span:nth-child(2){overflow:hidden;text-overflow:ellipsis;min-width:0;padding:0 8px}
 .fb{white-space:pre-wrap;max-width:560px}
 .empty{color:var(--ink-3);font-size:13px}
+.fn{display:grid;grid-template-columns:minmax(150px,240px) 1fr 54px 64px 64px;gap:6px 12px;align-items:center;font-size:13px}
+.fn .hd{color:var(--ink-3);font-size:12px}
+.fn .bar{height:18px;background:var(--surface-2);border-radius:5px;overflow:hidden}
+.fn .bar i{display:block;height:100%;background:var(--accent);opacity:.8;border-radius:5px}
+.fn .n{text-align:right;font-variant-numeric:tabular-nums}
+.fn .drop{color:var(--red)}
+.ret td.c{text-align:right;font-variant-numeric:tabular-nums}
 @media (max-width:820px){.grid2{grid-template-columns:1fr}.adm{padding:18px 16px 40px}.adm header .when{display:none}}
 """
 
@@ -344,6 +351,35 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
                     for k, v in sorted(eg.items(), key=lambda kv: -kv[1][2])[:15]) + '</table>'
                 if eg else f'<p class="empty">{DAYS} 天内没有失败</p>')
 
+    # ---- BI：漏斗 / 功能使用 / 回访 ----
+    from gw import bi
+    b = bi.compute(snap, tz, now, DAYS)
+    top0 = b["funnel"][0][1] or 1
+    rows = ['<span class="hd">步骤</span><span class="hd"></span><span class="hd n">人数</span>'
+            '<span class="hd n">较上一步</span><span class="hd n">停在这步</span>']
+    for i, ((title, n), stuck) in enumerate(zip(b["funnel"], b["stuck"])):
+        prev = b["funnel"][i - 1][1] if i else n
+        rate = f"{n / prev * 100:.0f}%" if i and prev else "—"
+        low = i and prev and n / prev < .6
+        rows.append(f'<span>{_e(title)}</span><span class="bar"><i style="width:{n / top0 * 100:.1f}%"></i></span>'
+                    f'<span class="n">{n}</span><span class="n{" drop" if low else ""}">{rate}</span>'
+                    f'<span class="n dim">{stuck if i < len(b["funnel"]) - 1 else "—"}</span>')
+    since_note = (f'使用记录 {b["tracked_since"][5:]} 起才有；更早的人按「走到后一步、前面都算走过」补齐'
+                  if b["tracked_since"] else "使用记录还没有数据：用户机器升级到新版后开始采集")
+    funnel_html = f'<div class="fn">{"".join(rows)}</div>'
+    feat_html = ('<table><tr><th>功能</th><th class="n">用过的人</th><th class="n">次数</th></tr>' + "".join(
+        f'<tr><td title="{_e(k)}">{_e(label)}</td><td class="n">{nu}</td><td class="n">{nc:,}</td></tr>'
+        for label, k, nu, nc in b["features"][:25]) + '</table>'
+                 if b["features"] else '<p class="empty">还没有使用记录</p>')
+
+    def cell(c):
+        return '<td class="c dim">—</td>' if c is None else f'<td class="c">{c[0]}/{c[1]} · {c[0] / c[1] * 100:.0f}%</td>'
+    ret_html = ('<table class="ret"><tr><th>注册日</th><th class="n">人数</th><th class="n">次日回来</th>'
+                '<th class="n">3 天内回来</th><th class="n">7 天内回来</th></tr>' + "".join(
+                    f'<tr><td class="dim">{d[5:]}</td><td class="n">{n}</td>{"".join(cell(c) for c in cs)}</tr>'
+                    for d, n, cs in b["retention"]) + '</table>'
+                if b["retention"] else '<p class="empty">还没有用户</p>')
+
     # ---- 用户 ----
     calls7 = defaultdict(int)
     cost7 = defaultdict(float)
@@ -452,6 +488,11 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
 <div class="card"><h2>每日活跃 <small>近 {DAYS} 天 · 悬停或点按看明细</small></h2>{act_html}</div>
 <div class="card"><h2>每日 token 与花费 <small>近 {DAYS} 天 · 悬停或点按看明细</small></h2>{tok_html}</div>
 </div>
+<div class="card" id="funnel"><h2>转化漏斗 <small>{since_note}</small></h2>{funnel_html}</div>
+<div class="grid2">
+<div class="card"><h2>功能使用 <small>近 {DAYS} 天 · 按用过的人数排序</small></h2>{feat_html}</div>
+<div class="card"><h2>新用户回访 <small>按注册日 · 「—」= 还没到时间</small></h2>{ret_html}</div>
+</div><div style="height:18px"></div>
 <div class="card"><h2>用户 <small>按最近活跃排序 · 余额低于 ${low_usd:g} 标红</small></h2>{users_html}</div>
 <div class="grid2">
 <div class="card"><h2>被拦的登录 <small>邀请会给对方发邮件</small></h2>{wl_html}</div>

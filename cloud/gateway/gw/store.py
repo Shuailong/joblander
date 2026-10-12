@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS ai_errors (              -- 上游（OpenAI / 搜索�
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL, model TEXT NOT NULL, status INTEGER NOT NULL, kind TEXT NOT NULL, at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS events (                 -- 产品使用记录：某人某天用了某个功能几次（只有路由模板，不含内容）
+  email TEXT NOT NULL, name TEXT NOT NULL, day TEXT NOT NULL,
+  n INTEGER NOT NULL, first_at REAL NOT NULL, last_at REAL NOT NULL,
+  PRIMARY KEY (email, name, day)
+);
 CREATE TABLE IF NOT EXISTS grants (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL, amount_usd REAL NOT NULL, reason TEXT NOT NULL, at REAL NOT NULL
@@ -273,6 +278,8 @@ class Store:
                                  since),
             "invites": q("SELECT email, created_at, requested_at FROM invites"),
             "ai_errors": q("SELECT email, model, status, kind, at FROM ai_errors WHERE at >= ? ORDER BY at", since),
+            "events": q("SELECT email, name, day, n, first_at FROM events"),
+            "first_ai": q("SELECT email, MIN(at) AS at FROM usage GROUP BY email"),
             "waitlist": self.waitlist(),
             "pending_invites": q("SELECT i.email, i.created_at FROM invites i LEFT JOIN users u ON u.email = i.email "
                                  "WHERE u.email IS NULL ORDER BY i.created_at DESC"),
@@ -322,6 +329,15 @@ class Store:
         return [dict(r) for r in self.db.execute(
             "SELECT email, model, status, kind, at FROM ai_errors WHERE at >= ? ORDER BY at", (since,))]
 
+    def add_events(self, email: str, events: list[tuple[str, str, float]]) -> None:
+        """events：[(name, day, at)]，按 (人, 功能, 天) 累计次数。"""
+        e = email.lower()
+        with self.lock:
+            self.db.executemany(
+                "INSERT INTO events VALUES (?, ?, ?, 1, ?, ?) ON CONFLICT(email, name, day) DO UPDATE SET "
+                "n = n + 1, first_at = MIN(first_at, excluded.first_at), last_at = MAX(last_at, excluded.last_at)",
+                [(e, n, d, t, t) for n, d, t in events])
+
     def touch_day(self, email: str, day: str) -> None:
         self.db.execute("INSERT OR IGNORE INTO active_days VALUES (?, ?)", (email.lower(), day))
 
@@ -345,11 +361,12 @@ class Store:
                 "feedback": q("SELECT message, page, lang, user_agent, at FROM feedback WHERE email=? ORDER BY id"),
                 "credit_requests": q("SELECT message, status, amount_usd, at, decided_at FROM credit_requests "
                                      "WHERE email=? ORDER BY id"),
+                "events": q("SELECT name, day, n FROM events WHERE email=? ORDER BY day, name"),
                 "active_days": [r["day"] for r in q("SELECT day FROM active_days WHERE email=? ORDER BY day")]}
 
     def delete_user(self, email: str) -> None:
         """彻底删除：账户、邀请、额度流水、用量、反馈一并删掉。机器与卷由调用方先销毁。"""
         e = email.lower()
         with self.lock:
-            for t in ("usage", "ai_errors", "active_days", "credit_requests", "grants", "feedback", "invites", "waitlist", "users"):
+            for t in ("usage", "ai_errors", "events", "active_days", "credit_requests", "grants", "feedback", "invites", "waitlist", "users"):
                 self.db.execute(f"DELETE FROM {t} WHERE email=?", (e,))
