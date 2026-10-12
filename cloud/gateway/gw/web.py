@@ -101,7 +101,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
     provisioning: dict[str, asyncio.Task] = {}
     from gw.sleep import Sleeper
     sleeper = Sleeper(store, fly, http, idle_minutes=settings.idle_minutes, wake_at=settings.wake_at,
-                      tz=settings.timezone)
+                      tz=settings.timezone, public_host=settings.public_host)
     app.state.sleeper = sleeper
 
     async def start_sleeper():

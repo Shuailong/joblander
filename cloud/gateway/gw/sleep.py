@@ -42,9 +42,10 @@ def parse_wake(spec: str) -> list[tuple[int | None, int, int]]:
 
 class Sleeper:
     def __init__(self, store: Store, fly: Fly, http: httpx.AsyncClient, *, idle_minutes: int,
-                 wake_at: str, tz: str, now: float | None = None):
+                 wake_at: str, tz: str, public_host: str, now: float | None = None):
         self.store, self.fly, self.http = store, fly, http
         self.idle = idle_minutes * 60
+        self.public_host = public_host               # 引擎只认这个 Host（挡 DNS rebinding），内网地址会被 421
         self.wake_at = parse_wake(wake_at)
         self.tz = ZoneInfo(tz)
         self.asleep: set[str] = set()
@@ -95,7 +96,8 @@ class Sleeper:
     async def _busy(self, user: User) -> bool | None:
         try:
             r = await self.http.get(f"http://{self.fly.address(user.machine_id)}:8899/api/busy",
-                                    headers={"x-joblander-gateway": user.gateway_token}, timeout=5)
+                                    headers={"x-joblander-gateway": user.gateway_token, "host": self.public_host},
+                                    timeout=5)
             return bool(r.json().get("busy")) if r.status_code == 200 else None
         except (httpx.HTTPError, ValueError):
             return None

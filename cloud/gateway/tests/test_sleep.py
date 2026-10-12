@@ -61,6 +61,8 @@ def _engine(busy: dict, seen: list | None = None):
     def handler(req: httpx.Request):
         if seen is not None:
             seen.append(req)
+        if req.headers.get("host") != "app.test":               # 跟真引擎一样：Host 不对就 421
+            return httpx.Response(421, json={"error": "bad host"})
         if req.url.path == "/api/busy":
             mid = req.url.host.split(".")[0]
             return httpx.Response(200, json={"busy": busy.get(mid, False)})
@@ -70,7 +72,7 @@ def _engine(busy: dict, seen: list | None = None):
 
 def _sleeper(store, fly, busy=None, now=1000.0):
     return Sleeper(store, fly.client(), _engine(busy or {}), idle_minutes=15, wake_at="02:35,sun 20:05",
-                   tz=TZ, now=now)
+                   tz=TZ, public_host="app.test", now=now)
 
 
 def test_parse_wake():
