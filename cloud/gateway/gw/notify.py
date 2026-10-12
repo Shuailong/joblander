@@ -1,6 +1,7 @@
-"""反馈邮件：经 Resend 发到管理员邮箱，reply-to 设成反馈人——在邮箱里直接回复就到对方。
+"""邮件（经 Resend）：给管理员的每日汇总与 AI 故障告警，给用户本人的邀请 / 额度通知。
 
-没配 RESEND_API_KEY 时不发（反馈照样存库，gw.cli feedback 可看）——邮件是通知，不是存储。
+被拦的申请、额度申请、反馈不再逐条发信（量一大就撞 Resend 的发送上限），每天汇总成一封给管理员。
+没配 RESEND_API_KEY 时不发（内容照样存库，后台与 gw.cli 可看）——邮件是通知，不是存储。
 """
 
 from __future__ import annotations
@@ -12,53 +13,49 @@ import httpx
 RESEND_URL = "https://api.resend.com/emails"
 
 
-async def send_feedback(http: httpx.AsyncClient, api_key: str, to: str, *, sender: str,
-                        user: str, message: str, page: str, lang: str, ua: str, fid: int) -> bool:
+def _esc(s) -> str:
+    return html.escape(str(s if s is not None else ""))
+
+
+def render_digest(d: dict, *, day: str) -> tuple[str, str] | None:
+    """每日汇总：新被拦的人、新额度申请、新反馈合成一封。都没有就不发（返回 None）。"""
+    blocked, reqs, fb = d["blocked"], d["requests"], d["feedback"]
+    if not (blocked or reqs or fb):
+        return None
+    quote = "white-space:pre-wrap;border-left:3px solid #0E6E62;padding-left:10px;margin:4px 0 12px"
+    parts = [f"<p>joblander · {_esc(day)} 的汇总（过去一天）。"
+             f"<a href='{APP_URL}/_gw/admin'>打开后台</a>批量处理。</p>"]
+    if blocked:
+        rows = "".join(f"<li>{_esc(b['email'])} <span style='color:#6F6D64'>({_esc(b['lang'] or '—')})</span></li>"
+                       for b in blocked[:200])
+        more = f"<li>……还有 {len(blocked) - 200} 人</li>" if len(blocked) > 200 else ""
+        parts.append(f"<h3>新的内测申请 {len(blocked)} 人 <small style='color:#6F6D64'>（名单里共 {d['waiting']} 人待处理）"
+                     f"</small></h3><ul>{rows}{more}</ul>"
+                     f"<p><a href='{APP_URL}/_gw/admin#waitlist'>去后台批量邀请</a></p>")
+    if reqs:
+        items = "".join(f"<p><b>{_esc(r['email'])}</b> #{r['id']} · 余额 ${(r['credit_usd'] or 0) - (r['spent_usd'] or 0):.2f}"
+                        f"</p><blockquote style='{quote}'>{_esc(r['message'][:600])}</blockquote>" for r in reqs[:50])
+        parts.append(f"<h3>新的额度申请 {len(reqs)} 条 <small style='color:#6F6D64'>（共 {d['pending']} 条待批）</small></h3>"
+                     f"{items}<p><a href='{APP_URL}/_gw/admin#requests'>去后台批量批准</a></p>")
+    if fb:
+        items = "".join(f"<p><b>{_esc(f['email'])}</b> <span style='color:#6F6D64'>#{f['id']} · {_esc(f['page'])}</span></p>"
+                        f"<blockquote style='{quote}'>{_esc(f['message'][:1500])}</blockquote>" for f in fb[:50])
+        parts.append(f"<h3>新反馈 {len(fb)} 条</h3>{items}"
+                     "<p style='color:#6F6D64;font-size:12px'>回复反馈：直接给对方邮箱写信。</p>")
+    counts = [f"{n} {w}" for n, w in ((len(blocked), "人申请"), (len(reqs), "条额度申请"), (len(fb), "条反馈")) if n]
+    return f"[joblander] 每日汇总 {day}：" + "、".join(counts), "".join(parts)
+
+
+async def send_digest(http: httpx.AsyncClient, api_key: str, to: str, *, sender: str, d: dict, day: str) -> bool | None:
+    """发给管理员的每日汇总；没内容返回 None（不发），发出 True，失败 False。"""
     if not (api_key and to):
         return False
-    body = (f"<p><b>{html.escape(user)}</b> sent feedback (#{fid})</p>"
-            f"<blockquote style='white-space:pre-wrap;border-left:3px solid #0E6E62;padding-left:10px'>"
-            f"{html.escape(message)}</blockquote>"
-            f"<p style='color:#6F6D64;font-size:12px'>page: {html.escape(page)} · UI: {html.escape(lang)}<br>"
-            f"{html.escape(ua)}</p>")
+    got = render_digest(d, day=day)
+    if got is None:
+        return None
+    subject, body = got
     r = await http.post(RESEND_URL, headers={"Authorization": f"Bearer {api_key}"}, json={
-        "from": sender, "to": [to], "reply_to": user,
-        "subject": f"[joblander feedback] {message.strip().splitlines()[0][:60]}",
-        "html": body})
-    return r.status_code < 300
-
-
-async def send_blocked(http: httpx.AsyncClient, api_key: str, to: str, *, sender: str,
-                       user: str, lang: str) -> bool:
-    """没在邀请名单的人来登录：通知管理员一次（reply-to 是对方，邀请完可以直接回信）。"""
-    if not (api_key and to):
-        return False
-    cmd = f'fly ssh console -a joblander-gw -C "python -m gw.cli invite {user}"'
-    body = (f"<p><b>{html.escape(user)}</b> tried to sign in but isn't on the invite list (UI: {html.escape(lang)}).</p>"
-            f"<p>To let them in:</p><pre style='background:#F4F6F3;padding:10px;border-radius:6px'>"
-            f"{html.escape(cmd)}</pre>"
-            f"<p style='color:#6F6D64;font-size:12px'>Not someone you know? "
-            f"<code>python -m gw.cli dismiss {html.escape(user)}</code> clears the record. "
-            f"Repeat attempts won't email again — see <code>gw.cli blocked</code>.</p>")
-    r = await http.post(RESEND_URL, headers={"Authorization": f"Bearer {api_key}"}, json={
-        "from": sender, "to": [to], "reply_to": user,
-        "subject": f"[joblander] {user} wants in", "html": body})
-    return r.status_code < 300
-
-
-async def send_credit_request(http: httpx.AsyncClient, api_key: str, to: str, *, sender: str,
-                              user: str, message: str, balance: float, spent: float, rid: int) -> bool:
-    """用户在应用里申请加额度：通知管理员去后台批（reply-to 是对方）。"""
-    if not (api_key and to):
-        return False
-    body = (f"<p><b>{html.escape(user)}</b> asks for more AI credit (#{rid}) — "
-            f"balance ${balance:.2f}, spent ${spent:.2f} so far.</p>"
-            f"<blockquote style='white-space:pre-wrap;border-left:3px solid #0E6E62;padding-left:10px'>"
-            f"{html.escape(message)}</blockquote>"
-            f"<p><a href='{APP_URL}/_gw/admin#requests'>Approve or decline in the admin page</a></p>")
-    r = await http.post(RESEND_URL, headers={"Authorization": f"Bearer {api_key}"}, json={
-        "from": sender, "to": [to], "reply_to": user,
-        "subject": f"[joblander] {user} asks for more credit", "html": body})
+        "from": sender, "to": [to], "subject": subject, "html": body})
     return r.status_code < 300
 
 
@@ -85,14 +82,6 @@ async def send_ai_alert(http: httpx.AsyncClient, api_key: str, to: str, *, sende
 APP_URL = "https://app.ailayoff.me"
 
 _USER = {
-    "waitlisted": {
-        "zh": ("已收到你的内测申请",
-               "<p>你好，</p><p>你刚用 <b>{email}</b> 登录 joblander，目前还不在内测名单里。申请我已经收到，"
-               "加上后会再发一封邮件通知你。</p><p>有问题直接回复这封邮件。</p>"),
-        "en": ("We've got your beta request",
-               "<p>Hi,</p><p>You just tried to sign in to joblander as <b>{email}</b>, which isn't on the beta list yet. "
-               "I've got your request and will email you again once you're in.</p><p>Questions? Just reply to this email.</p>"),
-    },
     "invited": {
         "zh": ("你的 joblander 内测已开通",
                "<p>你好，</p><p><b>{email}</b> 已加入内测，现在就可以登录了：</p>"
@@ -147,13 +136,19 @@ def render_user(kind: str, lang: str | None, **ctx) -> tuple[str, str]:
     return subject, "<hr style='border:none;border-top:1px solid #ddd;margin:24px 0'>".join(parts)
 
 
-async def send_user(http: httpx.AsyncClient, api_key: str, sender: str, reply_to: str, *,
-                    to: str, kind: str, lang: str | None, **ctx) -> bool:
-    if not (api_key and sender):
-        return False
+async def post_user(http: httpx.AsyncClient, api_key: str, sender: str, reply_to: str, *,
+                    to: str, kind: str, lang: str | None, **ctx) -> httpx.Response:
+    """发一封给用户的信，原样返回 Resend 的响应（发信队列要看 429 是限流还是当日额度用完）。"""
     subject, body = render_user(kind, lang, email=to, **ctx)
     msg = {"from": sender, "to": [to], "subject": subject, "html": body}
     if reply_to:
         msg["reply_to"] = reply_to
-    r = await http.post(RESEND_URL, headers={"Authorization": f"Bearer {api_key}"}, json=msg)
+    return await http.post(RESEND_URL, headers={"Authorization": f"Bearer {api_key}"}, json=msg)
+
+
+async def send_user(http: httpx.AsyncClient, api_key: str, sender: str, reply_to: str, *,
+                    to: str, kind: str, lang: str | None, **ctx) -> bool:
+    if not (api_key and sender):
+        return False
+    r = await post_user(http, api_key, sender, reply_to, to=to, kind=kind, lang=lang, **ctx)
     return r.status_code < 300

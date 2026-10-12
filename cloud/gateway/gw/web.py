@@ -57,6 +57,11 @@ class Settings:
     mail_from: str = ""          # 已验证域名的发件人，如 "joblander <hello@ailayoff.me>"；空 = 不给用户发信
     idle_minutes: int = 0        # 用户 machine 闲置多久就挂起；0 = 不休眠（常开）
     wake_at: str = "02:35,08:20,21:35,sun 20:05"   # 定时叫醒（引擎夜扫 / 晨报 / 日记 / 周报之后）
+    digest_at: str = "09:00"     # 每天几点给管理员发汇总邮件（新申请 / 额度申请 / 反馈）；空 = 不发
+    geoip_db: str = "/app/geo.mmdb"   # 离线 IP 库（镜像构建时下载）；不在就只记 IP
+    mail_gap_s: float = 0.6      # 给用户发信时每封之间的间隔（Resend 默认每秒 2 封）
+    mail_daily_limit: int = 90   # 最近 24 小时最多给用户发几封（Resend 免费档每天 100，留几封给汇总与告警）；超了就等
+    mail_idle_s: float = 3       # 队列空着时多久看一次
 
 
 # ---------- 会话：HMAC 签名的 email|过期时间，不存服务端 ----------
@@ -108,6 +113,115 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         if settings.idle_minutes:
             app.state.sleeper_task = asyncio.create_task(sleeper.run())
     app.router.on_startup.append(start_sleeper)
+
+    from gw.geo import Geo, client_ip
+    geo = Geo(settings.geoip_db)
+
+    def note_geo(email: str, request: Request) -> None:
+        ip = client_ip(request)
+        if ip:
+            store.set_geo(email, ip, geo.lookup(ip))
+
+    # ---------- 发信：给用户的信排队慢慢发；给管理员的每天汇总一封 ----------
+
+    mail_task: list[asyncio.Task] = []
+    mail_hold = {"until": 0.0}                  # Resend 说额度用完了：到这个时间之前不再试
+    mail_wake: list[asyncio.Event] = []         # 有新信入队就叫醒（余额提醒从计量口入队，靠定时看）
+
+    async def mail_nap(seconds: float) -> None:
+        try:
+            await asyncio.wait_for(mail_wake[0].wait(), seconds)
+        except asyncio.TimeoutError:
+            pass
+        mail_wake[0].clear()
+
+    async def mail_worker() -> None:
+        """一直跑：从库里的队列按顺序取信，间隔 mail_gap_s 发；最近 24 小时发满 mail_daily_limit 就等到腾出名额。
+        429 不算失败：限流就稍等，当日额度用完就停一小时；其他失败重试，满 5 次放弃。"""
+        from gw.notify import post_user
+        mail_wake[:] = [asyncio.Event()]
+        last_prune = 0.0
+        while True:
+            now = time.time()
+            if now - last_prune > 3600:
+                store.prune_mail(now - 7 * 86400)
+                last_prune = now
+            m = store.next_mail() if now >= mail_hold["until"] else None
+            if m is None or store.mail_stats(now - 86400)["sent"] >= settings.mail_daily_limit:
+                await mail_nap(settings.mail_idle_s if m is None else 60)
+                continue
+            try:
+                r = await post_user(google, settings.resend_api_key, settings.mail_from, settings.feedback_to,
+                                    to=m["to_email"], kind=m["kind"], lang=m["lang"], **m["ctx"])
+                if r.status_code < 300:
+                    store.mail_done(m["id"])
+                    if m["kind"] == "invited":
+                        store.mark_invite_mailed(m["to_email"])
+                elif r.status_code == 429:
+                    quota = "quota" in r.text
+                    mail_hold["until"] = time.time() + (3600 if quota else 5)
+                    if quota:
+                        log.warning("Resend 当日额度用完，发信队列停一小时（还剩 %d 封）", store.mail_stats(0)["pending"])
+                else:
+                    store.mail_retry(m["id"], f"{r.status_code} {r.text[:200]}")
+            except Exception as e:                              # noqa: BLE001  网络问题：记一次失败，稍后重试
+                store.mail_retry(m["id"], repr(e))
+            await asyncio.sleep(settings.mail_gap_s)
+
+    def mail_on() -> bool:
+        return bool(settings.resend_api_key and settings.mail_from)
+
+    def ensure_mail_worker() -> None:
+        if mail_on() and (not mail_task or mail_task[0].done()):
+            mail_task[:] = [asyncio.create_task(mail_worker())]
+
+    def queue_mail(to: str, kind: str, lang: str | None, **ctx) -> bool:
+        """排进库里的发信队列；没配发件域名返回 False（不排）。"""
+        if not mail_on():
+            return False
+        store.enqueue_mail(to, kind, lang, ctx)
+        ensure_mail_worker()
+        if mail_wake:
+            mail_wake[0].set()
+        return True
+
+    async def start_mail():                     # 重启后接着发上次没发完的
+        ensure_mail_worker()
+    app.router.on_startup.append(start_mail)
+
+    async def send_digest(now: float | None = None) -> bool | None:
+        """把上次汇总以来的新申请 / 额度申请 / 反馈发给管理员；发出才往前推进时间点（失败下次再带上）。"""
+        from gw.notify import send_digest as _send
+        now = now or time.time()
+        since = float(store.get_kv("digest_at") or now - 86400)
+        d = store.digest_since(since)
+        ok = await _send(google, settings.resend_api_key, settings.feedback_to, sender=settings.feedback_from, d=d,
+                         day=datetime.fromtimestamp(now, ZoneInfo(settings.timezone)).strftime("%Y-%m-%d"))
+        if ok is not False:
+            store.set_kv("digest_at", str(now))
+            for f in d["feedback"] if ok else []:
+                store.mark_feedback_emailed(f["id"])
+        return ok
+
+    app.state.send_digest = send_digest
+
+    async def digest_loop() -> None:
+        tz = ZoneInfo(settings.timezone)
+        hh, mm = (int(x) for x in settings.digest_at.split(":"))
+        while True:
+            now = datetime.now(tz)
+            if (now.hour, now.minute) >= (hh, mm) and store.get_kv("digest_day") != now.strftime("%Y-%m-%d"):
+                try:
+                    if await send_digest() is not False:
+                        store.set_kv("digest_day", now.strftime("%Y-%m-%d"))
+                except Exception:                               # noqa: BLE001
+                    log.exception("每日汇总发送失败")
+            await asyncio.sleep(300)
+
+    async def start_digest():
+        if settings.digest_at and settings.resend_api_key and settings.feedback_to:
+            app.state.digest_task = asyncio.create_task(digest_loop())
+    app.router.on_startup.append(start_digest)
     redirect_uri = f"https://{settings.public_host}/auth/callback"
 
     log = logging.getLogger("uvicorn.error")
@@ -245,16 +359,8 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             return failed(request, "unverified", retry=False)
         if email not in settings.admins and not store.is_invited(email) and not store.get(email):
             lg = lang(request)
-            if store.record_blocked(email, lg):
-                try:
-                    from gw.notify import send_blocked
-                    await send_blocked(google, settings.resend_api_key, settings.feedback_to,
-                                       sender=settings.feedback_from, user=email, lang=lg)
-                    from gw.notify import send_user
-                    await send_user(google, settings.resend_api_key, settings.mail_from, settings.feedback_to,
-                                    to=email, kind="waitlisted", lang=lg)
-                except Exception:                               # noqa: BLE001  通知失败不影响提示页
-                    pass
+            store.record_blocked(email, lg)                     # 不当场发信：每天汇总一封给管理员
+            note_geo(email, request)
             t = pages.msg("beta", lg)
             return _page(t, f"<h1>{t}</h1><p>{pages.msg('not_invited_mail' if settings.mail_from else 'not_invited', lg,
                                                                 email=html.escape(email))}</p>",
@@ -262,6 +368,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         if not store.get(email):
             store.create(email, settings.free_credit_usd)
         store.set_lang(email, lang(request))
+        note_geo(email, request)
         resp = RedirectResponse("/", status_code=302)
         resp.set_cookie(SESSION_COOKIE, make_session(settings.session_secret, email),
                         max_age=SESSION_TTL, httponly=True, secure=True, samesite="lax")
@@ -326,15 +433,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         page = str(form.get("page") or "")[:300]
         lg = str(form.get("lang") or lang(request))[:5]
         ua = (request.headers.get("user-agent") or "")[:300]
-        fid = store.add_feedback(email, message, page, lg, ua)
-        try:
-            from gw.notify import send_feedback
-            if await send_feedback(google, settings.resend_api_key, settings.feedback_to,
-                                   sender=settings.feedback_from, user=email, message=message,
-                                   page=page, lang=lg, ua=ua, fid=fid):
-                store.mark_feedback_emailed(fid)
-        except Exception:                                       # noqa: BLE001  邮件失败不影响收下反馈
-            pass
+        store.add_feedback(email, message, page, lg, ua)        # 邮件进每日汇总
         return {"ok": True}
 
     @app.get("/_gw/privacy")
@@ -403,7 +502,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
 
     @app.post("/_gw/credit-request")
     async def credit_request(request: Request):
-        """应用里「申请更多额度」：写几句用途 / 反馈，存库并通知管理员；同一时间只能有一条待批。"""
+        """应用里「申请更多额度」：写几句用途 / 反馈，存库（管理员在每日汇总里看到）；同一时间只能有一条待批。"""
         email = current(request)
         user = store.get(email) if email else None
         if user is None:
@@ -417,13 +516,6 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         rid = store.request_credit(email, message)
         if rid is None:
             return {"error": "pending"}
-        try:
-            from gw.notify import send_credit_request
-            await send_credit_request(google, settings.resend_api_key, settings.feedback_to,
-                                      sender=settings.feedback_from, user=email, message=message,
-                                      balance=max(user.balance_usd, 0), spent=user.spent_usd, rid=rid)
-        except Exception:                                       # noqa: BLE001  邮件失败不影响收下申请
-            pass
         return {"ok": True, "request": store.latest_request(email)}
 
     @app.get("/_gw/account")
@@ -449,10 +541,15 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         email = current(request)
         return email if email and email in settings.admins else None
 
-    def back(msg: str) -> RedirectResponse:
-        return RedirectResponse("/_gw/admin?" + urlencode({"m": msg}), status_code=303)
+    from gw.admin import RET_KEYS, mask
 
-    from gw.admin import mask
+    def back(msg: str, form=None, anchor: str = "") -> RedirectResponse:
+        """操作完回后台：带回原来的分页 / 搜索（表单里的 ret），并跳到对应卡片。"""
+        from urllib.parse import parse_qsl
+        ret = {k: v for k, v in parse_qsl(str(form.get("ret") or "") if form else "")
+               if k in RET_KEYS and len(v) <= 100}
+        return RedirectResponse("/_gw/admin?" + urlencode({**ret, "m": msg}) + (f"#{anchor}" if anchor else ""),
+                                status_code=303)
 
     @app.get("/_gw/admin")
     async def admin_page(request: Request, m: str = ""):
@@ -462,7 +559,10 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         snap = store.admin_snapshot(time.time() - admin.DAYS * 86400)
         return admin.render(snap, low_usd=settings.low_balance_usd, tz_name=settings.timezone,
                             asleep=sleeper.asleep if settings.idle_minutes else None,
-                            privacy_version=pages.PRIVACY_VERSION, flash=m[:200])
+                            privacy_version=pages.PRIVACY_VERSION, flash=m[:200],
+                            params={k: v for k, v in request.query_params.items() if k in RET_KEYS},
+                            mail=({**store.mail_stats(time.time() - 86400), "limit": settings.mail_daily_limit}
+                                  if mail_on() else None))
 
     async def admin_form(request: Request) -> tuple[str, dict] | None:
         email = admin_of(request)
@@ -470,32 +570,72 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             return None
         return email, await request.form()
 
+    def invite_and_mail(target: str) -> bool:
+        lg = store.blocked_lang(target)
+        store.invite(target)
+        return queue_mail(target, "invited", lg)
+
+    def emails_of(vals) -> list[str]:
+        out = []
+        for v in vals:
+            e = str(v).strip().lower()
+            if "@" in e and len(e) <= 254 and e not in out:
+                out.append(e)
+        return out
+
     @app.post("/_gw/admin/invite")
     async def admin_invite(request: Request):
         got = await admin_form(request)
         if got is None:
             return Response(status_code=404)
-        target = str(got[1].get("email") or "").strip().lower()
+        form = got[1]
+        target = str(form.get("email") or "").strip().lower()
         if "@" not in target or len(target) > 254:
-            return back("邮箱不对")
-        lg = store.blocked_lang(target)
-        store.invite(target)
-        mailed = False
-        try:
-            from gw.notify import send_user
-            mailed = await send_user(google, settings.resend_api_key, settings.mail_from, settings.feedback_to,
-                                     to=target, kind="invited", lang=lg)
-        except Exception:                                       # noqa: BLE001
-            pass
-        return back(f"已邀请 {mask(target)}" + ("，已发邮件通知" if mailed else "（没发出邮件，记得自己告诉对方）"))
+            return back("邮箱不对", form, "invites")
+        mailed = invite_and_mail(target)
+        return back(f"已邀请 {mask(target)}" + ("，邮件已排队发送" if mailed else "（没配发信，记得自己告诉对方）"),
+                    form, "waitlist")
+
+    @app.post("/_gw/admin/waitlist")
+    async def admin_waitlist_batch(request: Request):
+        """被拦名单批量操作：勾选的人一起邀请（邮件排队慢慢发）或一起清掉。"""
+        got = await admin_form(request)
+        if got is None:
+            return Response(status_code=404)
+        form = got[1]
+        # 行内按钮 act="invite:邮箱"；表头按钮 act="invite"，对象是勾选的 sel
+        action, _, one = str(form.get("act") or "").partition(":")
+        targets = emails_of([one] if one else form.getlist("sel"))
+        if not targets:
+            return back("没勾选任何人", form, "waitlist")
+        if action == "dismiss":
+            n = sum(store.dismiss(t) for t in targets)
+            return back(f"已清掉 {n} 人", form, "waitlist")
+        mailed = sum(invite_and_mail(t) for t in targets)
+        return back(f"已邀请 {len(targets)} 人" + (f"，{mailed} 封邀请邮件已排队（每天最多 {settings.mail_daily_limit} 封，多的顺延）"
+                                                if mailed else "（没配发信，记得自己告诉对方）") if len(targets) > 1 else
+                    f"已邀请 {mask(targets[0])}" + ("，邮件已排队发送" if mailed else "（没配发信，记得自己告诉对方）"),
+                    form, "waitlist")
+
+    @app.post("/_gw/admin/resend-invites")
+    async def admin_resend_invites(request: Request):
+        """邀请了、还没登录、邀请邮件也没发出去的人：重新排队发一遍。"""
+        got = await admin_form(request)
+        if got is None:
+            return Response(status_code=404)
+        todo = [i["email"] for i in store.admin_snapshot(time.time())["pending_invites"]
+                if not i["mailed_at"] and not store.mail_pending(i["email"], "invited")]      # 还在排队的不重复排
+        n = sum(queue_mail(e, "invited", store.blocked_lang(e)) for e in todo)
+        return back(f"{n} 封邀请邮件已重新排队" if n else "没有要重发的（或没配发信）", got[1], "invites")
 
     @app.post("/_gw/admin/dismiss")
     async def admin_dismiss(request: Request):
         got = await admin_form(request)
         if got is None:
             return Response(status_code=404)
-        target = str(got[1].get("email") or "").strip().lower()
-        return back(f"已清掉 {mask(target)}" if store.dismiss(target) else f"{mask(target)} 不在被拦名单")
+        form = got[1]
+        target = str(form.get("email") or "").strip().lower()
+        return back(f"已清掉 {mask(target)}" if store.dismiss(target) else f"{mask(target)} 不在被拦名单", form, "waitlist")
 
     @app.post("/_gw/admin/grant")
     async def admin_grant(request: Request):
@@ -509,9 +649,17 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         except ValueError:
             usd = 0
         if not (0 < usd <= 100) or store.get(target) is None:
-            return back("没加：金额须在 0–100 之间，且对方已登录过")
+            return back("没加：金额须在 0–100 之间，且对方已登录过", form, "users")
         store.grant(target, usd, f"后台手工发放（{admin_email}）")
-        return back(f"已给 {mask(target)} 加 ${usd:g}，余额 ${store.get(target).balance_usd:.2f}")
+        return back(f"已给 {mask(target)} 加 ${usd:g}，余额 ${store.get(target).balance_usd:.2f}", form, "users")
+
+    def decide(rid: int, approve: bool, usd: float, admin_email: str) -> dict | None:
+        """批 / 不批一条；批了就发额度，并把通知邮件排进队列。"""
+        r = store.decide_request(rid, approve, usd, f"额度申请 #{rid} 批准（{admin_email}）")
+        if r and approve and (u := store.get(r["email"])):
+            r["mailed"] = queue_mail(u.email, "credit_granted", u.lang, amount=f"{usd:g}",
+                                     balance=f"{max(u.balance_usd, 0):.2f}")
+        return r
 
     @app.post("/_gw/admin/request")
     async def admin_request(request: Request):
@@ -523,24 +671,43 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         try:
             rid, usd = int(form.get("id") or 0), float(form.get("usd") or 0)
         except ValueError:
-            return back("申请编号或金额不对")
+            return back("申请编号或金额不对", form, "requests")
         approve = form.get("action") == "approve"
         if approve and not 0 < usd <= 100:
-            return back("没批：金额须在 0–100 之间")
-        r = store.decide_request(rid, approve, usd, f"额度申请 #{rid} 批准（{admin_email}）")
+            return back("没批：金额须在 0–100 之间", form, "requests")
+        r = decide(rid, approve, usd, admin_email)
         if r is None:
-            return back("这条申请已处理过或不存在")
+            return back("这条申请已处理过或不存在", form, "requests")
         if not approve:
-            return back(f"已婉拒 {mask(r['email'])} 的申请（应用里会显示「未批准」）")
-        mailed = False
+            return back(f"已婉拒 {mask(r['email'])} 的申请（应用里会显示「未批准」）", form, "requests")
+        return back(f"已批：给 {mask(r['email'])} 加 ${usd:g}" + ("，邮件已排队发送" if r.get("mailed") else ""),
+                    form, "requests")
+
+    @app.post("/_gw/admin/requests")
+    async def admin_requests_batch(request: Request):
+        """额度申请批量操作：勾选的一起按同一金额批准，或一起不批。"""
+        got = await admin_form(request)
+        if got is None:
+            return Response(status_code=404)
+        admin_email, form = got
+        # 行内按钮 act="approve:编号"（金额取那一行的 usd_编号）；表头按钮 act="approve"，对象是勾选的 sel
+        action, _, one = str(form.get("act") or "").partition(":")
         try:
-            from gw.notify import send_user
-            mailed = await send_user(google, settings.resend_api_key, settings.mail_from, settings.feedback_to,
-                                     to=r["email"], kind="credit_granted", lang=store.get(r["email"]).lang,
-                                     amount=f"{usd:g}", balance=f"{max(store.get(r['email']).balance_usd, 0):.2f}")
-        except Exception:                                       # noqa: BLE001
-            pass
-        return back(f"已批：给 {mask(r['email'])} 加 ${usd:g}" + ("，已发邮件通知" if mailed else ""))
+            ids = [int(one)] if one else sorted({int(v) for v in form.getlist("sel")})
+            usd = float(form.get(f"usd_{one}" if one else "usd") or 0)
+        except ValueError:
+            return back("申请编号或金额不对", form, "requests")
+        if not ids:
+            return back("没勾选任何申请", form, "requests")
+        approve = action == "approve"
+        if approve and not 0 < usd <= 100:
+            return back("没批：金额须在 0–100 之间", form, "requests")
+        done = [r for r in (decide(i, approve, usd, admin_email) for i in ids) if r]
+        skipped = f"（{len(ids) - len(done)} 条已处理过，跳过）" if len(done) < len(ids) else ""
+        if not approve:
+            return back(f"已婉拒 {len(done)} 条申请{skipped}", form, "requests")
+        return back(f"已批 {len(done)} 条，每人加 ${usd:g}{skipped}"
+                    + (f"，{sum(1 for r in done if r.get('mailed'))} 封通知邮件已排队" if done else ""), form, "requests")
 
     # ---------- 其余一切：转发到这个人自己的 machine ----------
 
@@ -573,6 +740,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         day = datetime.now(ZoneInfo(settings.timezone)).strftime("%Y-%m-%d")
         if (email, day) not in seen_days:                      # 每人每天写一次库：后台的活跃曲线
             store.touch_day(email, day)
+            note_geo(email, request)                            # 地点也每天更新一次
             seen_days.add((email, day))
         url = f"http://{fly.address(user.machine_id)}:8899/{path}"
         headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP}

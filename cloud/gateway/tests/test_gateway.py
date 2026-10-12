@@ -116,6 +116,15 @@ def _fly(calls: list):
     return Fly("tok", "users", "sin", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
 
 
+def _wait(cond, tries: int = 100):
+    import time
+    for _ in range(tries):
+        if cond():
+            return
+        time.sleep(0.02)
+    raise AssertionError("等不到")
+
+
 def _upstream(seen: list):
     def handler(req: httpx.Request):
         seen.append(req)
@@ -200,7 +209,7 @@ def test_uninvited_login_is_refused(store, monkeypatch):
     assert r.status_code == 302 and store.get("stranger@x.com").credit_usd == 2.0
 
 
-def test_blocked_login_notifies_admin_once_and_invite_clears_it(store, monkeypatch):
+def test_blocked_login_sends_no_mail_but_lands_in_daily_digest(store, monkeypatch):
     mails = []
     def google(req: httpx.Request):
         if "resend" in req.url.host:
@@ -214,14 +223,18 @@ def test_blocked_login_notifies_admin_once_and_invite_clears_it(store, monkeypat
     monkeypatch.setattr(W.httpx, "AsyncClient",
                         lambda *a, **k: orig(transport=httpx.MockTransport(google)))
     s = Settings(**{**SETTINGS.__dict__, "feedback_to": "boss@x.com", "resend_api_key": "re_x"})
-    c = TestClient(create_web_app(s, store, _fly([]), _upstream([])), base_url="https://app.test")
+    app = create_web_app(s, store, _fly([]), _upstream([]))
+    c = TestClient(app, base_url="https://app.test")
     for _ in range(3):
         c.cookies.set("jl_state", "st")
         assert "已经收到通知" in c.get("/auth/callback?code=c&state=st", follow_redirects=False).text
-    assert len(mails) == 1                                       # 只在第一次被拦时发
-    assert mails[0]["to"] == ["boss@x.com"] and mails[0]["reply_to"] == "friend@x.com"
-    assert "gw.cli invite friend@x.com" in mails[0]["html"]
+    assert mails == []                                           # 被拦当场不发信（量大会撞 Resend 上限）
     assert [(w["email"], w["attempts"]) for w in store.waitlist()] == [("friend@x.com", 3)]
+    import asyncio
+    assert asyncio.run(app.state.send_digest()) is True          # 每天一封汇总给管理员
+    assert len(mails) == 1 and mails[0]["to"] == ["boss@x.com"]
+    assert "1 人申请" in mails[0]["subject"] and "friend@x.com" in mails[0]["html"]
+    assert asyncio.run(app.state.send_digest()) is None and len(mails) == 1     # 没有新内容就不发
     store.invite("friend@x.com")
     assert store.waitlist() == []
     assert store.uninvite("friend@x.com") and not store.is_invited("friend@x.com")
@@ -384,9 +397,12 @@ def test_feedback_stored_emailed_and_rate_limited(store):
                                           "page": "/company/1", "lang": "en"},
                    headers={"Origin": "https://app.test", "User-Agent": "UA"})
         assert r.json() == {"ok": True}
-        assert sent[0]["to"] == ["boss@x.com"] and sent[0]["reply_to"] == "a@x.com"
-        assert sent[0]["subject"] == "[joblander feedback] The brief button is slow"
-        assert store.list_feedback()[0]["emailed"] == 1
+        assert sent == [] and store.list_feedback()[0]["emailed"] == 0          # 不逐条发信
+        import asyncio
+        asyncio.run(app.state.send_digest())
+        assert sent[0]["to"] == ["boss@x.com"] and "1 条反馈" in sent[0]["subject"]
+        assert "The brief button is slow" in sent[0]["html"] and "a@x.com" in sent[0]["html"]
+        assert store.list_feedback()[0]["emailed"] == 1                         # 已进汇总
         assert c.post("/_gw/feedback", data={"message": "hi"}, headers={"Origin": "https://evil.example"}).status_code == 403
         for _ in range(9):
             c.post("/_gw/feedback", data={"message": "again"})
@@ -498,21 +514,19 @@ def _resend_mock(monkeypatch, mails, who="friend@x.com"):
     monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: orig(transport=httpx.MockTransport(handler)))
 
 
-def test_blocked_person_gets_confirmation_when_domain_configured(store, monkeypatch):
+def test_blocked_person_gets_no_auto_reply_even_with_domain(store, monkeypatch):
     mails = []
     _resend_mock(monkeypatch, mails)
     s = Settings(**{**SETTINGS.__dict__, "feedback_to": "boss@x.com", "resend_api_key": "re_x",
                     "mail_from": "joblander <hello@ailayoff.me>"})
     c = TestClient(create_web_app(s, store, _fly([]), _upstream([])), base_url="https://app.test")
     c.cookies.set("jl_state", "st"); c.cookies.set("jl_lang", "en")
-    assert "sent a confirmation" in c.get("/auth/callback?code=c&state=st", follow_redirects=False).text
-    to_admin, to_user = mails
-    assert to_admin["to"] == ["boss@x.com"] and to_admin["from"] == "joblander <onboarding@resend.dev>"
-    assert to_user["to"] == ["friend@x.com"] and to_user["from"] == "joblander <hello@ailayoff.me>"
-    assert to_user["reply_to"] == "boss@x.com" and to_user["subject"] == "We've got your beta request"
+    r = c.get("/auth/callback?code=c&state=st", follow_redirects=False).text
+    assert "you'll get an email at this address once you're in" in r and "confirmation" not in r
+    assert mails == []                                           # 不给每个申请人发回执，也不逐条通知管理员
 
 
-def test_invite_cli_emails_person_in_their_language(store, monkeypatch, capsys):
+def test_invite_cli_queues_mail_in_persons_language(store, monkeypatch, capsys):
     import runpy, sys
     mails = []
     _resend_mock(monkeypatch, mails)
@@ -523,14 +537,20 @@ def test_invite_cli_emails_person_in_their_language(store, monkeypatch, capsys):
     store.record_blocked("friend@x.com", "en")
     monkeypatch.setattr(sys, "argv", ["gw.cli", "invite", "Friend@x.com", "new@x.com"])
     runpy.run_module("gw.cli", run_name="__main__")
-    assert [m["to"] for m in mails] == [["friend@x.com"], ["new@x.com"]]
-    assert mails[0]["subject"] == "You're in — joblander beta"            # 被拦时是英文界面
-    assert "/" in mails[1]["subject"] and "已加入内测" in mails[1]["html"]   # 语言未知：中英都放
-    assert "https://app.ailayoff.me" in mails[0]["html"] and mails[0]["reply_to"] == "boss@x.com"
+    assert mails == []                                                   # 不直接发：进网关的发信队列
+    q = [store.next_mail()]
+    store.mail_done(q[0]["id"])
+    q.append(store.next_mail())
+    assert [(m["to_email"], m["kind"], m["lang"]) for m in q] == [("friend@x.com", "invited", "en"),  # 被拦时是英文界面
+                                                                  ("new@x.com", "invited", None)]
     assert store.is_invited("friend@x.com") and store.waitlist() == []
+    from gw.notify import render_user
+    subj, body = render_user("invited", None, email="new@x.com")
+    assert "/" in subj and "已加入内测" in body and "https://app.ailayoff.me" in body   # 语言未知：中英都放
+    assert render_user("invited", "en", email="a@x.com")[0] == "You're in — joblander beta"
     monkeypatch.setattr(sys, "argv", ["gw.cli", "invite", "q@x.com", "--quiet"])
     runpy.run_module("gw.cli", run_name="__main__")
-    assert len(mails) == 2 and store.is_invited("q@x.com")
+    assert store.mail_stats(0)["pending"] == 1 and store.is_invited("q@x.com")
 
 
 def test_low_balance_reminder_fires_once_until_topped_up(store):
@@ -648,6 +668,7 @@ def test_credit_request_flow(store, monkeypatch):
     monkeypatch.setattr(SETTINGS, "resend_api_key", "re_x")
     monkeypatch.setattr(SETTINGS, "mail_from", "joblander <hi@x.com>")
     monkeypatch.setattr(SETTINGS, "feedback_to", "boss@x.com")
+    monkeypatch.setattr(SETTINGS, "digest_at", "")              # 别让每日汇总在测试里插一封
     store.create("boss@x.com", 2.0)
     store.create("a@x.com", 2.0)
     store.charge("a@x.com", "m-pro", 0, 0, 1.9)
@@ -660,17 +681,23 @@ def test_credit_request_flow(store, monkeypatch):
     assert out["ok"] and out["request"]["status"] == "pending"
     assert u.post("/_gw/credit-request", data={"message": "再来一次申请更多的额度"}, headers=ok).json() == {"error": "pending"}
     assert u.get("/_gw/me").json()["request"]["status"] == "pending"
-    assert mails[-1]["to"] == [SETTINGS.feedback_to] and mails[-1]["reply_to"] == "a@x.com"
-    assert "尽调很好用" in mails[-1]["html"]
+    assert mails == []                                           # 申请不逐条发信，进每日汇总
+    from gw.notify import render_digest
+    subject, body = render_digest(store.digest_since(0), day="2026-10-13")
+    assert "1 条额度申请" in subject and "尽调很好用" in body and "a@x.com" in body
 
     rid = out["request"]["id"]
     assert u.post("/_gw/admin/request", data={"id": rid, "usd": "5", "action": "approve"}).status_code == 404
-    boss = _client(store, _fly([]), _upstream([]), "boss@x.com")
+    boss = TestClient(create_web_app(SETTINGS, store, _fly([]), _upstream([])), base_url="https://app.test")
+    boss.__enter__()                                             # 同一个事件循环：排队的邮件才发得出去
+    boss.cookies.set("jl_session", make_session("s", "boss@x.com"))
+    store.consent("boss@x.com", __import__("gw.pages").pages.PRIVACY_VERSION)
     page = boss.get("/_gw/admin").text
     assert 'id="requests"' in page and "尽调很好用" in page and "a•••@x.com" in page
     r = boss.post("/_gw/admin/request", data={"id": rid, "usd": "5", "action": "approve"}, follow_redirects=True)
     assert "已批：给 a•••@x.com 加 $5" in r.text
     assert store.get("a@x.com").credit_usd == 7.0
+    _wait(lambda: mails)
     assert mails[-1]["to"] == ["a@x.com"] and "$5" in mails[-1]["html"] and "$5.10" in mails[-1]["html"]
     assert u.get("/_gw/me").json()["request"]["status"] == "approved"
     r = boss.post("/_gw/admin/request", data={"id": rid, "usd": "5", "action": "approve"}, follow_redirects=True)
@@ -683,6 +710,7 @@ def test_credit_request_flow(store, monkeypatch):
     assert len(store.export("a@x.com")["credit_requests"]) == 2
     store.delete_user("a@x.com")
     assert store.db.execute("SELECT COUNT(*) FROM credit_requests").fetchone()[0] == 0
+    boss.__exit__(None, None, None)
 
 
 def test_growth_counts_blocked_and_invited(store):
@@ -756,3 +784,214 @@ def test_usage_events_feed_funnel_and_features(store):
     assert f["看过新机会"] == 2 and f["用上 AI"] == 2 and f["批准第一条机会进作战室"] == 1
     assert ("新机会", "GET /sourcing", 1, 2) in b["features"]
     assert "Acme" not in html
+
+
+# ---------- 后台：分页 / 批量 / 地理 ----------
+
+def _boss(store, monkeypatch=None, mail=False):
+    """管理员客户端；mail=True 时配好发信并进入同一个事件循环（排队的邮件才发得出去）。"""
+    s = Settings(**{**SETTINGS.__dict__, "digest_at": "", "mail_gap_s": 0,
+                    **({"resend_api_key": "re_x", "mail_from": "joblander <hi@x.com>", "feedback_to": "boss@x.com"}
+                       if mail else {})})
+    c = TestClient(create_web_app(s, store, _fly([]), _upstream([])), base_url="https://app.test")
+    if mail:
+        c.__enter__()
+    if not store.get("boss@x.com"):
+        store.create("boss@x.com", 2.0)
+    from gw.pages import PRIVACY_VERSION
+    store.consent("boss@x.com", PRIVACY_VERSION)
+    c.cookies.set("jl_session", make_session("s", "boss@x.com"))
+    return c
+
+
+def test_admin_tables_paginate_and_search(store):
+    for i in range(120):
+        store.create(f"user{i:03d}@x.com", 2.0)
+    for i in range(60):
+        store.record_blocked(f"wait{i:02d}@x.com", "zh")
+    c = _boss(store)
+    p1 = c.get("/_gw/admin").text
+    assert "第 1–50 条 · 共 121 条" in p1 and "第 1–50 条 · 共 60 条" in p1
+    assert 'href="?pu=3#users"' in p1 and "<b>1</b>" in p1
+    p3 = c.get("/_gw/admin?pu=3").text
+    assert "第 101–121 条 · 共 121 条" in p3
+    assert c.get("/_gw/admin?pu=999").status_code == 200 and "第 101–121 条" in c.get("/_gw/admin?pu=999").text
+    assert "第 1–50 条" in c.get("/_gw/admin?pu=abc").text                     # 乱写页码当第一页
+    q = c.get("/_gw/admin?q=user007").text
+    assert 'value="user007@x.com"' in q and 'value="user008@x.com"' not in q and "没有匹配的人" in q
+    # 操作完回到原来那页、原来的搜索
+    r = c.post("/_gw/admin/dismiss", data={"email": "wait00@x.com", "ret": "pw=2&q=wait&evil=1"},
+               follow_redirects=False)
+    loc = r.headers["location"]
+    assert loc.startswith("/_gw/admin?pw=2&q=wait&m=") and loc.endswith("#waitlist") and "evil" not in loc
+
+
+def test_admin_bulk_invite_and_dismiss_waitlist(store, monkeypatch):
+    mails, broken = [], {"w2@x.com"}
+
+    async def fake_post(self, url, **kw):
+        mails.append(kw["json"])
+        return httpx.Response(500 if kw["json"]["to"][0] in broken else 200)    # w2 一直发不出去
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    for e in ("w1@x.com", "w2@x.com", "w3@x.com", "spam1@x.com", "spam2@x.com"):
+        store.record_blocked(e, "en")
+    c = _boss(store, mail=True)
+    page = c.get("/_gw/admin").text
+    assert 'action="/_gw/admin/waitlist"' in page and 'name="sel" value="w1@x.com"' in page
+    r = c.post("/_gw/admin/waitlist", data={"act": "invite", "sel": ["w1@x.com", "W2@x.com", "w3@x.com"]},
+               follow_redirects=True)
+    assert "已邀请 3 人" in r.text and "3 封邀请邮件已排队" in r.text
+    assert all(store.is_invited(e) for e in ("w1@x.com", "w2@x.com", "w3@x.com"))
+    _wait(lambda: store.mail_stats(0) == {"pending": 0, "sent": 2, "failed": 1})
+    assert sum(m["to"] == ["w2@x.com"] for m in mails) == 5                   # 失败重试 5 次后放弃
+    assert mails[0]["subject"] == "You're in — joblander beta"
+    page = c.get("/_gw/admin").text                                           # 发不出去的标出来
+    assert page.count("邮件未发出") == 1 and "重发 1 封没发出的邀请邮件" in page
+    assert "24 小时已发 2/90 · 放弃 1" in page
+    broken.clear()
+    r = c.post("/_gw/admin/resend-invites", follow_redirects=True)
+    assert "1 封邀请邮件已重新排队" in r.text
+    _wait(lambda: mails[-1]["to"] == ["w2@x.com"] and store.mail_stats(0)["sent"] == 3)
+    assert "邮件未发出" not in c.get("/_gw/admin").text
+    # 行内按钮只处理那一行；批量清掉
+    c.post("/_gw/admin/waitlist", data={"act": "dismiss:spam1@x.com", "sel": ["spam2@x.com"]})
+    assert [w["email"] for w in store.waitlist()] == ["spam2@x.com"]
+    r = c.post("/_gw/admin/waitlist", data={"act": "dismiss", "sel": ["spam2@x.com"]}, follow_redirects=True)
+    assert "已清掉 1 人" in r.text and store.waitlist() == []
+    assert "没勾选任何人" in c.post("/_gw/admin/waitlist", data={"act": "invite"}, follow_redirects=True).text
+    # 非管理员 / 跨站一律拒
+    assert c.post("/_gw/admin/waitlist", data={"act": "invite", "sel": ["x@x.com"]},
+                  headers={"Origin": "https://evil.test"}).status_code == 404
+    assert not store.is_invited("x@x.com")
+    c.__exit__(None, None, None)
+
+
+def test_admin_bulk_approve_credit_requests(store, monkeypatch):
+    mails = []
+
+    async def fake_post(self, url, **kw):
+        mails.append(kw["json"])
+        return httpx.Response(200)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    ids = {}
+    for e in ("a@x.com", "b@x.com", "c@x.com", "d@x.com"):
+        store.create(e, 2.0)
+        ids[e] = store.request_credit(e, "想多试几家公司的尽调")
+    c = _boss(store, mail=True)
+    assert 'name="usd_%d"' % ids["a@x.com"] in c.get("/_gw/admin").text
+    r = c.post("/_gw/admin/requests", data={"act": "approve", "usd": "3",
+                                            "sel": [ids["a@x.com"], ids["b@x.com"]]}, follow_redirects=True)
+    assert "已批 2 条，每人加 $3" in r.text and "2 封通知邮件已排队" in r.text
+    assert store.get("a@x.com").credit_usd == 5.0 and store.get("b@x.com").credit_usd == 5.0
+    _wait(lambda: len(mails) == 2)
+    assert sorted(m["to"][0] for m in mails) == ["a@x.com", "b@x.com"]
+    # 行内：用那一行自己的金额
+    c.post("/_gw/admin/requests", data={"act": f"approve:{ids['c@x.com']}", f"usd_{ids['c@x.com']}": "7",
+                                        "usd": "1", "sel": [ids["d@x.com"]]})
+    assert store.get("c@x.com").credit_usd == 9.0 and store.get("d@x.com").credit_usd == 2.0
+    # 已处理过的跳过，不重复发额度
+    r = c.post("/_gw/admin/requests", data={"act": "approve", "usd": "3", "sel": [ids["a@x.com"], ids["d@x.com"]]},
+               follow_redirects=True)
+    assert "已批 1 条" in r.text and "1 条已处理过，跳过" in r.text
+    assert store.get("a@x.com").credit_usd == 5.0 and store.get("d@x.com").credit_usd == 5.0
+    assert "没批：金额须在 0–100 之间" in c.post("/_gw/admin/requests", data={
+        "act": "approve", "usd": "500", "sel": [ids["a@x.com"]]}, follow_redirects=True).text
+    c.__exit__(None, None, None)
+
+
+def test_geo_recorded_at_login_and_daily_visit_and_shown_masked(store, monkeypatch):
+    from gw.geo import Geo, mask_ip
+    assert mask_ip("203.0.113.57") == "203.0.113.x" and mask_ip("2001:db8:1:2::5") == "2001:0db8:0001::x"
+    assert mask_ip(None) == "—" and mask_ip("junk") == "—"
+    assert Geo("/nonexistent.mmdb").lookup("8.8.8.8")["country"] == ""         # 没库：只记 IP
+    places = {"1.2.3.4": ("CN", "中国", "Shanghai", "Shanghai", 31.2, 121.4),
+              "5.6.7.8": ("SG", "新加坡", "", "Singapore", 1.3, 103.8)}
+
+    def lookup(self, ip):
+        c, n, r, city, lat, lon = places.get(ip, ("", "", "", "", None, None))
+        return {"country": c, "country_name": n, "region": r, "city": city, "lat": lat, "lon": lon}
+    monkeypatch.setattr(Geo, "lookup", lookup)
+    seen = []
+
+    def google(req: httpx.Request):
+        if "token" in req.url.path:
+            return httpx.Response(200, json={"access_token": "at"})
+        return httpx.Response(200, json={"email": seen[-1], "email_verified": True})
+    import gw.web as W
+    orig = httpx.AsyncClient
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda *a, **k: orig(transport=httpx.MockTransport(google)))
+    store.create("a@x.com", 2.0)
+    c = TestClient(create_web_app(SETTINGS, store, _fly([]), _upstream([])), base_url="https://app.test")
+    for who, ip in (("a@x.com", "1.2.3.4"), ("stranger@x.com", "5.6.7.8")):
+        seen.append(who)
+        c.cookies.set("jl_state", "st")
+        c.get("/auth/callback?code=c&state=st", headers={"Fly-Client-IP": ip}, follow_redirects=False)
+    g = {r["email"]: r for r in store.admin_snapshot(0)["geo"]}
+    assert g["a@x.com"]["city"] == "Shanghai" and g["stranger@x.com"]["country"] == "SG"
+    assert store.export("a@x.com")["location"][0]["ip"] == "1.2.3.4"
+    page = _boss(store).get("/_gw/admin").text
+    assert 'id="geomap"' in page and "用户分布" in page and "DB-IP" in page
+    assert "1.2.3.x" in page and "1.2.3.4" not in page                          # IP 打码
+    import re
+    pts = json.loads(re.search(r'id="geodata">(.*?)</script>', page).group(1))
+    assert {(p["city"], p["reg"], p["wl"]) for p in pts} == {("Shanghai", 1, 0), ("Singapore", 0, 1)}
+    assert "<td>中国</td>" in page and "<td>新加坡</td>" in page
+    # 被拦的人被清掉 / 用户删号：地点一并删
+    store.dismiss("stranger@x.com")
+    store.delete_user("a@x.com")
+    assert store.admin_snapshot(0)["geo"] == []
+
+
+def test_mail_queue_respects_daily_limit_and_survives_restart(store, monkeypatch):
+    mails = []
+
+    async def fake_post(self, url, **kw):
+        mails.append(kw["json"])
+        return httpx.Response(200)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    # 上次进程排了没发完的信：新进程一启动就接着发
+    store.create("a@x.com", 2.0)
+    store.enqueue_mail("a@x.com", "credit_granted", "zh", {"amount": "5", "balance": "7.00"})
+    s = Settings(**{**SETTINGS.__dict__, "digest_at": "", "mail_gap_s": 0, "mail_daily_limit": 2,
+                    "resend_api_key": "re_x", "mail_from": "joblander <hi@x.com>", "feedback_to": "boss@x.com"})
+    c = TestClient(create_web_app(s, store, _fly([]), _upstream([])), base_url="https://app.test")
+    c.__enter__()
+    _wait(lambda: len(mails) == 1)
+    assert "$5" in mails[0]["html"] and "$7.00" in mails[0]["html"]
+    # 24 小时内最多 2 封：第 3 封顺延
+    ids = [store.request_credit(e, "想多试几家公司的尽调") for e in ("b@x.com", "c@x.com") if store.create(e, 2.0)]
+    store.create("boss@x.com", 2.0)
+    from gw.pages import PRIVACY_VERSION
+    store.consent("boss@x.com", PRIVACY_VERSION)
+    c.cookies.set("jl_session", make_session("s", "boss@x.com"))
+    r = c.post("/_gw/admin/requests", data={"act": "approve", "usd": "3", "sel": ids}, follow_redirects=True)
+    assert "已批 2 条" in r.text and store.get("c@x.com").credit_usd == 5.0       # 额度照发，信排队
+    _wait(lambda: len(mails) == 2)
+    import time
+    time.sleep(0.2)
+    assert len(mails) == 2 and store.mail_stats(0)["pending"] == 1
+    assert "24 小时已发 2/2（已满，顺延）" in c.get("/_gw/admin").text
+    # 过了 24 小时腾出名额：接着发
+    store.db.execute("UPDATE mail_queue SET sent_at = sent_at - 2 * 86400")
+    c.post("/_gw/admin/invite", data={"email": "new@x.com"})                       # 入队会叫醒它
+    _wait(lambda: len(mails) == 4)                                                 # 顺延的那封 + 新邀请，又到上限
+    assert [m["to"][0] for m in mails[2:]] == ["c@x.com", "new@x.com"]
+    c.__exit__(None, None, None)
+
+
+def test_mail_queue_pauses_on_resend_quota_without_dropping(store, monkeypatch):
+    calls = []
+
+    async def fake_post(self, url, **kw):
+        calls.append(kw["json"])
+        return httpx.Response(429, json={"name": "daily_quota_exceeded", "message": "You have reached your daily quota"})
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    store.record_blocked("w@x.com", "zh")
+    c = _boss(store, mail=True)
+    c.post("/_gw/admin/waitlist", data={"act": "invite", "sel": ["w@x.com"]})
+    _wait(lambda: calls)
+    import time
+    time.sleep(0.2)
+    m = store.next_mail()
+    assert len(calls) == 1 and m["status"] == "pending" and m["tries"] == 0      # 额度用完：停下等，不算失败
+    c.__exit__(None, None, None)

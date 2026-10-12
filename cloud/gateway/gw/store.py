@@ -60,6 +60,17 @@ CREATE TABLE IF NOT EXISTS events (                 -- 产品使用记录：某�
   n INTEGER NOT NULL, first_at REAL NOT NULL, last_at REAL NOT NULL,
   PRIMARY KEY (email, name, day)
 );
+CREATE TABLE IF NOT EXISTS geo (                    -- 最近一次登录 / 当天首次访问的 IP 与大致所在地（离线库推算）
+  email TEXT PRIMARY KEY, ip TEXT NOT NULL, country TEXT, country_name TEXT, region TEXT, city TEXT,
+  lat REAL, lon REAL, at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mail_queue (             -- 给用户的信先排队，网关按每日上限慢慢发；重启不丢
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  to_email TEXT NOT NULL, kind TEXT NOT NULL, lang TEXT, ctx TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',          -- pending | sent | failed
+  tries INTEGER NOT NULL DEFAULT 0, error TEXT, created_at REAL NOT NULL, sent_at REAL
+);
+CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);   -- 零散状态（如每日汇总上次发到哪）
 CREATE TABLE IF NOT EXISTS grants (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL, amount_usd REAL NOT NULL, reason TEXT NOT NULL, at REAL NOT NULL
@@ -104,10 +115,14 @@ class Store:
                 self.db.execute(f"ALTER TABLE users ADD COLUMN {col}")
             except sqlite3.OperationalError:
                 pass
-        try:                                                       # 被拦过的人获邀时记下首次被拦时间（增长曲线用）
-            self.db.execute("ALTER TABLE invites ADD COLUMN requested_at REAL")
-        except sqlite3.OperationalError:
-            pass
+        for col in ("requested_at REAL",      # 被拦过的人获邀时记下首次被拦时间（增长曲线用）
+                    "mailed_at REAL"):        # 邀请邮件发出的时间；空 = 没发出（后台可重发）
+            try:
+                self.db.execute(f"ALTER TABLE invites ADD COLUMN {col}")
+                if col.startswith("mailed_at"):          # 加列之前的邀请当时都发过信了
+                    self.db.execute("UPDATE invites SET mailed_at = created_at")
+            except sqlite3.OperationalError:
+                pass
         self.lock = threading.Lock()
 
     def _user(self, row) -> User | None:
@@ -123,6 +138,9 @@ class Store:
         self.db.execute("INSERT OR IGNORE INTO invites (email, created_at, requested_at) VALUES (?, ?, ?)",
                         (e, time.time(), w["first_at"] if w else None))
         self.db.execute("DELETE FROM waitlist WHERE email=?", (email.lower(),))
+
+    def mark_invite_mailed(self, email: str) -> None:
+        self.db.execute("UPDATE invites SET mailed_at=? WHERE email=?", (time.time(), email.lower()))
 
     def is_invited(self, email: str) -> bool:
         return self.db.execute("SELECT 1 FROM invites WHERE email=?",
@@ -144,7 +162,18 @@ class Store:
         return [dict(r) for r in self.db.execute("SELECT * FROM waitlist ORDER BY last_at DESC")]
 
     def dismiss(self, email: str) -> bool:
-        return self.db.execute("DELETE FROM waitlist WHERE email=?", (email.lower(),)).rowcount > 0
+        e = email.lower()
+        gone = self.db.execute("DELETE FROM waitlist WHERE email=?", (e,)).rowcount > 0
+        if gone and not self.get(e) and not self.is_invited(e):           # 被拦的人清掉就不留地点
+            self.db.execute("DELETE FROM geo WHERE email=?", (e,))
+        return gone
+
+    # ---------- 地点 ----------
+
+    def set_geo(self, email: str, ip: str, g: dict) -> None:
+        self.db.execute("INSERT OR REPLACE INTO geo VALUES (?,?,?,?,?,?,?,?,?)",
+                        (email.lower(), ip, g.get("country"), g.get("country_name"), g.get("region"),
+                         g.get("city"), g.get("lat"), g.get("lon"), time.time()))
 
     # ---------- 用户 ----------
 
@@ -281,10 +310,69 @@ class Store:
             "events": q("SELECT email, name, day, n, first_at FROM events"),
             "first_ai": q("SELECT email, MIN(at) AS at FROM usage GROUP BY email"),
             "waitlist": self.waitlist(),
-            "pending_invites": q("SELECT i.email, i.created_at FROM invites i LEFT JOIN users u ON u.email = i.email "
+            "pending_invites": q("SELECT i.email, i.created_at, i.mailed_at FROM invites i LEFT JOIN users u ON u.email = i.email "
                                  "WHERE u.email IS NULL ORDER BY i.created_at DESC"),
-            "feedback": self.list_feedback(20),
+            "feedback": self.list_feedback(1000),
+            "queued_invites": [r["to_email"] for r in q("SELECT DISTINCT to_email FROM mail_queue "
+                                                        "WHERE kind='invited' AND status='pending'")],
+            "geo": q("SELECT email, ip, country, country_name, region, city, lat, lon, at FROM geo"),
             "grants": q("SELECT email, amount_usd, reason, at FROM grants ORDER BY id DESC LIMIT 20"),
+        }
+
+    # ---------- 发信队列 ----------
+
+    def enqueue_mail(self, to: str, kind: str, lang: str | None, ctx: dict | None = None) -> int:
+        import json
+        return self.db.execute("INSERT INTO mail_queue (to_email, kind, lang, ctx, created_at) VALUES (?,?,?,?,?)",
+                               (to.lower(), kind, lang, json.dumps(ctx or {}), time.time())).lastrowid
+
+    def next_mail(self) -> dict | None:
+        import json
+        r = self.db.execute("SELECT * FROM mail_queue WHERE status='pending' ORDER BY id LIMIT 1").fetchone()
+        return {**dict(r), "ctx": json.loads(r["ctx"])} if r else None
+
+    def mail_done(self, mid: int) -> None:
+        self.db.execute("UPDATE mail_queue SET status='sent', sent_at=?, error=NULL WHERE id=?", (time.time(), mid))
+
+    def mail_retry(self, mid: int, error: str, give_up_after: int = 5) -> None:
+        """记一次失败；失败满 give_up_after 次就不再试（status=failed）。"""
+        self.db.execute("UPDATE mail_queue SET tries=tries+1, error=?, "
+                        "status=CASE WHEN tries+1 >= ? THEN 'failed' ELSE status END WHERE id=?",
+                        (error[:300], give_up_after, mid))
+
+    def mail_pending(self, to: str, kind: str) -> bool:
+        return self.db.execute("SELECT 1 FROM mail_queue WHERE to_email=? AND kind=? AND status='pending'",
+                               (to.lower(), kind)).fetchone() is not None
+
+    def mail_stats(self, since: float) -> dict:
+        one = lambda sql, *a: self.db.execute(sql, a).fetchone()[0]                  # noqa: E731
+        return {"pending": one("SELECT COUNT(*) FROM mail_queue WHERE status='pending'"),
+                "sent": one("SELECT COUNT(*) FROM mail_queue WHERE status='sent' AND sent_at >= ?", since),
+                "failed": one("SELECT COUNT(*) FROM mail_queue WHERE status='failed' AND created_at >= ?", since)}
+
+    def prune_mail(self, before: float) -> None:
+        """发完 / 放弃的老记录不留（只用来算最近 24 小时发了几封）。"""
+        self.db.execute("DELETE FROM mail_queue WHERE status != 'pending' AND created_at < ?", (before,))
+
+    def get_kv(self, k: str) -> str | None:
+        r = self.db.execute("SELECT v FROM kv WHERE k=?", (k,)).fetchone()
+        return r["v"] if r else None
+
+    def set_kv(self, k: str, v: str) -> None:
+        self.db.execute("INSERT OR REPLACE INTO kv VALUES (?, ?)", (k, v))
+
+    def digest_since(self, since: float) -> dict:
+        """每日汇总邮件的内容：since 以来新被拦的人、新的额度申请（还待批的）、新反馈。"""
+        q = lambda sql, *a: [dict(r) for r in self.db.execute(sql, a)]            # noqa: E731
+        return {
+            "blocked": q("SELECT email, lang, attempts, first_at FROM waitlist WHERE first_at >= ? ORDER BY first_at",
+                         since),
+            "requests": q("SELECT r.id, r.email, r.message, r.at, u.credit_usd, u.spent_usd FROM credit_requests r "
+                          "LEFT JOIN users u ON u.email = r.email WHERE r.status='pending' AND r.at >= ? ORDER BY r.id",
+                          since),
+            "feedback": q("SELECT id, email, message, page, at FROM feedback WHERE at >= ? ORDER BY id", since),
+            "waiting": self.db.execute("SELECT COUNT(*) FROM waitlist").fetchone()[0],
+            "pending": self.db.execute("SELECT COUNT(*) FROM credit_requests WHERE status='pending'").fetchone()[0],
         }
 
     # ---------- 额度申请 ----------
@@ -362,11 +450,14 @@ class Store:
                 "credit_requests": q("SELECT message, status, amount_usd, at, decided_at FROM credit_requests "
                                      "WHERE email=? ORDER BY id"),
                 "events": q("SELECT name, day, n FROM events WHERE email=? ORDER BY day, name"),
+                "location": q("SELECT ip, country, region, city, at FROM geo WHERE email=?"),
+                "mail": q("SELECT kind, status, created_at, sent_at FROM mail_queue WHERE to_email=? ORDER BY id"),
                 "active_days": [r["day"] for r in q("SELECT day FROM active_days WHERE email=? ORDER BY day")]}
 
     def delete_user(self, email: str) -> None:
         """彻底删除：账户、邀请、额度流水、用量、反馈一并删掉。机器与卷由调用方先销毁。"""
         e = email.lower()
         with self.lock:
-            for t in ("usage", "ai_errors", "events", "active_days", "credit_requests", "grants", "feedback", "invites", "waitlist", "users"):
+            for t in ("usage", "ai_errors", "events", "active_days", "credit_requests", "grants", "feedback", "invites", "waitlist", "geo", "users"):
                 self.db.execute(f"DELETE FROM {t} WHERE email=?", (e,))
+            self.db.execute("DELETE FROM mail_queue WHERE to_email=?", (e,))

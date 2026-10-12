@@ -407,9 +407,9 @@ MSG = {
  "not_invited": ("{email} 还不在邀请名单里。我已经收到通知，加上后你直接回来登录就行；也可以找拉你进来的朋友催一下。",
                  "{email} isn't on the invite list yet. I've been notified — once you're added, just come back and sign in. "
                  "You can also nudge the friend who sent you here."),
- "not_invited_mail": ("{email} 还不在邀请名单里。申请我已经收到，确认邮件已发到这个邮箱；加上后会再发邮件通知你。",
-                      "{email} isn't on the invite list yet. I've got your request and sent a confirmation to this address — "
-                      "you'll get another email once you're in."),
+ "not_invited_mail": ("{email} 还不在邀请名单里。申请我已经收到，加上后会发邮件到这个邮箱通知你。",
+                      "{email} isn't on the invite list yet. I've got your request — you'll get an email at this address "
+                      "once you're in."),
  "account": ("账户", "Account"),
  "balance": ("AI 额度余额：<b>${bal}</b>（累计 ${credit}，已用 ${spent}）",
              "AI credit balance: <b>${bal}</b> (granted ${credit}, used ${spent})"),
@@ -539,6 +539,7 @@ _PRIV = {
 <li><b>功能使用记录</b>：你用了哪些页面和功能、什么时候用的（只记功能名称与时间，不含公司名、简历或任何你写的内容），用于看大家卡在哪一步、改进产品。</li>
 <li><b>使用日期</b>：你哪天打开过应用（只记日期，不记做了什么），用于统计活跃人数。</li>
 <li><b>技术日志</b>：请求时间、状态码、IP 地址，用于排障与防滥用；不记录页面路径与内容。</li>
+<li><b>大致所在地</b>：最近一次登录（含未受邀的登录）或当天首次访问时的 IP，以及据此离线推算的国家 / 省份 / 城市（用镜像内的 IP 库查，不把 IP 发给任何第三方），用于看用户来自哪里；只保留最新一条，删除账户或清除未受邀记录时一并删除。IP 定位数据来自 <a href="https://db-ip.com">DB-IP</a>。</li>
 <li><b>未受邀的登录</b>：没在邀请名单的人登录时，记下邮箱、尝试次数与时间，并通知运营者以便邀请；获邀或被清除时即删除。</li>
 </ul>
 
@@ -618,6 +619,7 @@ project's author as a free, invite-only beta. "I" below means the operator.</p>
 <li><b>Feature usage</b>: which pages and features you used and when (the feature name and time only — no company names, resume or anything you wrote), to see where people get stuck and improve the product.</li>
 <li><b>Days of use</b>: which days you opened the app (the date only, not what you did), to count active users.</li>
 <li><b>Technical logs</b>: request time, status code and IP address for troubleshooting and abuse prevention; page paths and content are not logged.</li>
+<li><b>Approximate location</b>: the IP of your latest sign-in (including uninvited ones) or first visit of the day, and the country / region / city looked up from it offline (an IP database inside the server — the IP isn't sent to any third party), to see where users come from. Only the latest one is kept, and it's deleted with your account or with an uninvited-sign-in record. IP geolocation by <a href="https://db-ip.com">DB-IP</a>.</li>
 <li><b>Uninvited sign-ins</b>: if you sign in without an invite, your email, attempt count and time are kept and the operator is notified so they can invite you; the record is deleted once you're invited or it's cleared.</li>
 </ul>
 

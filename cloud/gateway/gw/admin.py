@@ -8,15 +8,21 @@ from __future__ import annotations
 import html
 import math
 import time
+import json
 from collections import defaultdict
 from datetime import datetime
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from fastapi.responses import HTMLResponse
 
 from gw import pages
+from gw.geo import mask_ip
 
 DAYS = 30
+PAGE = 50                                           # 每张长表一页几条
+# 后台的查询参数：q 搜邮箱；其余是各表的页码（用户 / 被拦 / 额度申请 / 待登录邀请 / 反馈）
+RET_KEYS = ("q", "pu", "pw", "pr", "pi", "pf")
 
 _STATUS = {"ready": "就绪", "asleep": "休眠", "new": "未开通", "provisioning": "开通中", "failed": "开通失败", "deleting": "删除中"}
 
@@ -100,6 +106,39 @@ CSS = """
 .fn .n{text-align:right;font-variant-numeric:tabular-nums}
 .fn .drop{color:var(--red)}
 .ret td.c{text-align:right;font-variant-numeric:tabular-nums}
+.pager{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:12px;font-size:12.5px;color:var(--ink-3)}
+.pager a,.pager b{min-width:28px;height:26px;padding:0 7px;display:inline-flex;align-items:center;justify-content:center;
+  border-radius:7px;border:1px solid var(--line);color:var(--ink-2);text-decoration:none;font-variant-numeric:tabular-nums}
+.pager b{background:var(--accent-soft);color:var(--accent-ink);border-color:transparent;font-weight:600}
+.pager a:hover{border-color:var(--line-strong)}
+.pager .tot{margin-left:auto}
+.bulkbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:-2px 0 10px;font-size:13px}
+.bulkbar .seln{color:var(--accent-ink);font-weight:600;min-width:52px}
+.bulkbar .tbtn:disabled{opacity:.45;cursor:not-allowed}
+.adm td.ck,.adm th.ck{width:22px;padding-right:6px}
+.adm input[type=checkbox]{width:15px;height:15px;accent-color:var(--accent);vertical-align:-2px;cursor:pointer}
+.srch{display:flex;gap:6px;align-items:center}
+.srch input{width:210px}
+.loc{white-space:nowrap}
+.loc small{display:block;color:var(--ink-3);font-size:11.5px}
+.pill.warn{color:#B07414;border-color:color-mix(in srgb,#D99A2B 45%,transparent)}
+.map{position:relative;width:100%;aspect-ratio:2/1;max-height:460px;background:var(--surface-2);border-radius:10px;overflow:hidden}
+.map svg{width:100%;height:100%;display:block;cursor:grab}
+.map svg:active{cursor:grabbing}
+.map .land{fill:var(--surface);stroke:var(--line-strong);stroke-width:.5;vector-effect:non-scaling-stroke}
+.map circle{vector-effect:non-scaling-stroke;stroke:var(--surface);stroke-width:1.5}
+.map circle.all{fill:#D99A2B;fill-opacity:.75}
+.map circle.reg{fill:var(--accent);fill-opacity:.9;pointer-events:none}
+.map circle.all:hover{fill-opacity:1}
+.map .msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-size:13px}
+.map .zb{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:4px}
+.map .zb button{width:28px;height:28px;padding:0;justify-content:center}
+.geo2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:14px}
+.share{display:inline-block;width:70px;height:7px;border-radius:4px;background:var(--surface-2);vertical-align:1px;margin-left:6px;overflow:hidden}
+.share i{display:block;height:100%;background:var(--accent);opacity:.75}
+.foot{color:var(--ink-3);font-size:12px}
+.foot a{color:inherit}
+@media (max-width:820px){.geo2{grid-template-columns:1fr}.srch input{width:150px}}
 @media (max-width:820px){.grid2{grid-template-columns:1fr}.adm{padding:18px 16px 40px}.adm header .when{display:none}}
 """
 
@@ -236,13 +275,104 @@ def _e(s) -> str:
     return html.escape(str(s if s is not None else ""))
 
 
+def _slice(rows: list, key: str, params: dict) -> tuple[list, int, int]:
+    """取第几页（参数 key，从 1 起；越界就夹到首尾），返回 (这页的行, 页码, 总页数)。"""
+    try:
+        p = int(params.get(key) or 1)
+    except ValueError:
+        p = 1
+    n = max(1, math.ceil(len(rows) / PAGE))
+    p = min(max(p, 1), n)
+    return rows[(p - 1) * PAGE:p * PAGE], p, n
+
+
+def _pager(key: str, p: int, n: int, total: int, params: dict, anchor: str) -> str:
+    """翻页条：首页、当前页前后两页、末页，中间用省略号；只有一页时只显示总数。"""
+    if total <= PAGE:
+        return f'<div class="pager"><span class="tot">共 {total} 条</span></div>' if total > 10 else ""
+
+    def link(k: int, label: str = "") -> str:
+        q = urlencode({**params, key: k}) if k > 1 else urlencode({x: v for x, v in params.items() if x != key})
+        return f'<a href="?{_e(q)}#{anchor}">{label or k}</a>'
+    shown = sorted({1, n, *range(max(1, p - 2), min(n, p + 2) + 1)})
+    out, last = [link(p - 1, "‹") if p > 1 else ""], 0
+    for k in shown:
+        if k - last > 1:
+            out.append("<span>…</span>")
+        out.append(f"<b>{k}</b>" if k == p else link(k))
+        last = k
+    out.append(link(p + 1, "›") if p < n else "")
+    a, b = (p - 1) * PAGE + 1, min(p * PAGE, total)
+    return f'<div class="pager">{"".join(out)}<span class="tot">第 {a}–{b} 条 · 共 {total} 条</span></div>'
+
+
+def _loc(g: dict | None) -> str:
+    """表格里的「地区」格：城市 · 国家，下面一行打码的 IP。"""
+    if not g:
+        return '<td class="dim">—</td>'
+    place = " · ".join(x for x in (g["city"], g["country_name"]) if x) or "未知"
+    return (f'<td class="loc" title="{_e(g["region"] or "")}">{_e(place)}'
+            f'<small>{_e(mask_ip(g["ip"]))}</small></td>')
+
+
+# 勾选批量：全选本页、Shift 连选、显示已选几条；没勾选时批量按钮置灰
+BULK_JS = """document.querySelectorAll('form.bulk').forEach(f=>{
+const all=f.querySelector('input.all'),bx=[...f.querySelectorAll('input[name=sel]')],n=f.querySelector('.seln');let last=null;
+const upd=()=>{const k=bx.filter(b=>b.checked).length;if(n)n.textContent=k?'已选 '+k:'';
+f.querySelectorAll('.bulkbtn').forEach(b=>b.disabled=!k);
+if(all){all.checked=k>0&&k===bx.length;all.indeterminate=k>0&&k<bx.length;}};
+if(all)all.addEventListener('change',()=>{bx.forEach(b=>b.checked=all.checked);upd();});
+bx.forEach((b,i)=>b.addEventListener('click',e=>{if(e.shiftKey&&last!==null){const [a,z]=[Math.min(last,i),Math.max(last,i)];
+for(let j=a;j<=z;j++)bx[j].checked=b.checked;}last=i;upd();}));upd();});"""
+
+# 世界地图：d3-geo + world-atlas（jsDelivr）；每个城市一个圈——外圈琥珀 = 总人数，内圈深色 = 其中已注册，面积正比人数。
+# 滚轮 / 按钮缩放、拖动平移；悬停或点按看明细。脚本加载失败时只显示提示，下面的表照样能看。
+MAP_JS = """(()=>{const box=document.getElementById('geomap');if(!box)return;const pts=JSON.parse(document.getElementById('geodata').textContent);
+const msg=t=>{box.querySelector('.msg').textContent=t};
+if(!window.d3||!window.topojson){msg('地图脚本没加载出来——看下面的表');return;}
+if(!pts.length){msg('还没有带地点的记录：用户下次登录或访问后出现');return;}
+fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json').then(r=>r.json()).then(w=>{
+box.querySelector('.msg').remove();const W=960,H=480;
+const svg=d3.select(box).insert('svg',':first-child').attr('viewBox',`0 0 ${W} ${H}`).attr('role','img')
+  .attr('aria-label','用户所在城市分布图');
+const proj=d3.geoNaturalEarth1().fitExtent([[8,8],[W-8,H-8]],{type:'Sphere'}),path=d3.geoPath(proj);
+const g=svg.append('g');
+g.append('path').attr('class','land').attr('d',path(topojson.feature(w,w.objects.countries)));
+const max=d3.max(pts,p=>p.n),r=d3.scaleSqrt().domain([0,max]).range([0,Math.min(26,6+Math.sqrt(max)*3)]);
+const tip=document.querySelector('.tip')||Object.assign(document.body.appendChild(document.createElement('div')),{className:'tip',hidden:true});
+let k=1;const R=v=>Math.max(2.5,r(v))/Math.sqrt(k);
+const ds=pts.slice().sort((a,b)=>b.n-a.n);
+const all=g.selectAll('circle.all').data(ds).join('circle').attr('class','all');
+const reg=g.selectAll('circle.reg').data(ds.filter(p=>p.reg)).join('circle').attr('class','reg');
+const place=()=>{all.attr('cx',p=>proj([p.lon,p.lat])[0]).attr('cy',p=>proj([p.lon,p.lat])[1]).attr('r',p=>R(p.n));
+reg.attr('cx',p=>proj([p.lon,p.lat])[0]).attr('cy',p=>proj([p.lon,p.lat])[1]).attr('r',p=>R(p.n)*Math.sqrt(p.reg/p.n));};
+place();
+const show=(e,p)=>{tip.replaceChildren();const b=document.createElement('b');b.textContent=p.label;tip.append(b);
+for(const [c,t] of [['',`共 ${p.n} 人`],['',`已注册 ${p.reg}`],['c',`被拦待处理 ${p.wl}`],['b',`已邀请未登录 ${p.inv}`]]){
+ const d=document.createElement('div');if(c){const s=document.createElement('i');s.className=c;d.append(s);}d.append(t);tip.append(d);}
+tip.hidden=false;const w2=tip.offsetWidth,h2=tip.offsetHeight;let x=e.clientX-w2/2,y=e.clientY-h2-14;
+x=Math.max(8,Math.min(x,innerWidth-w2-8));if(y<8)y=e.clientY+14;tip.style.left=x+'px';tip.style.top=y+'px';};
+all.on('mousemove',show).on('click',(e,p)=>{e.stopPropagation();show(e,p);}).on('mouseleave',()=>{tip.hidden=true;});
+const z=d3.zoom().scaleExtent([1,12]).translateExtent([[0,0],[W,H]]).on('zoom',e=>{k=e.transform.k;g.attr('transform',e.transform);place();});
+svg.call(z);box.querySelector('.zin').onclick=()=>svg.transition().call(z.scaleBy,2);
+box.querySelector('.zout').onclick=()=>svg.transition().call(z.scaleBy,.5);
+box.querySelector('.zre').onclick=()=>svg.transition().call(z.transform,d3.zoomIdentity);
+}).catch(()=>msg('世界地图数据没加载出来——看下面的表'));})();"""
+
+
 def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, flash: str = "",
-           asleep: set[str] | None = None,
+           asleep: set[str] | None = None, params: dict | None = None, mail: dict | None = None,
            now: float | None = None) -> HTMLResponse:
     now = now or time.time()
     tz = ZoneInfo(tz_name)
     users, usage = snap["users"], snap["usage"]
     day = 86400
+    params = {k: str(v) for k, v in (params or {}).items() if k in RET_KEYS and v}
+    q = params.get("q", "").strip().lower()
+    hit = (lambda e: q in e) if q else (lambda e: True)                                 # noqa: E731
+    # 每个表单都带上当前的分页 / 搜索，操作完回到原处
+    ret = f'<input type="hidden" name="ret" value="{_e(urlencode(params))}">'
+    geo = {g["email"]: g for g in snap.get("geo", [])}
 
     # ---- 汇总 ----
     week = {datetime.fromtimestamp(now - i * day, tz).strftime("%Y-%m-%d") for i in range(7)}
@@ -399,39 +529,66 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
         err = f'<br><span class="dim" title="{_e(u["error"])}">{_e(u["error"])[:60]}</span>' if u["error"] else ""
         return (f'<tr><td>{_e(mask(u["email"]))}{err}</td>'
                 f'<td><span class="pill {pill}">{_STATUS.get(st, _e(st))}</span></td>'
-                f'<td class="dim">{_e(u["lang"] or "—")}</td>'
+                f'<td class="dim">{_e(u["lang"] or "—")}</td>{_loc(geo.get(u["email"]))}'
                 f'<td class="dim">{_t(u["created_at"], tz)}</td>'
                 f'<td class="dim" title="{_t(u["last_at"], tz)}">{_ago(u["last_at"], now)}</td>'
                 f'<td class="n">{calls7[u["email"]]} / {u["calls"]}</td>'
                 f'<td class="n">${cost7[u["email"]]:.2f} / ${u["spent_usd"]:.2f}</td>'
                 f'<td class="n {"low" if bal < low_usd else ""}">{_usd(bal)}</td>'
                 f'<td class="dim">{consent}</td>'
-                f'<td><form class="inl" method="post" action="/_gw/admin/grant">'
+                f'<td><form class="inl" method="post" action="/_gw/admin/grant">{ret}'
                 f'<input type="hidden" name="email" value="{_e(u["email"])}">'
                 f'<input class="usd" name="usd" type="number" step="0.5" min="0.5" max="100" value="5" aria-label="美元">'
                 f'<button class="tbtn">加额度</button></form></td></tr>')
 
-    users_html = ('<table><tr><th>邮箱</th><th>机器</th><th>语言</th><th>注册</th><th>最近活跃</th>'
+    shown_users = [u for u in users if hit(u["email"])]
+    page_users, p, n = _slice(shown_users, "pu", params)
+    users_html = ('<table><tr><th>邮箱</th><th>机器</th><th>语言</th><th>地区</th><th>注册</th><th>最近活跃</th>'
                   '<th class="n">调用 7天/累计</th><th class="n">花费 7天/累计</th><th class="n">余额</th>'
-                  '<th>隐私同意</th><th></th></tr>' + "".join(user_row(u) for u in users) + '</table>'
-                  if users else '<p class="empty">还没有用户</p>')
+                  '<th>隐私同意</th><th></th></tr>' + "".join(user_row(u) for u in page_users) + '</table>'
+                  + _pager("pu", p, n, len(shown_users), params, "users")
+                  if shown_users else f'<p class="empty">{"没有匹配的用户" if q else "还没有用户"}</p>')
 
-    # ---- 名单 ----
+    # ---- 名单：整张表是一个表单；勾选后表头按钮批量处理，行内按钮只处理那一行 ----
     def wl_row(w: dict) -> str:
         e = _e(w["email"])
-        return (f'<tr><td>{_e(mask(w["email"]))}</td><td class="n">{w["attempts"]} 次</td><td class="dim">{_t(w["last_at"], tz)}</td>'
-                f'<td class="dim">{_e(w["lang"] or "—")}</td><td style="white-space:nowrap">'
-                f'<form class="inl" method="post" action="/_gw/admin/invite"><input type="hidden" name="email" value="{e}">'
-                f'<button class="tbtn go">邀请</button></form> '
-                f'<form class="inl" method="post" action="/_gw/admin/dismiss"><input type="hidden" name="email" value="{e}">'
-                f'<button class="tbtn">清掉</button></form></td></tr>')
+        return (f'<tr><td class="ck"><input type="checkbox" name="sel" value="{e}" aria-label="选中"></td>'
+                f'<td>{_e(mask(w["email"]))}</td><td class="n">{w["attempts"]} 次</td>'
+                f'<td class="dim">{_t(w["last_at"], tz)}</td><td class="dim">{_e(w["lang"] or "—")}</td>'
+                f'{_loc(geo.get(w["email"]))}<td style="white-space:nowrap">'
+                f'<button class="tbtn go" name="act" value="invite:{e}">邀请</button> '
+                f'<button class="tbtn" name="act" value="dismiss:{e}">清掉</button></td></tr>')
 
-    wl_html = ('<table>' + "".join(wl_row(w) for w in snap["waitlist"]) + '</table>'
-               if snap["waitlist"] else '<p class="empty">没有被拦的人</p>')
-    pend_html = ('<table>' + "".join(f'<tr><td>{_e(mask(i["email"]))}</td><td class="dim">邀请于 {_t(i["created_at"], tz)}</td></tr>'
-                                     for i in snap["pending_invites"]) + '</table>'
-                 if snap["pending_invites"] else '<p class="empty">邀请过的人都已登录</p>')
-    invite_form = ('<form class="inl" method="post" action="/_gw/admin/invite" style="margin-bottom:12px">'
+    shown_wl = [w for w in snap["waitlist"] if hit(w["email"])]
+    page_wl, p, n = _slice(shown_wl, "pw", params)
+    wl_html = ('<form class="bulk" method="post" action="/_gw/admin/waitlist">' + ret +
+               '<div class="bulkbar"><span class="seln"></span>'
+               '<button class="tbtn go bulkbtn" name="act" value="invite">邀请选中的人</button>'
+               '<button class="tbtn bulkbtn" name="act" value="dismiss">清掉选中的人</button></div>'
+               '<table><tr><th class="ck"><input type="checkbox" class="all" aria-label="全选本页"></th>'
+               '<th>邮箱</th><th class="n">尝试</th><th>最近</th><th>语言</th><th>地区</th><th></th></tr>'
+               + "".join(wl_row(w) for w in page_wl) + '</table></form>'
+               + _pager("pw", p, n, len(shown_wl), params, "waitlist")
+               if shown_wl else f'<p class="empty">{"没有匹配的人" if q else "没有被拦的人"}</p>')
+    shown_inv = [i for i in snap["pending_invites"] if hit(i["email"])]
+    page_inv, p, n = _slice(shown_inv, "pi", params)
+    queued_inv = set(snap.get("queued_invites", []))
+
+    def inv_mail(i: dict) -> str:
+        if i.get("mailed_at"):
+            return ""
+        return ('<span class="pill">邮件排队中</span>' if i["email"] in queued_inv
+                else '<span class="pill warn">邮件未发出</span>')
+    unmailed = sum(1 for i in snap["pending_invites"] if not i.get("mailed_at") and i["email"] not in queued_inv)
+    pend_html = ('<table>' + "".join(
+        f'<tr><td>{_e(mask(i["email"]))}</td><td class="dim">邀请于 {_t(i["created_at"], tz)}</td>'
+        f'<td>{inv_mail(i)}</td></tr>'
+        for i in page_inv) + '</table>' + _pager("pi", p, n, len(shown_inv), params, "invites")
+                 if shown_inv else '<p class="empty">邀请过的人都已登录</p>')
+    if unmailed:
+        pend_html += (f'<form class="inl" method="post" action="/_gw/admin/resend-invites" style="margin-top:10px">{ret}'
+                      f'<button class="tbtn">重发 {unmailed} 封没发出的邀请邮件</button></form>')
+    invite_form = (f'<form class="inl" method="post" action="/_gw/admin/invite" style="margin-bottom:12px">{ret}'
                    '<input name="email" type="email" required placeholder="name@gmail.com" style="width:230px">'
                    '<button class="tbtn go">邀请</button></form>')
 
@@ -447,7 +604,7 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
                       for k, v in sorted(by_model.items(), key=lambda kv: -kv[1][3])) + '</table>'
                   if by_model else f'<p class="empty">{DAYS} 天内没有调用</p>')
 
-    # ---- 额度申请 ----
+    # ---- 额度申请：同样一整张表一个表单 ----
     def req_row(r: dict) -> str:
         bal = (r["credit_usd"] or 0) - (r["spent_usd"] or 0)
         who = (f'<td>{_e(mask(r["email"]))}<br><span class="dim">{_t(r["at"], tz)} · 余额 {_usd(bal)} · '
@@ -455,53 +612,140 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
         if r["status"] != "pending":
             done = (f'<span class="pill ok">已批 ${r["amount_usd"]:g}</span>' if r["status"] == "approved"
                     else '<span class="pill">未批准</span>')
-            return f'<tr>{who}<td style="white-space:nowrap">{done} <span class="dim">{_t(r["decided_at"], tz)}</span></td></tr>'
-        return (f'<tr>{who}<td style="white-space:nowrap"><form class="inl" method="post" action="/_gw/admin/request">'
-                f'<input type="hidden" name="id" value="{r["id"]}">'
-                f'<input class="usd" name="usd" type="number" step="0.5" min="0.5" max="100" value="5" aria-label="美元">'
-                f'<button class="tbtn go" name="action" value="approve">批准</button>'
-                f'<button class="tbtn" name="action" value="decline">不批</button></form></td></tr>')
+            return (f'<tr><td class="ck"></td>{who}<td style="white-space:nowrap">{done} '
+                    f'<span class="dim">{_t(r["decided_at"], tz)}</span></td></tr>')
+        i = r["id"]
+        return (f'<tr><td class="ck"><input type="checkbox" name="sel" value="{i}" aria-label="选中"></td>{who}'
+                f'<td style="white-space:nowrap"><span class="inl">'
+                f'<input class="usd" name="usd_{i}" type="number" step="0.5" min="0.5" max="100" value="5" aria-label="美元">'
+                f'<button class="tbtn go" name="act" value="approve:{i}">批准</button>'
+                f'<button class="tbtn" name="act" value="decline:{i}">不批</button></span></td></tr>')
 
-    req_html = ('<table>' + "".join(req_row(r) for r in reqs) + '</table>' if reqs
-                else '<p class="empty">没有额度申请</p>')
+    shown_reqs = [r for r in reqs if hit(r["email"])]
+    page_reqs, p, n = _slice(shown_reqs, "pr", params)
+    req_html = ('<form class="bulk" method="post" action="/_gw/admin/requests">' + ret +
+                ('<div class="bulkbar"><span class="seln"></span>'
+                 '<input class="usd" name="usd" type="number" step="0.5" min="0.5" max="100" value="5" aria-label="每人美元">'
+                 '<button class="tbtn go bulkbtn" name="act" value="approve">每人这么多，批准选中的</button>'
+                 '<button class="tbtn bulkbtn" name="act" value="decline">不批选中的</button></div>'
+                 if any(r["status"] == "pending" for r in page_reqs) else "") +
+                '<table><tr><th class="ck">' + ('<input type="checkbox" class="all" aria-label="全选本页待批">'
+                                                if any(r["status"] == "pending" for r in page_reqs) else "") +
+                '</th><th>谁</th><th>写了什么</th><th></th></tr>'
+                + "".join(req_row(r) for r in page_reqs) + '</table></form>'
+                + _pager("pr", p, n, len(shown_reqs), params, "requests")
+                if shown_reqs else '<p class="empty">没有额度申请</p>')
 
     # ---- 反馈 / 发放 ----
+    page_fb, p, n = _slice(snap["feedback"], "pf", params)
     fb_html = ('<table>' + "".join(
         f'<tr><td class="dim">{_t(f["at"], tz)}</td><td>{_e(mask(f["email"]))}<br><span class="dim">{_e(f["page"])}</span></td>'
         f'<td class="fb">{_e(f["message"][:600])}</td><td class="dim">{"✉" if f["emailed"] else "·"}</td></tr>'
-        for f in snap["feedback"]) + '</table>' if snap["feedback"] else '<p class="empty">还没有反馈</p>')
+        for f in page_fb) + '</table>' + _pager("pf", p, n, len(snap["feedback"]), params, "feedback")
+              if snap["feedback"] else '<p class="empty">还没有反馈</p>')
     gr_html = ('<table>' + "".join(
         f'<tr><td class="dim">{_t(g["at"], tz)}</td><td>{_e(mask(g["email"]))}</td>'
         f'<td class="n">${g["amount_usd"]:.2f}</td><td class="dim">{_e(g["reason"])}</td></tr>'
         for g in snap["grants"]) + '</table>' if snap["grants"] else '<p class="empty">没有发放记录</p>')
 
+    # ---- 地理分布：每人只有最新一条地点；按城市聚成圈，按国家 / 城市排行 ----
+    reg_set = {u["email"] for u in users}
+    wl_set = {w["email"] for w in snap["waitlist"]}
+    inv_set = {i["email"] for i in snap["pending_invites"]}
+
+    def kind(e: str) -> str | None:
+        return "reg" if e in reg_set else "wl" if e in wl_set else "inv" if e in inv_set else None
+    cities: dict[tuple, dict] = {}
+    countries: dict[str, dict] = {}
+    located = 0
+    for e, g in geo.items():
+        k = kind(e)
+        if k is None:
+            continue
+        cn = g["country_name"] or ("未知（内网 / 查不到）" if not g["country"] else g["country"])
+        c = countries.setdefault(cn, {"reg": 0, "wl": 0, "inv": 0})
+        c[k] += 1
+        if g["lat"] is None or g["lon"] is None:
+            continue
+        located += 1
+        key = (g["city"] or g["region"] or cn, cn)
+        pt = cities.setdefault(key, {"label": " · ".join(x for x in key if x), "city": key[0], "country": cn,
+                                     "region": g["region"] or "", "lat": 0.0, "lon": 0.0,
+                                     "n": 0, "reg": 0, "wl": 0, "inv": 0})
+        pt["lat"] += g["lat"]; pt["lon"] += g["lon"]; pt["n"] += 1; pt[k] += 1
+    pts = [{**v, "lat": round(v["lat"] / v["n"], 3), "lon": round(v["lon"] / v["n"], 3)} for v in cities.values()]
+    tot = lambda c: c["reg"] + c["wl"] + c["inv"]                                                  # noqa: E731
+    ctop = sorted(countries.items(), key=lambda kv: (-tot(kv[1]), kv[0]))
+    cmax = max((tot(c) for _, c in ctop), default=1)
+    all_geo = sum(tot(c) for _, c in ctop) or 1
+    country_html = ('<table><tr><th>国家 / 地区</th><th class="n">已注册</th><th class="n">被拦 / 待登录</th>'
+                    '<th class="n">合计</th></tr>' + "".join(
+                        f'<tr><td>{_e(name)}</td><td class="n">{c["reg"]}</td><td class="n">{c["wl"] + c["inv"]}</td>'
+                        f'<td class="n">{tot(c)} <span class="dim">{tot(c) / all_geo * 100:.0f}%</span>'
+                        f'<span class="share"><i style="width:{tot(c) / cmax * 100:.1f}%"></i></span></td></tr>'
+                        for name, c in ctop[:12]) + '</table>'
+                    + (f'<p class="foot">另有 {len(ctop) - 12} 个国家 / 地区</p>' if len(ctop) > 12 else "")
+                    if ctop else '<p class="empty">还没有地点记录</p>')
+    city_html = ('<table><tr><th>城市</th><th>省 / 州</th><th class="n">已注册</th><th class="n">合计</th></tr>' + "".join(
+        f'<tr><td>{_e(v["city"])} <span class="dim">{_e(v["country"])}</span></td><td class="dim">{_e(v["region"])}</td>'
+        f'<td class="n">{v["reg"]}</td><td class="n">{v["n"]}</td></tr>'
+        for v in sorted(pts, key=lambda v: (-v["n"], v["label"]))[:12]) + '</table>'
+                 if pts else '<p class="empty">还没有地点记录</p>')
+    geo_json = json.dumps(pts, ensure_ascii=False).replace("</", "<\\/")
+    geo_html = (f'<div class="legend"><span><i class="a"></i>已注册</span><span><i class="c"></i>被拦 / 待登录</span>'
+                f'<span>圈的面积 = 该城市人数 · 滚轮或按钮缩放，拖动平移</span></div>'
+                f'<div class="map" id="geomap"><div class="msg">地图加载中…</div>'
+                f'<div class="zb"><button class="tbtn zin" type="button" aria-label="放大">+</button>'
+                f'<button class="tbtn zout" type="button" aria-label="缩小">−</button>'
+                f'<button class="tbtn zre" type="button" aria-label="复位">⟲</button></div></div>'
+                f'<script type="application/json" id="geodata">{geo_json}</script>'
+                f'<div class="geo2"><div>{country_html}</div><div>{city_html}</div></div>'
+                f'<p class="foot">共 {len(geo)} 人有地点记录，{located} 人能定位到城市 · 地点取自最近一次登录 / 当天首次访问的 IP，'
+                f'离线库推算，城市级精度只能参考 · IP Geolocation by <a href="https://db-ip.com">DB-IP</a></p>')
+
+    search = (f'<form class="srch" method="get" action="/_gw/admin">'
+              f'<input name="q" type="search" value="{_e(q)}" placeholder="搜邮箱（用户 / 名单 / 申请）" aria-label="搜邮箱">'
+              f'<button class="tbtn">搜</button>{"<a class=tbtn href=/_gw/admin>清除</a>" if q else ""}</form>')
+    # 发信队列：还有几封没发、最近 24 小时用了多少额度、放弃了几封
+    queued = ""
+    if mail:
+        full = mail["sent"] >= mail["limit"]
+        queued = (f'<span class="pill{" warn" if mail["pending"] or full else ""}" title="给用户的信按每日上限慢慢发，多的顺延">'
+                  f'邮件 {"待发 " + str(mail["pending"]) + " · " if mail["pending"] else ""}'
+                  f'24 小时已发 {mail["sent"]}/{mail["limit"]}{"（已满，顺延）" if full and mail["pending"] else ""}'
+                  f'{" · 放弃 " + str(mail["failed"]) if mail["failed"] else ""}</span>')
+
     body = f"""<div class="adm">
-<header><a href="/"><img src="{pages.LOGO}" alt=""></a><h1>后台</h1><span class="sp"></span>
+<header><a href="/"><img src="{pages.LOGO}" alt=""></a><h1>后台</h1>{queued}<span class="sp"></span>{search}
 <span class="when">{_t(now, tz, "%Y-%m-%d %H:%M")} {_e(tz_name)}</span>
 <button class="tbtn" onclick="jlTheme()" title="切换深浅色">{pages.icon("moon", 15)}</button>
 <a class="tbtn" href="/">返回</a></header>
 {f'<div class="flash">{_e(flash)}</div>' if flash else ''}
 <div class="kpis">{kpi_html}</div>
-<div class="card" id="requests"><h2>额度申请 <small>用户在应用里写的用途与反馈 · 批准即发额度并邮件通知</small></h2>{req_html}</div>
+<div class="card" id="requests"><h2>额度申请 <small>用户在应用里写的用途与反馈 · 批准即发额度并邮件通知 · 勾选可批量，Shift 连选</small></h2>{req_html}</div>
 <div class="grid3">
 <div class="card"><h2>用户增长 <small>累计 · 含被拦与已邀请 · 悬停或点按看明细</small></h2>{grow_html}</div>
 <div class="card"><h2>每日活跃 <small>近 {DAYS} 天 · 悬停或点按看明细</small></h2>{act_html}</div>
 <div class="card"><h2>每日 token 与花费 <small>近 {DAYS} 天 · 悬停或点按看明细</small></h2>{tok_html}</div>
 </div>
+<div class="card" id="geo"><h2>用户分布 <small>已注册 + 被拦 + 已邀请未登录 · 悬停或点按看明细</small></h2>{geo_html}</div>
 <div class="card" id="funnel"><h2>转化漏斗 <small>{since_note}</small></h2>{funnel_html}</div>
 <div class="grid2">
 <div class="card"><h2>功能使用 <small>近 {DAYS} 天 · 按用过的人数排序</small></h2>{feat_html}</div>
 <div class="card"><h2>新用户回访 <small>按注册日 · 「—」= 还没到时间</small></h2>{ret_html}</div>
 </div><div style="height:18px"></div>
-<div class="card"><h2>用户 <small>按最近活跃排序 · 余额低于 ${low_usd:g} 标红</small></h2>{users_html}</div>
+<div class="card" id="users"><h2>用户 <small>按最近活跃排序 · 余额低于 ${low_usd:g} 标红</small></h2>{users_html}</div>
 <div class="grid2">
-<div class="card"><h2>被拦的登录 <small>邀请会给对方发邮件</small></h2>{wl_html}</div>
-<div class="card"><h2>邀请 <small>已邀请、还没登录的人</small></h2>{invite_form}{pend_html}</div>
+<div class="card" id="waitlist"><h2>被拦的登录 <small>邀请会给对方发邮件（排队慢慢发）· 勾选可批量，Shift 连选</small></h2>{wl_html}</div>
+<div class="card" id="invites"><h2>邀请 <small>已邀请、还没登录的人</small></h2>{invite_form}{pend_html}</div>
 </div><div style="height:18px"></div>
 <div class="card"><h2>按模型 <small>近 {DAYS} 天</small></h2>{model_html}</div>
 <div class="card"><h2>AI 调用失败 <small>上游限流 / 额度 / 网络 · 首次出现会邮件告警</small></h2>{err_html}</div>
-<div class="card"><h2>最近反馈</h2>{fb_html}</div>
+<div class="card" id="feedback"><h2>最近反馈 <small>✉ = 已进每日汇总邮件</small></h2>{fb_html}</div>
 <div class="card"><h2>额度发放</h2>{gr_html}</div>
 <p class="empty">这里只有账户汇总与用量元数据，不含任何用户空间里的内容。</p>
-</div><script>{pages.THEME_TOGGLE_JS}{TIP_JS}</script>"""
+</div><script>{pages.THEME_TOGGLE_JS}{TIP_JS}{BULK_JS}</script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script>{MAP_JS}</script>"""
     return pages._doc("后台 · joblander", body, extra_css=CSS)

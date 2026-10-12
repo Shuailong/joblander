@@ -34,7 +34,7 @@ def main(argv: list[str]) -> None:
             store.invite(e)
         print(f"已邀请 {len(emails)} 人")
         if not quiet:
-            asyncio.run(_mail_invited(langs))
+            _mail_invited(langs, store)
     elif cmd == "uninvite":
         for e in args:
             print(f"{e}: {'已移出' if store.uninvite(e) else '本来就不在邀请名单'}"
@@ -73,18 +73,14 @@ def main(argv: list[str]) -> None:
         print(__doc__)
 
 
-async def _mail_invited(langs: dict[str, str | None]) -> None:
-    import httpx
-    from gw.notify import send_user
-    key, sender = os.environ.get("RESEND_API_KEY", ""), os.environ.get("MAIL_FROM", "")
-    if not (key and sender):
+def _mail_invited(langs: dict[str, str | None], store: Store) -> None:
+    """邀请邮件进网关的发信队列（和后台一样按每日上限发，重启不丢），不在这里直接发。"""
+    if not (os.environ.get("RESEND_API_KEY") and os.environ.get("MAIL_FROM")):
         print("（没配 MAIL_FROM / RESEND_API_KEY，没发通知邮件——记得自己告诉对方）")
         return
-    reply_to = os.environ.get("FEEDBACK_TO") or os.environ.get("ADMIN_EMAILS", "").split(",")[0].strip()
-    async with httpx.AsyncClient(timeout=15) as http:
-        for e, lg in langs.items():
-            ok = await send_user(http, key, sender, reply_to, to=e.lower(), kind="invited", lang=lg)
-            print(f"{e}: {'已发通知邮件' if ok else '通知邮件发送失败——请自己告诉对方'}")
+    for e, lg in langs.items():
+        store.enqueue_mail(e, "invited", lg)
+    print(f"{len(langs)} 封邀请邮件已排进发信队列，网关会按每日上限陆续发出（后台标题旁可看进度）")
 
 
 async def _upgrade(store: Store, image: str) -> None:

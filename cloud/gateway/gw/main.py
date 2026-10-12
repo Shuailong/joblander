@@ -16,7 +16,7 @@ import uvicorn
 
 from gw.flyapi import Fly
 from gw.meter import create_meter_app
-from gw.notify import send_ai_alert, send_user
+from gw.notify import send_ai_alert
 from gw.store import Store
 from gw.web import Settings, create_web_app
 
@@ -51,6 +51,8 @@ def build():
         low_balance_usd=float(env("LOW_BALANCE_USD", "0.5")),
         idle_minutes=int(env("IDLE_MINUTES", "15")),
         wake_at=env("WAKE_AT", "02:35,08:20,21:35,sun 20:05"),
+        digest_at=env("DIGEST_AT", "09:00"),
+        mail_daily_limit=int(env("MAIL_DAILY_LIMIT", "90")),
     )
     if settings.mail_from:                   # 有了已验证域名，给管理员的通知也用它发
         settings.feedback_from = settings.mail_from
@@ -58,13 +60,9 @@ def build():
     mail_http = httpx.AsyncClient(timeout=15)
 
     async def on_low(email: str) -> None:
-        u = store.get(email)
-        try:
-            await send_user(mail_http, settings.resend_api_key, settings.mail_from, settings.feedback_to,
-                            to=email, kind="low_balance", lang=u.lang if u else None,
-                            balance=f"{max(u.balance_usd, 0) if u else 0:.2f}")
-        except Exception:                                       # noqa: BLE001  提醒失败不影响计量
-            pass
+        u = store.get(email)                                    # 进发信队列，和别的信一起按每日上限发
+        store.enqueue_mail(email, "low_balance", u.lang if u else None,
+                           {"balance": f"{max(u.balance_usd, 0) if u else 0:.2f}"})
 
     alerted: dict[str, float] = {}
 
