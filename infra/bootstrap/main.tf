@@ -83,6 +83,31 @@ resource "google_artifact_registry_repository_iam_member" "deployer_push" {
   member     = "serviceAccount:${google_service_account.deployer.email}"
 }
 
+# 从本机手动发起构建（gcloud builds submit）时源码先传到这个桶，构建用发布身份去读。
+# 名字是 gcloud 的默认约定（<项目>_cloudbuild），不用另外指定；只给发布身份读这一个桶——
+# 同项目里的状态桶存着生成的数据库密码，不能给项目级的读权限。
+resource "google_storage_bucket" "build_sources" {
+  name                        = "${var.project_id}_cloudbuild"
+  location                    = upper(var.region)
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  lifecycle_rule {
+    condition {
+      age = 30
+    }
+    action {
+      type = "Delete"
+    }
+  }
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_storage_bucket_iam_member" "deployer_sources" {
+  bucket = google_storage_bucket.build_sources.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.deployer.email}"
+}
+
 # 构建在本项目里跑，日志写在这里
 resource "google_project_iam_member" "deployer_logs" {
   project = var.project_id

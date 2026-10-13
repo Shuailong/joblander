@@ -15,6 +15,6 @@ steps:
       - |
         set -euo pipefail
         gcloud storage rsync site "gs://${_BUCKET}" --recursive --delete-unmatched-destination-objects \
-          --exclude '^\.vercel/.*|^\.gitignore$' --project "${_PROJECT}"
+          --exclude '^\.vercel/.*|^\.gitignore$$' --project "${_PROJECT}"
         gcloud compute url-maps invalidate-cdn-cache "${_URL_MAP}" --path "/*" --project "${_PROJECT}" --async
         curl -fsS --retry 5 --retry-delay 10 "https://${_SITE}/" >/dev/null

@@ -9,20 +9,4 @@ steps:
   - id: traffic
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: bash
-    args:
-      - -c
-      - |
-        set -euo pipefail
-        for s in gateway meter engine worker sandbox; do
-          svc="jl-prod-$s"
-          if [ "${_ROLLBACK}" = "1" ]; then
-            prev=$(gcloud run services describe "$svc" --project "${_PROD_PROJECT}" --region "${_REGION}" \
-                   --format='value(metadata.annotations."joblander/stable-revision")')
-            gcloud run services update-traffic "$svc" --project "${_PROD_PROJECT}" --region "${_REGION}" --to-revisions "$prev=100"
-          else
-            gcloud run services update-traffic "$svc" --project "${_PROD_PROJECT}" --region "${_REGION}" --to-latest
-            latest=$(gcloud run services describe "$svc" --project "${_PROD_PROJECT}" --region "${_REGION}" --format='value(status.latestReadyRevisionName)')
-            gcloud run services update "$svc" --project "${_PROD_PROJECT}" --region "${_REGION}" \
-              --update-annotations "joblander/stable-revision=$latest" >/dev/null
-          fi
-        done
+    args: [deploy/gcp/promote.sh, "${_PROD_PROJECT}", "${_REGION}", "${_ROLLBACK}"]   # 脚本里的 shell 变量不经 Cloud Build 替换

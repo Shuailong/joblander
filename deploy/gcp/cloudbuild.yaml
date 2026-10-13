@@ -1,6 +1,8 @@
 # 主干流水线：测试 → 构建两枚镜像 → 推 Artifact Registry → 发 staging（迁移 → 各服务）→ 冒烟。
 # 触发：main 分支推送（Cloud Build 触发器，连接 GitHub 仓库）。prod 另走 cloudbuild.prod.yaml（需人工批准）。
+# 本机手动发：gcloud builds submit --config deploy/gcp/cloudbuild.yaml --substitutions=_TAG=$(git rev-parse --short HEAD) …
 substitutions:
+  _TAG: ${SHORT_SHA}   # 触发器构建时就是提交短 SHA；手动构建没有 SHORT_SHA，要显式给
   _REGION: asia-southeast1
   _REPO_PROJECT: joblander-shared
   _STAGING_PROJECT: joblander-staging
@@ -8,6 +10,7 @@ substitutions:
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: E2_HIGHCPU_8
+  dynamicSubstitutions: true      # 让 _TAG 的默认值能引用 SHORT_SHA
 
 steps:
   - id: engine-tests
@@ -38,12 +41,12 @@ steps:
   - id: build-engine
     name: gcr.io/cloud-builders/docker
     waitFor: [engine-tests]
-    args: [build, -t, "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/engine:${SHORT_SHA}", "."]
+    args: [build, -t, "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/engine:${_TAG}", "."]
 
   - id: build-gateway
     name: gcr.io/cloud-builders/docker
     waitFor: [gateway-tests]
-    args: [build, -t, "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/gateway:${SHORT_SHA}", cloud/gateway]
+    args: [build, -t, "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/gateway:${_TAG}", cloud/gateway]
 
   - id: push
     name: gcr.io/cloud-builders/docker
@@ -52,8 +55,8 @@ steps:
     args:
       - -c
       - |
-        docker push "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/engine:${SHORT_SHA}"
-        docker push "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/gateway:${SHORT_SHA}"
+        docker push "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/engine:${_TAG}"
+        docker push "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/gateway:${_TAG}"
 
   - id: deploy-staging
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
@@ -63,8 +66,8 @@ steps:
       - deploy/gcp/release.sh
       - "${_STAGING_PROJECT}"
       - jl-staging
-      - "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/engine:${SHORT_SHA}"
-      - "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/gateway:${SHORT_SHA}"
+      - "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/engine:${_TAG}"
+      - "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/gateway:${_TAG}"
       - "100"
 
   - id: smoke-staging
@@ -74,5 +77,5 @@ steps:
     args: [-c, "curl -fsS --retry 5 --retry-delay 5 https://${_STAGING_HOST}/healthz"]
 
 images:
-  - "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/engine:${SHORT_SHA}"
-  - "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/gateway:${SHORT_SHA}"
+  - "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/engine:${_TAG}"
+  - "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/gateway:${_TAG}"
