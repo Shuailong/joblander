@@ -83,7 +83,18 @@ def build():
         settings.feedback_from = settings.mail_from
     if gcp():
         settings.leader = PgLeader(db_target())
+        topic = os.environ.get("EVENTS_TOPIC", "")
+        if topic:                                # 隐私 v2 的行为数据：会话事件进 Pub/Sub → BigQuery
+            from gw.events import Publisher, SessionEvents
+            settings.events = SessionEvents(Publisher(topic), tz=settings.timezone)
     web = create_web_app(settings, store, fly)
+    if gcp():                                    # 隐私 v2 的保存期限：领头实例每天清理（见 gw/events.py）
+        from gw.events import Sweeper
+        sweeper = Sweeper(store, os.environ.get("EVENTS_TABLE") or None, leader=settings.leader)
+
+        async def start_sweeper():
+            web.state.sweeper_task = asyncio.create_task(sweeper.run())
+        web.router.on_startup.append(start_sweeper)
     mail_http = httpx.AsyncClient(timeout=15)
 
     async def on_low(email: str) -> None:

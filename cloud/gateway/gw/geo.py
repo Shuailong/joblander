@@ -7,6 +7,7 @@ IP Geolocation by DB-IP（https://db-ip.com），CC BY 4.0。
 from __future__ import annotations
 
 import ipaddress
+import os
 import sys
 
 DEFAULT_PATH = "/app/geo.mmdb"
@@ -40,8 +41,14 @@ class Geo:
 
 
 def client_ip(request) -> str:
-    """Fly 入口代理把真实来源放在 Fly-Client-IP；本地 / 测试退回连接地址。"""
-    ip = (request.headers.get("fly-client-ip") or "").strip()
+    """真实来源 IP。Fly：入口代理放在 Fly-Client-IP。GCP：负载均衡器在 X-Forwarded-For 末尾追加「客户端,负载均衡器」
+    两段，前面可能是客户端自己写的（能伪造），所以取倒数第二个；GCP 下也不认 Fly-Client-IP（没人替我们覆盖它）。
+    本地 / 测试退回连接地址。"""
+    if os.environ.get("GW_MODE") == "gcp":
+        hops = [h.strip() for h in (request.headers.get("x-forwarded-for") or "").split(",") if h.strip()]
+        ip = hops[-2] if len(hops) >= 2 else ""
+    else:
+        ip = (request.headers.get("fly-client-ip") or "").strip()
     if not ip and request.client:
         ip = request.client.host
     return ip[:64]

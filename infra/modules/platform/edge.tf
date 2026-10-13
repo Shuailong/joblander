@@ -145,7 +145,7 @@ resource "google_compute_backend_service" "admin" {
   iap {
     enabled              = true
     oauth2_client_id     = var.iap.oauth_client_id
-    oauth2_client_secret = var.iap.oauth_client_secret
+    oauth2_client_secret = var.iap_oauth_client_secret
   }
   log_config {
     enable      = true

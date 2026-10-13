@@ -72,3 +72,18 @@ resource "google_pubsub_subscription" "events_to_bq" {
   }
   depends_on = [google_bigquery_dataset_iam_member.pubsub_writer]
 }
+
+# 关掉开关的用户：网关领头实例每天用 DML 把他的行为数据从原始层删掉（gw/events.py Sweeper）
+resource "google_project_iam_member" "gateway_bq_jobs" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${google_service_account.sa["gateway"].email}"
+}
+
+resource "google_bigquery_table_iam_member" "gateway_events_editor" {
+  project    = var.project_id
+  dataset_id = google_bigquery_dataset.layers["raw"].dataset_id
+  table_id   = google_bigquery_table.events.table_id
+  role       = "roles/bigquery.dataEditor"
+  member     = "serviceAccount:${google_service_account.sa["gateway"].email}"
+}

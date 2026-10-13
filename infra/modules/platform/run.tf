@@ -46,6 +46,12 @@ locals {
     GW_DB_USER   = "gateway"
     IDLE_MINUTES = "0"
   }
+  # 隐私 v2：生效日、会话事件进 Pub/Sub、关掉开关 / 删除账户的人每天从 BigQuery 清理
+  gateway_v2_env = {
+    PRIVACY_V2_DATE = var.privacy_v2_date
+    EVENTS_TOPIC    = google_pubsub_topic.events.id
+    EVENTS_TABLE    = "${var.project_id}.${google_bigquery_dataset.layers["raw"].dataset_id}.${google_bigquery_table.events.table_id}"
+  }
   vpc_egress = {
     network    = google_compute_network.vpc.id
     subnetwork = google_compute_subnetwork.run.id
@@ -87,7 +93,7 @@ resource "google_cloud_run_v2_service" "gateway" {
         startup_cpu_boost = true
       }
       dynamic "env" {
-        for_each = merge(local.gateway_env, { GW_ROLE = "web" })
+        for_each = merge(local.gateway_env, local.gateway_v2_env, { GW_ROLE = "web" })
         content {
           name  = env.key
           value = env.value
@@ -227,7 +233,7 @@ resource "google_cloud_run_v2_service" "engine" {
         startup_cpu_boost = true
       }
       dynamic "env" {
-        for_each = merge(local.engine_env, { JOBLANDER_ROLE = "engine" })
+        for_each = merge(local.engine_env, { JOBLANDER_ROLE = "engine", JOBLANDER_EVENTS_TOPIC = google_pubsub_topic.events.id })
         content {
           name  = env.key
           value = env.value
@@ -334,12 +340,15 @@ resource "google_cloud_run_v2_service" "sandbox" {
   labels              = local.labels
 
   template {
-    service_account                  = google_service_account.sa["sandbox"].email
-    max_instance_request_concurrency = 4
+    service_account = google_service_account.sa["sandbox"].email
+    # 第二代执行环境 = 每个实例一台 microVM；并发 1 = 一台 microVM 同时只跑一个人的代码。
+    # 与 GKE 的 microVM Sandbox（Kata）是同一种隔离原语，但不需要为此养一个集群。
+    execution_environment            = "EXECUTION_ENVIRONMENT_GEN2"
+    max_instance_request_concurrency = 1
     timeout                          = "60s"
     scaling {
       min_instance_count = 0
-      max_instance_count = 5
+      max_instance_count = 20
     }
     vpc_access {
       egress = "ALL_TRAFFIC"

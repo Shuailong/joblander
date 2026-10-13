@@ -97,6 +97,8 @@ class User:
     privacy_version: str | None = None
     lang: str | None = None                  # 最近一次登录时的界面语言（发通知邮件用）
     low_notified_at: float | None = None     # 已发过「额度快用完」提醒；加额度后清空
+    created_at: float = 0.0
+    analytics_off: float | None = None       # 隐私 v2：关掉「行为数据」的时间；空 = 开着
 
     @property
     def balance_usd(self) -> float:
@@ -110,7 +112,7 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
         for col in ("consented_at REAL", "privacy_version TEXT",     # 旧库就地加列
-                    "lang TEXT", "low_notified_at REAL"):
+                    "lang TEXT", "low_notified_at REAL", "analytics_off REAL"):
             try:
                 self.db.execute(f"ALTER TABLE users ADD COLUMN {col}")
             except sqlite3.OperationalError:
@@ -170,6 +172,10 @@ class Store:
         return gone
 
     # ---------- 地点 ----------
+
+    def truncate_ips(self, before: float) -> int:
+        """完整 IP 只留到 before 之前：之后清掉 IP，只留国家 / 城市（隐私说明 v2「保存多久」）。"""
+        return self.db.execute("UPDATE geo SET ip='' WHERE at < ? AND ip <> ''", (before,)).rowcount
 
     def set_geo(self, email: str, ip: str, g: dict) -> None:
         self.db.execute("INSERT OR REPLACE INTO geo VALUES (?,?,?,?,?,?,?,?,?)",
@@ -382,6 +388,13 @@ class Store:
     def set_kv(self, k: str, v: str) -> None:
         self.db.execute("INSERT OR REPLACE INTO kv VALUES (?, ?)", (k, v))
 
+    def kv_items(self, prefix: str) -> list[tuple[str, str]]:
+        rows = self.db.execute("SELECT k, v FROM kv WHERE k LIKE ? ORDER BY k", (prefix + "%",)).fetchall()
+        return [(r["k"], r["v"]) for r in rows if r["k"].startswith(prefix)]
+
+    def del_kv(self, k: str) -> None:
+        self.db.execute("DELETE FROM kv WHERE k=?", (k,))
+
     def digest_since(self, since: float) -> dict:
         """每日汇总邮件的内容：since 以来新被拦的人、新的额度申请（还待批的）、新反馈。"""
         q = lambda sql, *a: [dict(r) for r in self.db.execute(sql, a)]            # noqa: E731
@@ -451,6 +464,15 @@ class Store:
         self.db.execute("INSERT OR IGNORE INTO active_days VALUES (?, ?)", (email.lower(), day))
 
     # ---------- 隐私：同意、导出、彻底删除 ----------
+
+    def set_analytics(self, email: str, on: bool) -> None:
+        """隐私 v2 的「行为数据」开关。关掉时记下时间（清理任务据此删已采集的行为数据）。"""
+        self.db.execute("UPDATE users SET analytics_off=? WHERE email=?",
+                        (None if on else time.time(), email.lower()))
+
+    def analytics_off_users(self) -> list[User]:
+        return [self._user(r) for r in self.db.execute(
+            "SELECT * FROM users WHERE analytics_off IS NOT NULL ORDER BY analytics_off")]
 
     def consent(self, email: str, version: str) -> None:
         self.db.execute("UPDATE users SET consented_at=?, privacy_version=? WHERE email=?",

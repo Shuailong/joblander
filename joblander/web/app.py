@@ -282,13 +282,17 @@ def create_app(with_daemon: bool = True) -> FastAPI:
 
     @app.middleware("http")
     async def _usage_events(request, call_next):
-        """云端版：成功的请求记「方法 + 路由模板」，供网关后台画漏斗与功能使用（见 telemetry.py）。"""
+        """云端版：成功的请求记「方法 + 路由模板」，供网关后台画漏斗与功能使用（见 telemetry.py）；
+        多租户且该账户开着行为数据时，另记一条「路由模板 + 状态码 + 耗时」（隐私 v2）。"""
+        import time as _time
+        t0 = _time.monotonic()
         resp = await call_next(request)
-        if resp.status_code < 400:
-            from joblander import telemetry
-            if telemetry.enabled():
-                route = request.scope.get("route")
-                telemetry.record(request.method, getattr(route, "path", None))
+        from joblander import telemetry
+        if telemetry.enabled():
+            route = getattr(request.scope.get("route"), "path", None)
+            if resp.status_code < 400:
+                telemetry.record(request.method, route)
+            telemetry.behavior(request.method, route, resp.status_code, (_time.monotonic() - t0) * 1000)
         return resp
 
     @app.middleware("http")

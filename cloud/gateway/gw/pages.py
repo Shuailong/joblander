@@ -695,6 +695,12 @@ _CONSENT = {
 }
 
 
+if __import__("os").environ.get("GW_MODE") == "gcp":     # GCP 形态：隐私说明 v2（见 privacy_v2.py）
+    from gw import privacy_v2 as _v2
+    PRIVACY_VERSION = _v2.VERSION
+    _PRIV, _CONSENT = _v2.PRIV, _v2.CONSENT
+
+
 def privacy(lang: str = "zh") -> HTMLResponse:
     lg = "en" if lang == "en" else "zh"
     t = _PRIV[lg]
@@ -711,6 +717,14 @@ def privacy(lang: str = "zh") -> HTMLResponse:
     return _doc(t["title"], body, PRIVACY_CSS, lang=lg)
 
 
+def _analytics_choice(t: dict) -> str:
+    """v2：「帮助改进产品」开关，默认打开（通知 + 可关闭）；v1 没有这一项。"""
+    if not t.get("analytics"):
+        return ""
+    return (f'\n  <label><input type="checkbox" name="analytics" value="1" checked>'
+            f'<span>{t["analytics"]}<br><small class="no">{t["analytics_note"]}</small></span></label>')
+
+
 def consent(lang: str = "zh") -> HTMLResponse:
     lg = "en" if lang == "en" else "zh"
     t, p = _CONSENT[lg], _PRIV[lg]
@@ -719,7 +733,7 @@ def consent(lang: str = "zh") -> HTMLResponse:
 <h1>{t['h1']}</h1><p>{t['lead']}</p><ul>{pts}</ul>
 <form method="post" action="/_gw/consent">
   <label><input type="checkbox" id="ok" onchange="document.getElementById('go').disabled=!this.checked">
-    <span>{t['check']}</span></label>
+    <span>{t['check']}</span></label>{_analytics_choice(t)}
   <div class="row"><button class="btn" id="go" disabled>{t['go']}</button>
     <a class="no" href="/auth/logout">{t['no']}</a></div>
 </form></div>"""

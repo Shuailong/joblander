@@ -36,7 +36,8 @@ GOOGLE_USERINFO = "https://openidconnect.googleapis.com/v1/userinfo"
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te",
        "trailer", "transfer-encoding", "upgrade", "host", "cookie", "content-length",
        "x-joblander-gateway", "x-joblander-set-lang",
-       "x-joblander-tenant-token", "x-serverless-authorization"}   # 只能由网关自己填，客户端带来的一律丢
+       "x-joblander-tenant-token", "x-serverless-authorization",   # 只能由网关自己填，客户端带来的一律丢
+       "x-joblander-analytics"}
 
 
 @dataclass
@@ -64,6 +65,7 @@ class Settings:
     mail_daily_limit: int = 90   # 最近 24 小时最多给用户发几封（Resend 免费档每天 100，留几封给汇总与告警）；超了就等
     mail_idle_s: float = 3       # 队列空着时多久看一次
     leader: object | None = None # 多实例（GCP）：只有拿到领头锁的实例跑发信与每日汇总；None = 单实例
+    events: object | None = None # 隐私 v2 的会话事件（gw.events.SessionEvents）；None = 不采集
 
 
 # ---------- 会话：HMAC 签名的 email|过期时间，不存服务端 ----------
@@ -304,6 +306,9 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
                 await fly.destroy_machine(user.machine_id)
             if user.volume_id:
                 await fly.delete_volume(user.volume_id)
+                if v2():                                        # 旧账户号的行为数据也清掉（新空间是新账户号）
+                    from gw.events import forget
+                    forget(store, user.volume_id)
             store.clear_machine(email)
         except Exception as e:                                  # noqa: BLE001
             store.set_status(email, "failed", error=f"reset: {e}"[:500])
@@ -320,6 +325,9 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
                 await fly.destroy_machine(user.machine_id)
             if user.volume_id:
                 await fly.delete_volume(user.volume_id)
+            if v2():                                            # 行为数据随账户一起删（清理任务每天跑）
+                from gw.events import forget
+                forget(store, user.volume_id)
             store.delete_user(email)
         except Exception as e:                                  # noqa: BLE001  删不干净就别删记录，留着重试
             store.set_status(email, "failed", error=f"delete: {e}"[:500])
@@ -330,6 +338,19 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
 
     def needs_consent(user: User) -> bool:
         return user.privacy_version != pages.PRIVACY_VERSION
+
+    def v2() -> bool:
+        from gw import privacy_v2
+        return pages.PRIVACY_VERSION == privacy_v2.VERSION
+
+    def analytics_state(user: User) -> dict | None:
+        """设置页显示用：开没开、退出期内的话几时开始。v1 没有这一项。"""
+        if not v2():
+            return None
+        from gw import privacy_v2
+        on = user.analytics_off is None
+        return {"on": on, "active": privacy_v2.analytics_allowed(user),
+                "starts": privacy_v2.analytics_starts(user) if on else None}
 
     def same_origin(request: Request) -> bool:
         origin = request.headers.get("origin") or ""
@@ -461,7 +482,22 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         if not same_origin(request):
             return Response(status_code=403)
         store.consent(email, pages.PRIVACY_VERSION)
+        if v2():                                    # 隐私 v2：确认页上的「帮助改进产品」开关
+            form = await request.form()
+            store.set_analytics(email, bool(form.get("analytics")))
         return RedirectResponse("/", status_code=303)
+
+    @app.post("/_gw/analytics")
+    async def set_analytics(request: Request):
+        """设置页「数据与隐私」里的行为数据开关。"""
+        email = current(request)
+        if not email or store.get(email) is None:
+            return Response(status_code=401)
+        if not same_origin(request) or not v2():
+            return Response(status_code=403)
+        form = await request.form()
+        store.set_analytics(email, str(form.get("on") or "") in ("1", "true", "on"))
+        return {"ok": True, "analytics": analytics_state(store.get(email))}
 
     @app.get("/_gw/export")
     async def export(request: Request):
@@ -508,10 +544,13 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         if user is None:
             return Response(status_code=401)
         bal = max(user.balance_usd, 0)
-        return {"email": user.email, "admin": user.email in settings.admins,
-                "balance_usd": round(bal, 4), "credit_usd": round(user.credit_usd, 4),
-                "spent_usd": round(user.spent_usd, 4), "low": bal < settings.low_balance_usd,
-                "request": store.latest_request(user.email)}
+        out = {"email": user.email, "admin": user.email in settings.admins,
+               "balance_usd": round(bal, 4), "credit_usd": round(user.credit_usd, 4),
+               "spent_usd": round(user.spent_usd, 4), "low": bal < settings.low_balance_usd,
+               "request": store.latest_request(user.email)}
+        if v2():
+            out["analytics"] = analytics_state(user)
+        return out
 
     @app.post("/_gw/credit-request")
     async def credit_request(request: Request):
@@ -791,6 +830,12 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         if request.cookies.get("jl_lang") in ("zh", "en"):   # 首页选过的语言带进引擎（设置里改的仍优先）
             headers["accept-language"] = request.cookies["jl_lang"]
         headers.update(await fly.auth_headers(user))           # Fly：机器专属口令；GCP：账户令牌 + 服务身份
+        if v2():                                                # 引擎据此决定记不记这个账户的行为数据
+            from gw import privacy_v2
+            allowed = privacy_v2.analytics_allowed(user)
+            headers["x-joblander-analytics"] = "on" if allowed else "off"
+            if allowed and settings.events is not None and request.method == "GET" and user.volume_id:
+                settings.events.on_request(user.volume_id, request)
         chosen = request.cookies.get("jl_lang_set")
         if chosen in ("zh", "en"):
             headers["x-joblander-set-lang"] = chosen

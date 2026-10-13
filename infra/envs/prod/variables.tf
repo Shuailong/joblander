@@ -33,17 +33,19 @@ variable "alert_sms" {
 }
 variable "iap" {
   type = object({
-    enabled             = bool
-    oauth_client_id     = string
-    oauth_client_secret = string
-    members             = list(string)
+    enabled         = bool
+    oauth_client_id = string
+    members         = list(string)
   })
   default = {
-    enabled             = false
-    oauth_client_id     = ""
-    oauth_client_secret = ""
-    members             = []
+    enabled         = false
+    oauth_client_id = ""
+    members         = []
   }
+}
+variable "iap_oauth_client_secret" {
+  type      = string
+  default   = ""
   sensitive = true
 }
 variable "billing_account" {
@@ -53,4 +55,9 @@ variable "billing_account" {
 variable "monthly_budget_usd" {
   type    = number
   default = 1100
+}
+
+variable "privacy_v2_date" {
+  description = "隐私说明 v2 生效日（YYYY-MM-DD）"
+  type        = string
 }

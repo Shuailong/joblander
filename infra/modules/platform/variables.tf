@@ -67,20 +67,24 @@ variable "alert_sms" {
 }
 
 variable "iap" {
-  description = "给管理后台 /_gw/admin 加 Identity-Aware Proxy（需要 OAuth 客户端）"
+  description = "给管理后台 /_gw/admin 加 Identity-Aware Proxy（需要 OAuth 客户端）；members 如 user:a@b.com"
   type = object({
-    enabled             = bool
-    oauth_client_id     = string
-    oauth_client_secret = string
-    members             = list(string)
+    enabled         = bool
+    oauth_client_id = string
+    members         = list(string)
   })
   default = {
-    enabled             = false
-    oauth_client_id     = ""
-    oauth_client_secret = ""
-    members             = []
+    enabled         = false
+    oauth_client_id = ""
+    members         = []
   }
-  sensitive = true
+}
+
+variable "iap_oauth_client_secret" {
+  description = "IAP 用的 OAuth 客户端密钥"
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 variable "sql" {
@@ -94,6 +98,15 @@ variable "sql" {
     tier              = "db-custom-2-8192"
     high_availability = true
     disk_gb           = 50
+  }
+}
+
+variable "privacy_v2_date" {
+  description = "隐私说明 v2 的版本号兼生效日（YYYY-MM-DD，新加坡时间）。GCP 形态只用 v2；生产填切流当天，改期就改这里再 apply"
+  type        = string
+  validation {
+    condition     = can(regex("^\\d{4}-\\d{2}-\\d{2}$", var.privacy_v2_date))
+    error_message = "格式为 YYYY-MM-DD。"
   }
 }
 

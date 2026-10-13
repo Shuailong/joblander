@@ -87,3 +87,66 @@ def start() -> None:
             time.sleep(FLUSH_EVERY)
             flush()
     threading.Thread(target=loop, daemon=True, name="telemetry").start()
+
+
+# ---------- 隐私 v2 的行为数据（只在多租户形态、且网关说这个账户可以记时） ----------
+# 每个请求一条：页面模板、状态码、耗时。不记路径、参数与任何内容。按批发到 Pub/Sub → BigQuery。
+
+import contextvars  # noqa: E402
+
+_analytics: contextvars.ContextVar[bool] = contextvars.ContextVar("joblander_analytics", default=False)
+_events: list[dict] = []
+_events_lock = threading.Lock()
+_events_started = False
+
+
+def set_analytics(on: bool) -> None:
+    """引擎的账户中间件按网关给的 x-joblander-analytics 头设置（见 cloud/engine.py）。"""
+    _analytics.set(on)
+
+
+def behavior(method: str, route: str | None, status: int, ms: float, now: float | None = None) -> bool:
+    from joblander import runtime
+    topic = os.environ.get("JOBLANDER_EVENTS_TOPIC", "")
+    if not (runtime.is_multi() and topic and _analytics.get()):
+        return False
+    if not route or route.startswith(SKIP_PREFIX) or f"{method} {route}" in SKIP:
+        return False
+    from joblander.obs import user_key
+    from joblander.tenancy import tenant_id
+    with _events_lock:
+        if len(_events) < 5000:
+            _events.append({"v": 1, "type": "request", "user_key": user_key(tenant_id()),
+                            "at": now or time.time(), "method": method, "route": route,
+                            "status": int(status), "ms": round(float(ms), 1)})
+    _start_events(topic)
+    return True
+
+
+def flush_behavior(topic: str) -> int:
+    with _events_lock:
+        batch = _events[:500]
+        del _events[:500]
+    if not batch:
+        return 0
+    from joblander import gcp
+    try:
+        gcp.pubsub_publish(topic, batch)
+    except Exception:                                   # noqa: BLE001  统计丢了就丢了
+        return 0
+    return len(batch)
+
+
+def _start_events(topic: str) -> None:
+    global _events_started
+    with _events_lock:
+        if _events_started:
+            return
+        _events_started = True
+
+    def loop():
+        while True:
+            time.sleep(10)
+            while flush_behavior(topic) == 500:
+                pass
+    threading.Thread(target=loop, daemon=True, name="behavior-events").start()

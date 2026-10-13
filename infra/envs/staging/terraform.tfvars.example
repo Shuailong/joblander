@@ -3,3 +3,4 @@ app_domain  = "app.staging.ailayoff.me"
 site_domain = "staging.ailayoff.me"
 manage_dns  = false
 alert_email = "ops@ailayoff.me"
+privacy_v2_date = "2026-10-13" # staging 直接用 v2，便于验收文案与开关

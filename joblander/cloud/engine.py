@@ -39,6 +39,10 @@ class TenantMiddleware:
             return await _json(send, 401, {"error": "需要经登录网关访问"})
         if not backend.store().has_tenant(tenant_id):
             return await _json(send, 404, {"error": "账户不存在或已删除"})
+        from joblander import telemetry
+        # 隐私 v2：网关按这个账户的开关与退出期决定能不能记行为数据（浏览器自带的同名头网关会丢掉）
+        telemetry.set_analytics(any(k == b"x-joblander-analytics" and v == b"on"
+                                    for k, v in scope.get("headers", [])))
         with use_tenant(backend.tenant(tenant_id)):
             await self.app(scope, receive, send)
 

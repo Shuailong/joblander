@@ -131,6 +131,41 @@ document.addEventListener('jl-credit-req', e => reqState(e.detail));
     <a class="btn" href="/_gw/privacy" target="_blank">{{ _('隐私说明') }}</a>{% endif %}
   </div>
 </div>
+{% if cloud %}
+<div class="card setup-step" id="analytics-card" style="margin-bottom:14px" hidden>
+  <div class="row"><div class="body"><b>{{ _('帮助改进产品（行为数据）') }}</b>
+    <div class="meta">{{ _('记录你的使用行为：IP 与城市级位置、页面访问、操作结果与耗时。不含公司名、简历或任何你写的文字。关闭后立即停止记录，已记录的 30 天内删除，所有功能照常可用。') }}</div>
+    <div class="meta" id="analytics-state"></div></div></div>
+  <label style="display:flex;gap:8px;align-items:center;margin-top:10px">
+    <input type="checkbox" id="analytics-on" onchange="setAnalytics(this)">
+    <span>{{ _('允许记录我的使用行为') }}</span></label>
+</div>
+<script>
+// 隐私 v2 才有这一项（网关 /_gw/me 返回 analytics）；v1 的部署这张卡片不显示
+function analyticsState(a){
+  const st = document.getElementById('analytics-state');
+  document.getElementById('analytics-on').checked = a.on;
+  if (!a.on) st.textContent = {{ _('已关闭：不记录你的使用行为。')|jsq }};
+  else if (!a.active && a.starts) st.textContent = {{ _('已开启，{d} 起开始记录（在这之前随时可以关闭）。')|jsq }}
+    .replace('{d}', new Date(a.starts * 1000).toLocaleDateString());
+  else st.textContent = {{ _('已开启：正在记录，随时可以关闭。')|jsq }};
+}
+(window.jlMe || Promise.resolve(null)).then(me => {
+  if (!me || !me.analytics) return;
+  document.getElementById('analytics-card').hidden = false;
+  analyticsState(me.analytics);
+});
+async function setAnalytics(box){
+  box.disabled = true;
+  const fd = new FormData(); fd.append('on', box.checked ? '1' : '0');
+  const r = await fetch('/_gw/analytics', {method: 'POST', body: fd});
+  const out = r.ok ? await r.json() : null;
+  box.disabled = false;
+  if (out && out.analytics) { analyticsState(out.analytics); toast(out.analytics.on ? {{ _('已开启')|jsq }} : {{ _('已关闭，已记录的行为数据会在 30 天内删除')|jsq }}); }
+  else { box.checked = !box.checked; toast({{ _('没保存成功，稍后再试')|jsq }}); }
+}
+</script>
+{% endif %}
 
 {% if cloud %}
 <h2 id="danger">{{ _('危险操作') }}</h2>

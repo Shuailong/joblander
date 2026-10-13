@@ -18,21 +18,23 @@ provider "google-beta" {
 }
 
 module "platform" {
-  source             = "../../modules/platform"
-  project_id         = var.project_id
-  region             = var.region
-  env                = "prod"
-  app_domain         = var.app_domain
-  site_domain        = var.site_domain
-  manage_dns         = var.manage_dns
-  extra_dns_records  = var.extra_dns_records
-  engine_image       = var.engine_image
-  gateway_image      = var.gateway_image
-  alert_email        = var.alert_email
-  alert_sms          = var.alert_sms
-  iap                = var.iap
-  billing_account    = var.billing_account
-  monthly_budget_usd = var.monthly_budget_usd
+  source                  = "../../modules/platform"
+  project_id              = var.project_id
+  region                  = var.region
+  env                     = "prod"
+  app_domain              = var.app_domain
+  site_domain             = var.site_domain
+  manage_dns              = var.manage_dns
+  extra_dns_records       = var.extra_dns_records
+  engine_image            = var.engine_image
+  gateway_image           = var.gateway_image
+  alert_email             = var.alert_email
+  alert_sms               = var.alert_sms
+  iap                     = var.iap
+  iap_oauth_client_secret = var.iap_oauth_client_secret
+  privacy_v2_date         = var.privacy_v2_date
+  billing_account         = var.billing_account
+  monthly_budget_usd      = var.monthly_budget_usd
   sql = {
     tier              = "db-custom-2-8192"
     high_availability = true

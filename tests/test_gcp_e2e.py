@@ -112,3 +112,26 @@ def test_delete_account_removes_engine_data(stack):
             break
         time.sleep(0.05)
     assert store.get("a@x.com") is None and not backend.store().has_tenant(tid)
+
+
+def test_privacy_v2_switch_reaches_engine(stack, monkeypatch):
+    """网关按开关与退出期给引擎打「能不能记」的标；引擎只在标为 on 时记路由模板，关掉立即停。"""
+    from gw import privacy_v2
+
+    from joblander import telemetry
+    from joblander.obs import user_key
+    store, settings, app = stack
+    monkeypatch.setattr(pages, "PRIVACY_VERSION", privacy_v2.VERSION)
+    monkeypatch.setattr(privacy_v2, "effective_ts", lambda: 0.0)     # 当作 v2 生效后注册的新用户
+    monkeypatch.setenv("OPENAI_BASE_URL", f"{ENGINE}/v1")
+    monkeypatch.setenv("JOBLANDER_EVENTS_TOPIC", "projects/p/topics/events")
+    monkeypatch.setattr(telemetry, "_events_started", True)
+    monkeypatch.setattr(telemetry, "_events", [])
+    c = _login(store, settings, app, "a@x.com")
+    c.get("/sourcing", headers={"x-joblander-analytics": "off"})
+    tid = store.get("a@x.com").volume_id
+    assert [(e["route"], e["user_key"]) for e in telemetry._events] == [("/sourcing", user_key(tid))]
+    c.post("/_gw/analytics", data={"on": "0"}, headers={"origin": "https://app.test"})
+    c.get("/sourcing", headers={"x-joblander-analytics": "on"})        # 浏览器自己带 on 也没用
+    assert len(telemetry._events) == 1
+    telemetry.drain()
