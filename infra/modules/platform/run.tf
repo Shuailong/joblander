@@ -179,6 +179,7 @@ resource "google_cloud_run_v2_service" "meter" {
           TAVILY_API_KEY     = "tavily-api-key"
           MODEL_PRICES       = "model-prices"
           JOBLANDER_LOG_SALT = "log-salt"
+          RESEND_API_KEY     = "resend-api-key" # 预算 70% / 90% / 100% 与 OpenAI 失败的告警邮件
         }
         content {
           name = env.key

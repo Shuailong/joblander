@@ -55,6 +55,7 @@ ENV=staging deploy/gcp/gwcli.sh users          # 预发
 | `MAIL_DAILY_LIMIT` | 最近 24 小时最多发几封，默认 90（Resend 免费档每天 100） |
 | `DIGEST_AT` | 每日汇总几点发，默认 `09:00`；设空 = 不发 |
 | `FREE_CREDIT_USD` / `LOW_BALANCE_USD` / `SEARCH_PRICE_USD` | 新用户赠送额度（默认 2）/ 余额提醒线（0.5）/ 每次搜索计费（0.01） |
+| `MONTHLY_BUDGET_USD` | 全平台每月 AI + 搜索预算（美元，按新加坡时间的自然月）。到 70% / 90% 各邮件告警一次，到 100% **所有人**的 AI 与搜索暂停（引擎提示「平台本月预算已用完」），调大或下月自动恢复。默认 0 = 不设上限 |
 
 其他变量：`privacy_v2_date`（隐私说明 v2 生效日；改了会让所有人按新版本再确认一次）、`serve_from`（流量指向，切流用）、
 `engine_min_instances`（引擎常驻实例，默认 1）、`sql`（数据库规格）、`iap`（后台的 IAP）。
@@ -83,7 +84,9 @@ gcloud run services update jl-prod-meter --region asia-southeast1 --project jl-p
 | Cloud SQL 磁盘 > 85% | P2 | 调大 `sql.disk_gb` 再 apply（在线扩，不停机） |
 | 月预算 50% / 90% / 100% | — | 账单里看哪项涨了 |
 
-后台的「AI 失败」表照旧（计量把失败记进网关库）；Fly 时期的 AI 告警邮件换成了上面两条 OpenAI 告警。
+后台的「AI 失败」「按功能花费」「来源」表照旧（计量把用量与失败记进网关库）。OpenAI 失败除了上面两条告警，计量服务也照旧发邮件；
+**所有人都提示「平台本月 AI 预算已用完」** = `MONTHLY_BUDGET_USD` 到顶（会收到 100% 告警邮件）：先看「按功能花费」
+是不是某个功能 / 某个人异常，确认正常就调大 `gateway_settings.MONTHLY_BUDGET_USD` 再 apply（计量 1 分钟内生效）。
 
 常用日志查询（Logs Explorer，项目 `jl-prod`）：
 

@@ -6,6 +6,7 @@ API key 永远从环境变量读，不落任何配置文件。
 
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import urllib.error
@@ -19,6 +20,15 @@ class LLMError(RuntimeError):
 
 class QuotaExceeded(LLMError):
     """计量代理（云端版）按用户额度拒绝了请求——不是故障，不重试，提示充值。"""
+
+
+class PlatformPaused(LLMError):
+    """计量代理（云端版）因平台当月 AI 总预算用完而拒绝——不是用户自己的额度，不重试。"""
+
+
+# 云端版：当前在做哪件事（网页请求的「方法 + 路由模板」/ 后台定时作业名），调模型时带给计量口，
+# 计量口按它记每次调用的花费归属。只有路由模板与作业名，不含任何内容。
+FEATURE: contextvars.ContextVar[str] = contextvars.ContextVar("joblander_feature", default="")
 
 
 class RateLimited(LLMError):
@@ -36,6 +46,8 @@ RATE_WAITS = (10, 30, 60)
 def _http_error(e: urllib.error.HTTPError) -> LLMError:
     body = e.read().decode(errors="replace")
     msg = f"{e.code}: {body[:300]}"
+    if "platform_budget" in body:                # 平台当月总预算到顶：重试没用，也不是用户自己的额度
+        return PlatformPaused("AI 服务暂停：平台本月的 AI 预算已用完，运营方已收到通知")
     if "insufficient_quota" in body:             # 平台账户没钱了：重试没用，说清楚是谁的问题
         from joblander import runtime
         return LLMError("AI 服务暂时不可用：平台的 OpenAI 账户额度耗尽，运营方已收到告警"
@@ -162,11 +174,12 @@ class OpenAIChat:
         base = base_url or os.environ.get("OPENAI_BASE_URL")
         if base:
             self.URL = base.rstrip("/") + "/chat/completions"
+        self.metered = bool(base)                # 走计量代理才带功能标签，直连 OpenAI 不带
         self.key = api_key or os.environ.get("OPENAI_API_KEY")
         from joblander import runtime
         # 多租户：走计量服务，凭本服务身份 + 账户头鉴权（见 runtime.upstream_headers），不需要 key
-        self.metered = runtime.is_multi() and not api_key and bool(base)
-        if not self.key and not self.metered:
+        self.service_auth = runtime.is_multi() and not api_key and bool(base)
+        if not self.key and not self.service_auth:
             raise LLMError("缺 OPENAI_API_KEY 环境变量")
 
     def generate(self, prompt: str, system: str | None = None, json_mode: bool = False,
@@ -183,15 +196,17 @@ class OpenAIChat:
             body["reasoning_effort"] = effort
         if json_mode:
             body["response_format"] = {"type": "json_object"}
+        from joblander import runtime
+        headers = (runtime.upstream_headers(self.URL) if self.service_auth
+                   else {"Authorization": f"Bearer {self.key}"})
+        if self.metered and FEATURE.get():
+            headers["X-Joblander-Feature"] = FEATURE.get()
         try:
-            from joblander import runtime
             return _with_retry(lambda: _http_sse_text(
-                self.URL, body,
-                runtime.upstream_headers(self.URL) if self.metered else {"Authorization": f"Bearer {self.key}"},
+                self.URL, body, headers,
                 timeout=600 if effort == "high" else 300))
         except LLMError as e:
-            if _is_budget_error(e):
-                from joblander import runtime
+            if not isinstance(e, PlatformPaused) and _is_budget_error(e):
                 raise QuotaExceeded("AI 额度已用完——在「设置 › 账户」里申请更多额度"
                                     if runtime.is_cloud()
                                     else "AI 额度已用完——充值或订阅后继续使用") from e

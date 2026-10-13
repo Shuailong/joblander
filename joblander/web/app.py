@@ -118,7 +118,7 @@ def start_task(kind: str, label: str, fn) -> str:
         EventLog(current_cfg().workspace_dir / "08-events" / "event-log.jsonl").append(
             "task.failed", "web", {"kind": kind, "label": label, "error": err[:300]})
 
-    return tasks.start(kind, label, fn, on_error=on_error)
+    return tasks.start(kind, label, fn, on_error=on_error)      # 线程里带着发起请求的上下文（账户、功能名）
 
 
 _LOG_STATS: dict = {}
@@ -283,16 +283,28 @@ def create_app(with_daemon: bool = True) -> FastAPI:
     @app.middleware("http")
     async def _usage_events(request, call_next):
         """云端版：成功的请求记「方法 + 路由模板」，供网关后台画漏斗与功能使用（见 telemetry.py）；
+        处理请求期间把同一个名字设为当前功能，这次请求里的 AI 调用就记在它名下（llm.FEATURE）；
         多租户且该账户开着行为数据时，另记一条「路由模板 + 状态码 + 耗时」（隐私 v2）。"""
-        import time as _time
-        t0 = _time.monotonic()
-        resp = await call_next(request)
         from joblander import telemetry
-        if telemetry.enabled():
-            route = getattr(request.scope.get("route"), "path", None)
-            if resp.status_code < 400:
-                telemetry.record(request.method, route)
-            telemetry.behavior(request.method, route, resp.status_code, (_time.monotonic() - t0) * 1000)
+        if not telemetry.enabled():
+            return await call_next(request)
+        import time as _time
+
+        from starlette.routing import Match
+
+        from joblander.llm import FEATURE
+        path = next((getattr(r, "path", None) for r in app.router.routes
+                     if r.matches(request.scope)[0] == Match.FULL), None)
+        tok = FEATURE.set(f"{request.method} {path}" if path else "")
+        t0 = _time.monotonic()
+        try:
+            resp = await call_next(request)
+        finally:
+            FEATURE.reset(tok)
+        route = getattr(request.scope.get("route"), "path", None)
+        if resp.status_code < 400:
+            telemetry.record(request.method, route)
+        telemetry.behavior(request.method, route, resp.status_code, (_time.monotonic() - t0) * 1000)
         return resp
 
     @app.middleware("http")

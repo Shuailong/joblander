@@ -1091,3 +1091,133 @@ def test_sleeper_neither_wakes_nor_suspends_during_maintenance(store):
         s.asleep.add("a@x.com")
         asyncio.run(s.tick(now=after_wake))
         assert [m for m, *_ in calls][:1] == expect
+
+
+# ---------- 功能标签 / 全局预算 / 来源 ----------
+
+def test_meter_records_feature_and_latency_and_drops_bad_tags(store):
+    _, key = store.create("a@x.com", 50.0)
+    store.create("boss@x.com", 2.0)
+    client = TestClient(create_meter_app(store, "sk", PRICES, httpx.AsyncClient(transport=httpx.MockTransport(_openai([])))))
+    for tag, stream in (("POST /api/resume/react", True), ("job:nightly_sourcing", False),
+                        ("POST /api/company/Acme Secret", False), (None, False)):
+        h = {"Authorization": f"Bearer {key}", **({"X-Joblander-Feature": tag} if tag else {})}
+        assert client.post("/v1/chat/completions", headers=h,
+                           json={"model": "m-pro", "stream": stream, "messages": []}).status_code == 200
+    rows = store.db.execute("SELECT feature, latency_ms FROM usage ORDER BY id").fetchall()
+    assert [r[0] for r in rows] == ["POST /api/resume/react", "job:nightly_sourcing", None, None]   # 夹带内容的标签当没带
+    assert all(r[1] is not None and r[1] >= 0 for r in rows)
+    assert store.export("a@x.com")["usage"][0]["feature"] == "POST /api/resume/react"
+    page = _client(store, _fly([]), _upstream([]), "boss@x.com").get("/_gw/admin").text
+    assert "按功能花费" in page and "定制简历" in page and "定时：夜间搜岗" in page and "未标注" in page
+    assert "中位数" in page and "P90" in page and "Acme" not in page
+
+
+def test_global_monthly_budget_alerts_then_pauses_everyone(store):
+    _, ka = store.create("a@x.com", 100.0)
+    _, kb = store.create("b@x.com", 100.0)
+    seen, alerts = [], []
+
+    async def on_budget(level, spent, budget):
+        alerts.append(level)
+    client = TestClient(create_meter_app(store, "sk", PRICES, httpx.AsyncClient(transport=httpx.MockTransport(_openai(seen))),
+                                         tavily_key="tv", monthly_budget_usd=10.0, on_budget=on_budget))
+    call = lambda k: client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {k}"},   # noqa: E731
+                                 json={"model": "m-pro", "stream": True, "messages": []})
+    assert call(ka).status_code == 200                         # $6 → 60%：不告警
+    assert alerts == []
+    assert call(kb).status_code == 200                         # $12 → 跨过 70% / 90% / 100%：只发最高一档
+    assert alerts == [1.0]
+    n = len(seen)
+    r = call(ka)
+    assert r.status_code == 400 and "platform_budget" in r.text and len(seen) == n     # 拒在花钱之前，谁都一样
+    assert client.post("/v1/search", headers={"Authorization": f"Bearer {kb}"}, json={"query": "x"}).status_code == 400
+    assert call(kb).status_code == 400 and alerts == [1.0]     # 同一档本月不重发
+    # 引擎侧：认出是平台预算，不当成用户自己的额度用完
+    import sys, pathlib
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
+    from joblander.llm import PlatformPaused, _http_error
+    import urllib.error, io
+    e = _http_error(urllib.error.HTTPError("u", 400, "bad", {}, io.BytesIO(r.content)))
+    assert isinstance(e, PlatformPaused) and "平台本月" in str(e)
+
+
+def test_budget_levels_fire_once_each(store):
+    _, key = store.create("a@x.com", 100.0)
+    alerts = []
+
+    async def on_budget(level, spent, budget):
+        alerts.append(level)
+    client = TestClient(create_meter_app(store, "sk", PRICES, httpx.AsyncClient(transport=httpx.MockTransport(_openai([]))),
+                                         monthly_budget_usd=8.0, on_budget=on_budget))
+    client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {key}"},
+                json={"model": "m-pro", "stream": True, "messages": []})      # $6 = 75%
+    assert alerts == [0.7]
+    page_budget = store.get_kv(f"budget_alert:{__import__('datetime').datetime.now(__import__('zoneinfo').ZoneInfo('Asia/Singapore')):%Y-%m}")
+    assert page_budget == "0.7"
+
+
+def test_no_budget_means_no_cap(store):
+    _, key = store.create("a@x.com", 100.0)
+    client = TestClient(create_meter_app(store, "sk", PRICES, httpx.AsyncClient(transport=httpx.MockTransport(_openai([])))))
+    for _ in range(3):
+        assert client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {key}"},
+                           json={"model": "m-pro", "stream": True, "messages": []}).status_code == 200
+
+
+def test_admin_shows_month_spend_against_budget(store):
+    store.create("a@x.com", 10.0)
+    store.charge("a@x.com", "m-pro", 1, 1, 7.5)
+    s = Settings(**{**SETTINGS.__dict__, "digest_at": "", "monthly_budget_usd": 10.0})
+    c = TestClient(create_web_app(s, store, _fly([]), _upstream([])), base_url="https://app.test")
+    store.create("boss@x.com", 2.0)
+    from gw.pages import PRIVACY_VERSION
+    store.consent("boss@x.com", PRIVACY_VERSION)
+    c.cookies.set("jl_session", make_session("s", "boss@x.com"))
+    page = c.get("/_gw/admin").text
+    assert "$7.50 / $10" in page and "75%" in page
+    assert "本月花费（未设预算上限）" in _boss(store).get("/_gw/admin").text
+
+
+def test_source_recorded_on_first_login_only(store, monkeypatch):
+    who = []
+
+    def google(req: httpx.Request):
+        if "token" in req.url.path:
+            return httpx.Response(200, json={"access_token": "at"})
+        return httpx.Response(200, json={"email": who[-1], "email_verified": True})
+    import gw.web as W
+    orig = httpx.AsyncClient
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda *a, **k: orig(transport=httpx.MockTransport(google)))
+    store.create("a@x.com", 2.0)
+    c = _client(store, _fly([]), _upstream([]))
+    # 从官网点进来：官网把外站来源带在链接上；Referer 是官网本身
+    r = c.get("/?utm_source=Reddit&utm_campaign=launch-1&ref_host=www.reddit.com&utm_medium=<script>",
+              headers={"Referer": "https://ailayoff.me/some/page?secret=1"})
+    assert "jl_src" in r.cookies
+    for email in ("stranger@x.com", "a@x.com"):
+        who.append(email)
+        c.cookies.set("jl_state", "st")
+        c.get("/auth/callback?code=c&state=st", follow_redirects=False)
+    src = {s["email"]: s for s in store.admin_snapshot(0)["sources"]}
+    assert src["stranger@x.com"]["utm_source"] == "reddit" and src["stranger@x.com"]["utm_campaign"] == "launch-1"
+    assert src["stranger@x.com"]["ref"] == "www.reddit.com" and src["stranger@x.com"]["utm_medium"] is None
+    # 之后换了来源再登录：不覆盖
+    c.cookies.clear()
+    c.get("/", headers={"Referer": "https://news.ycombinator.com/item?id=1"})
+    who.append("stranger@x.com")
+    c.cookies.set("jl_state", "st")
+    c.get("/auth/callback?code=c&state=st", follow_redirects=False)
+    src = {s["email"]: s for s in store.admin_snapshot(0)["sources"]}
+    assert src["stranger@x.com"]["ref"] == "www.reddit.com" and src["stranger@x.com"]["utm_source"] == "reddit"
+    assert src["a@x.com"]["utm_source"] == "reddit"                # 同一个浏览器里先后登录的两个人
+    # 自家域名的 Referer 不算来源；直接访问也记一条（来源未知）
+    c.cookies.clear()
+    c.get("/", headers={"Referer": "https://app.test/"})
+    assert "jl_src" not in c.cookies
+    page = _boss(store).get("/_gw/admin").text
+    assert "来源" in page and "reddit · launch-1" in page and "secret" not in page
+    assert store.export("stranger@x.com")["source"][0]["ref"] == "www.reddit.com"
+    store.dismiss("stranger@x.com")
+    store.delete_user("a@x.com")
+    assert store.admin_snapshot(0)["sources"] == []

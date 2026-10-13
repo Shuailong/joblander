@@ -32,4 +32,5 @@ gateway_settings = {
   MAIL_DAILY_LIMIT = "90"
   FREE_CREDIT_USD  = "2"
   LOW_BALANCE_USD  = "0.5"
+  # MONTHLY_BUDGET_USD = "300"   # 全平台每月 AI + 搜索预算；到顶所有人暂停（不设 = 不封顶）
 }

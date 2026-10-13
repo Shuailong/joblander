@@ -138,7 +138,7 @@ locals {
   secret_access = {
     gateway = ["google-oauth-client-id", "google-oauth-client-secret", "session-secret",
     "tenant-token-secret", "resend-api-key", "db-gateway-password", "model-prices", "log-salt"]
-    meter   = ["openai-api-key", "tavily-api-key", "model-prices", "db-gateway-password", "log-salt"]
+    meter   = ["openai-api-key", "tavily-api-key", "model-prices", "db-gateway-password", "log-salt", "resend-api-key"]
     engine  = ["tenant-token-secret", "db-engine-app-password", "log-salt"]
     worker  = ["tenant-token-secret", "db-engine-app-password", "log-salt"]
     migrate = ["db-engine-owner-password", "db-engine-app-password"]

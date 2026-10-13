@@ -62,7 +62,7 @@ PRIV = {
 <li><b>账户</b>：Google 登录只取你的<b>邮箱地址</b>（权限范围 openid + email），看不到你的邮件、日历或通讯录。</li>
 <li><b>你提供的内容</b>：简历、战绩库、目标薪资与红线、公司档案、面试笔记、你贴进来的邀约或 JD。</li>
 <li><b>系统生成的内容</b>：匹配评估、尽调报告、面试 brief、定制简历、日记与周报。</li>
-<li><b>用量记录</b>：每次 AI 调用的模型、token 数、费用与时间（用于额度计费）。</li>
+<li><b>用量记录</b>：每次 AI 调用的模型、token 数、费用、耗时、时间，以及是哪个功能发起的（只记功能名称，如「定制简历」，不含内容），用于额度计费与核算各功能的成本。</li>
 <li><b>反馈</b>：你主动提交的反馈内容、所在页面和浏览器标识。</li>
 <li><b>功能使用记录</b>：你哪天用了哪些页面和功能、用了几次（只记功能名称，不含公司名、简历或任何你写的内容）。</li>
 <li><b>行为数据（可关闭）</b>：每次使用时的 IP 地址与城市级位置（由 Google 的负载均衡器按 IP 推算）、设备类型与浏览器；
@@ -71,6 +71,7 @@ PRIV = {
 <li><b>技术日志</b>：请求时间、页面路径、状态码与 IP，用于排障与防滥用；30 天后自动删除，只有运维可读。
 网址里不会放你的邮箱、搜索词或任何登录凭据。</li>
 <li><b>大致所在地</b>：最近一次登录或当天首次访问时的 IP 与据此推算的国家 / 省份 / 城市，用于看用户来自哪里。</li>
+<li><b>从哪来</b>：第一次登录（含未受邀的登录）时，你是从哪个网站点过来的（只记网站域名，不记具体网址）以及链接上的推广标签（utm 参数），用于了解大家是怎么知道这里的；删除账户或清除未受邀记录时一并删除。</li>
 <li><b>未受邀的登录</b>：没在邀请名单的人登录时，记下邮箱、尝试次数与时间，并通知运营者以便邀请；获邀或被清除时即删除。</li>
 </ul>
 
@@ -168,7 +169,7 @@ project's author as a free, invite-only beta. "I" below means the operator, who 
 <li><b>Account</b>: Google sign-in only shares your <b>email address</b> (scopes openid + email) — not your mail, calendar or contacts.</li>
 <li><b>What you provide</b>: resume, achievement bank, target pay and red lines, company files, interview notes, invitations or JDs you paste.</li>
 <li><b>What the system generates</b>: fit assessments, research reports, interview briefs, tailored resumes, diaries and weekly reports.</li>
-<li><b>Usage records</b>: model, tokens, cost and time of each AI call (for credit metering).</li>
+<li><b>Usage records</b>: model, tokens, cost, duration and time of each AI call, and which feature made it (the feature name only, e.g. "tailor resume" — no content), for credit metering and working out what each feature costs.</li>
 <li><b>Feedback</b>: what you submit, the page you were on and your browser's user agent.</li>
 <li><b>Feature usage</b>: which pages and features you used on which day, and how often (feature names only — no company names, resume or anything you wrote).</li>
 <li><b>Behavior data (can be switched off)</b>: the IP address and city-level location of each visit (estimated from the IP by Google's load balancer),
@@ -178,6 +179,7 @@ the app and where they get stuck, to improve the product in a targeted way, and 
 <li><b>Technical logs</b>: request time, page path, status code and IP, for troubleshooting and abuse prevention; deleted after 30 days and
 readable only by operations. Your email, search terms or credentials are never put in web addresses.</li>
 <li><b>Approximate location</b>: the IP of your latest sign-in or first visit of the day and the country / region / city estimated from it, to see where users come from.</li>
+<li><b>Where you came from</b>: at your first sign-in (including uninvited ones), the website you came from (its domain only, not the full address) and any campaign tags on the link (utm parameters), to learn how people find this; deleted with your account or with an uninvited-sign-in record.</li>
 <li><b>Uninvited sign-ins</b>: if you sign in without an invite, your email, attempt count and time are kept and the operator is notified so they can invite you; the record is deleted once you're invited or it's cleared.</li>
 </ul>
 

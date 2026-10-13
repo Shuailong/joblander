@@ -77,6 +77,23 @@ async def send_ai_alert(http: httpx.AsyncClient, api_key: str, to: str, *, sende
     return r.status_code < 300
 
 
+async def send_budget_alert(http: httpx.AsyncClient, api_key: str, to: str, *, sender: str,
+                            level: float, spent: float, budget: float) -> bool:
+    """全平台本月 AI 花费跨过 70% / 90% / 100%：每档每月一封。"""
+    if not (api_key and to):
+        return False
+    pct = f"{level * 100:.0f}%"
+    what = ("AI calls and search are now <b>paused for everyone</b> until next month or until you raise "
+            "MONTHLY_BUDGET_USD (fly secrets set MONTHLY_BUDGET_USD=…)." if level >= 1 else
+            "Nothing is blocked yet; AI stops for everyone at 100%.")
+    body = (f"<p>Platform AI spend this month: <b>${spent:.2f}</b> of the ${budget:.2f} budget ({pct}).</p>"
+            f"<p>{what}</p><p><a href='{APP_URL}/_gw/admin#features'>Spend by feature</a></p>")
+    r = await http.post(RESEND_URL, headers={"Authorization": f"Bearer {api_key}"}, json={
+        "from": sender, "to": [to], "html": body,
+        "subject": f"[joblander] Monthly AI budget {'reached — AI paused' if level >= 1 else pct + ' used'}"})
+    return r.status_code < 300
+
+
 # ---------- 发给用户本人的邮件（需要已验证的发件域名：MAIL_FROM） ----------
 
 APP_URL = "https://app.ailayoff.me"

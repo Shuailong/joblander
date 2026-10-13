@@ -318,8 +318,10 @@ class Daemon:
     # ---------- 主循环 ----------
 
     def tick(self):
+        from joblander.llm import FEATURE
         for name, fn in self.jobs:
             self.running = name
+            tok = FEATURE.set(f"job:{name}")            # 云端计量按它记这次作业的 AI 花费
             try:
                 fn()
             except Exception as e:                      # DLQ 语义：失败入账不静默
@@ -329,6 +331,7 @@ class Daemon:
                 from joblander.obs import log_event
                 log_event("job_failed", "WARNING", job=name, error=str(e))
             finally:
+                FEATURE.reset(tok)
                 self.running = None
         self._save_state()
 

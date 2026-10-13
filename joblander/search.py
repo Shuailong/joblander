@@ -106,14 +106,19 @@ NO_KEY_HINT = ("内置零 key 引擎已被各家反爬拦截（2026-08 实测）
 def _gateway(query: str, url: str, max_results: int = 6) -> list[dict[str, str]]:
     """云端版：搜索经网关计量代理（平台 key 只在网关，按次记账；余额耗尽同样被拒）。"""
     from joblander import runtime
+    from joblander.llm import FEATURE
+    headers = {"Content-Type": "application/json", **runtime.upstream_headers(url)}
+    if FEATURE.get():
+        headers["X-Joblander-Feature"] = FEATURE.get()
     req = urllib.request.Request(
-        url, data=json.dumps({"query": query, "max_results": max_results}).encode(),
-        headers={"Content-Type": "application/json", **runtime.upstream_headers(url)})
+        url, data=json.dumps({"query": query, "max_results": max_results}).encode(), headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body = e.read().decode(errors="replace")
+        if "platform_budget" in body:
+            raise SearchError("搜索暂停：平台本月的 AI 预算已用完，运营方已收到通知") from e
         if "budget" in body.lower():
             raise SearchError("AI 额度已用完——搜索暂停") from e
         raise SearchError(f"搜索网关 {e.code}: {body[:200]}") from e
@@ -166,11 +171,13 @@ def web_search(cfg, query: str, max_results: int = 6) -> list[dict[str, str]]:
         except Exception as e:
             raise SearchError(f"搜索失败（{query}）：{e}") from e
 
+    import contextvars
     from concurrent.futures import ThreadPoolExecutor
     batches: list[list[dict[str, str]]] = []
     errors: list[str] = []
     with ThreadPoolExecutor(max_workers=len(pvs)) as ex:
-        futs = {ex.submit(_one_provider, pv, query, max_results): pv for pv in pvs}
+        # 线程池不继承 contextvar：逐个带上当前上下文（功能标签要跟着搜索请求走）
+        futs = {ex.submit(contextvars.copy_context().run, _one_provider, pv, query, max_results): pv for pv in pvs}
         for f, pv in futs.items():
             try:
                 batches.append(f.result(timeout=25))

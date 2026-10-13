@@ -120,7 +120,7 @@ variable "sql" {
 variable "gateway_settings" {
   description = <<-EOT
     网关与计量的运营设置（Fly 上原来是 fly secrets 里的这些）：ADMIN_EMAILS（必填）、FEEDBACK_TO、MAIL_FROM、
-    DIGEST_AT、MAIL_DAILY_LIMIT、FREE_CREDIT_USD、LOW_BALANCE_USD、SEARCH_PRICE_USD。值的含义见 cloud/gateway/OPERATIONS.gcp.md
+    DIGEST_AT、MAIL_DAILY_LIMIT、FREE_CREDIT_USD、LOW_BALANCE_USD、SEARCH_PRICE_USD、MONTHLY_BUDGET_USD。值的含义见 cloud/gateway/OPERATIONS.gcp.md
   EOT
   type        = map(string)
   validation {
