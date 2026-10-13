@@ -55,16 +55,21 @@ def build():
     for m, p in prices.items():
         if not {"input", "output"} <= set(p):
             raise SystemExit(f"MODEL_PRICES 里 {m} 缺 input/output 单价")
-    if gcp():
+    # GCP 的计量服务只起计量口：网关那边的登录、会话、引擎地址它没有，也用不到
+    meter_only = gcp() and os.environ.get("GW_ROLE") == "meter"
+    web_env = (lambda name: env(name, "")) if meter_only else env
+    if meter_only:
+        fly = None
+    elif gcp():
         from gw.shared import PgLeader, SharedEngine
         fly = SharedEngine(env("ENGINE_URL"), env("WORKER_URL"), env("JOBLANDER_TENANT_TOKEN_SECRET"))
     else:
         fly = Fly(env("FLY_API_TOKEN"), env("USER_APP", "joblander-users"), env("FLY_REGION", "sin"))
     settings = Settings(
-        public_host=env("PUBLIC_HOST"),
-        session_secret=env("SESSION_SECRET"),
-        google_client_id=env("GOOGLE_CLIENT_ID"),
-        google_client_secret=env("GOOGLE_CLIENT_SECRET"),
+        public_host=web_env("PUBLIC_HOST"),
+        session_secret=web_env("SESSION_SECRET"),
+        google_client_id=web_env("GOOGLE_CLIENT_ID"),
+        google_client_secret=web_env("GOOGLE_CLIENT_SECRET"),
         user_image=env("USER_IMAGE", "" if gcp() else None),
         meter_url=env("METER_URL", "http://joblander-gw.internal:8081/v1"),
         free_credit_usd=float(env("FREE_CREDIT_USD", "2")),
@@ -82,14 +87,14 @@ def build():
     )
     if settings.mail_from:                   # 有了已验证域名，给管理员的通知也用它发
         settings.feedback_from = settings.mail_from
-    if gcp():
+    if gcp() and not meter_only:
         settings.leader = PgLeader(db_target())
         topic = os.environ.get("EVENTS_TOPIC", "")
         if topic:                                # 隐私 v2 的行为数据：会话事件进 Pub/Sub → BigQuery
             from gw.events import Publisher, SessionEvents
             settings.events = SessionEvents(Publisher(topic), tz=settings.timezone)
-    web = create_web_app(settings, store, fly)
-    if gcp():                                    # 隐私 v2 的保存期限：领头实例每天清理（见 gw/events.py）
+    web = None if meter_only else create_web_app(settings, store, fly)
+    if gcp() and not meter_only:                 # 隐私 v2 的保存期限：领头实例每天清理（见 gw/events.py）
         from gw.events import Sweeper
         sweeper = Sweeper(store, os.environ.get("EVENTS_TABLE") or None, leader=settings.leader)
 

@@ -326,3 +326,24 @@ def test_site_pageview_beacon_records_no_ip(store, v2):
         {"type": "site_pv", "path": "/interested/", "ref": "news.ycombinator.com", "country": "SG",
          "device": "desktop", "browser": "chrome"}
     assert "ip" not in ev and "user_key" not in ev and bot["device"] == "bot"
+
+
+def test_meter_role_starts_with_only_its_own_settings(tmp_path, monkeypatch):
+    """GCP 的计量服务只有计量那几个环境变量（见 infra run.tf）：不能因为缺网关的登录配置而起不来。"""
+    import os
+
+    from gw import main
+    for k in list(os.environ):
+        if k.startswith(("GW_", "GOOGLE_", "SESSION_", "PUBLIC_HOST", "ENGINE_URL", "WORKER_URL", "JOBLANDER_")):
+            monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("GW_MODE", "gcp")
+    monkeypatch.setenv("GW_ROLE", "meter")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("MODEL_PRICES", '{"gpt-x": {"input": 1, "output": 2}}')
+    monkeypatch.setattr(main, "db_target", lambda: os.environ.get("GW_TEST_PG_DSN") or str(tmp_path / "gw.sqlite"))
+    web, meter = main.build()
+    assert web is None and meter is not None
+    assert TestClient(meter).get("/healthz").status_code == 200
+    monkeypatch.setenv("GW_ROLE", "web")                     # 网关本身仍然要求登录配置齐全
+    with pytest.raises(SystemExit, match="缺环境变量"):
+        main.build()
