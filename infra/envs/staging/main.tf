@@ -28,6 +28,8 @@ module "platform" {
   extra_dns_records       = var.extra_dns_records
   serve_from              = var.serve_from
   legacy_records          = var.legacy_records
+  image_repo              = { project = var.shared_project_id, location = var.region, name = "joblander" }
+  deployer_email          = "jl-deployer@${var.shared_project_id}.iam.gserviceaccount.com"
   engine_image            = var.engine_image
   gateway_image           = var.gateway_image
   alert_email             = var.alert_email

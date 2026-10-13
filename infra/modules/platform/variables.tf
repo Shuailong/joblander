@@ -1,5 +1,5 @@
 variable "project_id" {
-  description = "GCP 项目 ID（每个环境一个项目：jl-prod / jl-staging）"
+  description = "GCP 项目 ID（每个环境一个项目：joblander-prod / joblander-staging）"
   type        = string
 }
 
@@ -59,6 +59,16 @@ variable "extra_dns_records" {
     rrdatas = list(string)
   }))
   default = []
+}
+
+variable "image_repo" {
+  description = "共享镜像仓库（infra/bootstrap 建在共享项目里）"
+  type        = object({ project = string, location = string, name = string })
+}
+
+variable "deployer_email" {
+  description = "发布流水线的服务账号（infra/bootstrap 建）：这里给它官网存储桶的写权限与刷 CDN 的权限"
+  type        = string
 }
 
 variable "engine_image" {

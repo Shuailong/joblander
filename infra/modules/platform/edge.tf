@@ -354,3 +354,23 @@ resource "google_dns_record_set" "extra" {
   ttl          = each.value.ttl
   rrdatas      = each.value.rrdatas
 }
+
+# ---------- 发布流水线：官网同步与刷 CDN（只给这两样，不给整个项目的存储权限） ----------
+resource "google_storage_bucket_iam_member" "site_deployer" {
+  bucket = google_storage_bucket.site.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${var.deployer_email}"
+}
+
+resource "google_project_iam_custom_role" "cdn_invalidator" {
+  project     = var.project_id
+  role_id     = "jlCdnInvalidator"
+  title       = "joblander 刷新 CDN 缓存"
+  permissions = ["compute.urlMaps.get", "compute.urlMaps.invalidateCache", "compute.globalOperations.get"]
+}
+
+resource "google_project_iam_member" "deployer_cdn" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.cdn_invalidator.id
+  member  = "serviceAccount:${var.deployer_email}"
+}

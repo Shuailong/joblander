@@ -8,10 +8,10 @@
 
 | 东西 | 在哪 |
 |---|---|
-| 环境 | 生产 `jl-prod`、预发 `jl-staging`，都在 `asia-southeast1`（新加坡）；镜像与 Terraform 状态在 `jl-shared` |
-| 入口 | 全球负载均衡器（Cloud Armor、CDN、证书）：`app.ailayoff.me` → `jl-prod-gateway`；`ailayoff.me` / `www` → 官网存储桶 `jl-prod-site`（`/_pv` 埋点转给网关） |
+| 环境 | 生产 `joblander-prod`、预发 `joblander-staging`，都在 `asia-southeast1`（新加坡）；镜像与 Terraform 状态在 `joblander-shared` |
+| 入口 | 全球负载均衡器（Cloud Armor、CDN、证书）：`app.ailayoff.me` → `jl-prod-gateway`；`ailayoff.me` / `www` → 官网存储桶 `joblander-prod-site`（`/_pv` 埋点转给网关） |
 | 服务 | `gateway` 登录、转发、后台 · `meter` 计量（唯一持有 OpenAI / Tavily key）· `engine` 界面与 API（所有账户共享）· `worker` 开通 / 删除 / 调度 · `sandbox` 练兵场代码（无权限、无出网、每实例一个 microVM） |
-| 数据 | Cloud SQL `jl-prod-pg`：`gateway` 库（账户、额度、用量、发信队列…）+ `engine` 库（每账户加密的文件，行级安全）；大文件在 `jl-prod-tenant-blobs` |
+| 数据 | Cloud SQL `jl-prod-pg`：`gateway` 库（账户、额度、用量、发信队列…）+ `engine` 库（每账户加密的文件，行级安全）；大文件在 `joblander-prod-tenant-blobs` |
 | 调度 | Cloud Scheduler `jl-prod-fanout` 每分钟 → Cloud Tasks `jl-prod-jobs` → worker 按账户跑一轮（夜扫、晨报、轮询） |
 | 行为数据 | Pub/Sub `jl-prod-product-events` → BigQuery `jl_prod_raw.product_events` |
 | 告警 | 邮件发 `alert_email`，P1 另发短信 `alert_sms`。值守 08:00–22:00（新加坡时间）；夜里的告警第二天早上处理（方案已定，不设 7×24） |
@@ -64,8 +64,8 @@ ENV=staging deploy/gcp/gwcli.sh users          # 预发
 内部密钥（会话、账户令牌、日志盐、数据库密码）由 Terraform 生成。换值后要出一个新版本才生效（实例启动时读 `latest`）：
 
 ```bash
-printf '%s' "$NEW" | gcloud secrets versions add jl-prod-openai-api-key --data-file=- --project jl-prod
-gcloud run services update jl-prod-meter --region asia-southeast1 --project jl-prod --update-labels rotated=$(date +%s)
+printf '%s' "$NEW" | gcloud secrets versions add jl-prod-openai-api-key --data-file=- --project joblander-prod
+gcloud run services update jl-prod-meter --region asia-southeast1 --project joblander-prod --update-labels rotated=$(date +%s)
 ```
 
 **别轮换 `log-salt`**：日志与行为数据里的 `user_key` 都是用它算的，换了就和历史对不上。
@@ -88,7 +88,7 @@ gcloud run services update jl-prod-meter --region asia-southeast1 --project jl-p
 **所有人都提示「平台本月 AI 预算已用完」** = `MONTHLY_BUDGET_USD` 到顶（会收到 100% 告警邮件）：先看「按功能花费」
 是不是某个功能 / 某个人异常，确认正常就调大 `gateway_settings.MONTHLY_BUDGET_USD` 再 apply（计量 1 分钟内生效）。
 
-常用日志查询（Logs Explorer，项目 `jl-prod`）：
+常用日志查询（Logs Explorer，项目 `joblander-prod`）：
 
 ```
 jsonPayload.event="isolation_violation"                   # 隔离违规（kind：rls / decrypt / path / token）
@@ -101,7 +101,7 @@ resource.labels.service_name="jl-prod-gateway" severity>=WARNING
 
 ```bash
 tid=$(deploy/gcp/gwcli.sh users | awk '$1=="a@x.com"{print $3}')
-salt=$(gcloud secrets versions access latest --secret jl-prod-log-salt --project jl-prod)
+salt=$(gcloud secrets versions access latest --secret jl-prod-log-salt --project joblander-prod)
 python3 -c 'import hashlib,sys; print(hashlib.sha256(f"{sys.argv[1]}:{sys.argv[2]}".encode()).hexdigest()[:16])' "$salt" "$tid"
 ```
 
@@ -121,9 +121,9 @@ deploy/gcp/gwcli.sh maintenance off
 - **数据库误操作 / 损坏**：时间点恢复（最近 7 天内任意时刻）到一台新实例，确认数据对了再把服务指过去：
 
   ```bash
-  gcloud sql instances clone jl-prod-pg jl-prod-pg-r1 --point-in-time 2026-11-03T02:15:00Z --project jl-prod
-  ip=$(gcloud sql instances describe jl-prod-pg-r1 --project jl-prod --format='value(ipAddresses[0].ipAddress)')
-  R="--region asia-southeast1 --project jl-prod"
+  gcloud sql instances clone jl-prod-pg jl-prod-pg-r1 --point-in-time 2026-11-03T02:15:00Z --project joblander-prod
+  ip=$(gcloud sql instances describe jl-prod-pg-r1 --project joblander-prod --format='value(ipAddresses[0].ipAddress)')
+  R="--region asia-southeast1 --project joblander-prod"
   for s in engine worker; do gcloud run services update jl-prod-$s $R --update-env-vars JOBLANDER_DB_HOST=$ip; done
   for s in gateway meter; do gcloud run services update jl-prod-$s $R --update-env-vars GW_DB_HOST=$ip; done
   ```
@@ -172,7 +172,7 @@ deploy/gcp/gwcli.sh maintenance off
 2. 外部密钥放好。Google 登录沿用 Fly 用的 OAuth 客户端最省事（回调地址不变；也可以按 README 第 5 步新建）。想让用户切流后**不用重新登录**，把 Fly 的会话密钥搬过来：
    ```bash
    fly ssh console -a joblander-gw -C "printenv SESSION_SECRET" | tr -d '\r\n' \
-     | gcloud secrets versions add jl-prod-session-secret --data-file=- --project jl-prod
+     | gcloud secrets versions add jl-prod-session-secret --data-file=- --project joblander-prod
    ```
 3. 发一版到 prod（真实镜像；同时更新切流作业 `jl-prod-cutover`、`jl-prod-gw-cutover`、`jl-prod-gw-cli` 的镜像）。
 4. 手动跑一次官网触发器，把 `site/` 同步到存储桶。
@@ -193,7 +193,7 @@ deploy/gcp/gwcli.sh maintenance off
    `dig NS ailayoff.me +short` 各地都返回 `ns-cloud-…` 就算生效。
 9. 证书：授权记录已经在 Cloud DNS 里，NS 生效后一般一小时内签好。**切流前必须是 `ACTIVE`**：
    ```bash
-   gcloud certificate-manager certificates describe jl-prod-cert --project jl-prod --format='value(managed.state)'
+   gcloud certificate-manager certificates describe jl-prod-cert --project joblander-prod --format='value(managed.state)'
    ```
 
 ### 提前一天：彩排（真数据；用户基本无感）

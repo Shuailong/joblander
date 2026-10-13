@@ -43,12 +43,6 @@ resource "google_project_service_identity" "pubsub" {
   service  = "pubsub.googleapis.com"
 }
 
-resource "google_project_service_identity" "artifactregistry" {
-  provider = google-beta
-  project  = var.project_id
-  service  = "artifactregistry.googleapis.com"
-}
-
 data "google_storage_project_service_account" "gcs" {
   project    = var.project_id
   depends_on = [google_project_service.apis]
@@ -65,7 +59,6 @@ resource "google_kms_crypto_key_iam_member" "data_users" {
     gcs    = "serviceAccount:${data.google_storage_project_service_account.gcs.email_address}"
     bq     = "serviceAccount:${data.google_bigquery_default_service_account.bq.email}"
     pubsub = "serviceAccount:${google_project_service_identity.pubsub.email}"
-    ar     = "serviceAccount:${google_project_service_identity.artifactregistry.email}"
   }
   crypto_key_id = google_kms_crypto_key.data.id
   role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"

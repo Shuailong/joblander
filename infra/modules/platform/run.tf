@@ -4,14 +4,14 @@
 #                   │                    └──→ sandbox（练兵场代码）
 #                   └──开通 / 删除 / 迁移──→ worker ←── Cloud Tasks ←── Cloud Scheduler（每分钟扇出）
 
-resource "google_artifact_registry_repository" "images" {
-  repository_id = "joblander"
-  project       = var.project_id
-  location      = var.region
-  format        = "DOCKER"
-  kms_key_name  = google_kms_crypto_key.data.id
-  labels        = local.labels
-  depends_on    = [google_kms_crypto_key_iam_member.data_users]
+# 镜像在共享项目的仓库里（infra/bootstrap 建，两个环境发同一个镜像）：本项目的 Cloud Run 服务代理要能拉
+resource "google_artifact_registry_repository_iam_member" "pull" {
+  project    = var.image_repo.project
+  location   = var.image_repo.location
+  repository = var.image_repo.name
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:service-${local.number}@serverless-robot-prod.iam.gserviceaccount.com"
+  depends_on = [google_project_service.apis] # 开了 Cloud Run API 才有这个服务代理
 }
 
 locals {

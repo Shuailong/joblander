@@ -3,8 +3,8 @@
 # 观察 1 小时无告警后跑 cloudbuild.promote.yaml 切到 100%；有问题跑 promote 时带 _ROLLBACK=1。
 substitutions:
   _REGION: asia-southeast1
-  _REPO_PROJECT: jl-shared
-  _PROD_PROJECT: jl-prod
+  _REPO_PROJECT: joblander-shared
+  _PROD_PROJECT: joblander-prod
   _TAG: ""          # 要发的版本（staging 已验证过的 SHORT_SHA）
 options:
   logging: CLOUD_LOGGING_ONLY

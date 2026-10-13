@@ -78,3 +78,9 @@ variable "gateway_settings" {
   description = "网关与计量的运营设置（ADMIN_EMAILS 必填）"
   type        = map(string)
 }
+
+variable "shared_project_id" {
+  description = "共享项目（Terraform 状态、镜像仓库、发布流水线）"
+  type        = string
+  default     = "joblander-shared"
+}

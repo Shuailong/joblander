@@ -1,4 +1,4 @@
-project_id  = "jl-staging"
+project_id  = "joblander-staging"
 app_domain  = "app.staging.ailayoff.me"
 site_domain = "staging.ailayoff.me"
 manage_dns  = false

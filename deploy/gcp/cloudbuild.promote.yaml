@@ -1,7 +1,7 @@
 # 灰度转正（或回滚）：_ROLLBACK=1 时把流量全部切回上一个稳定 revision。
 substitutions:
   _REGION: asia-southeast1
-  _PROD_PROJECT: jl-prod
+  _PROD_PROJECT: joblander-prod
   _ROLLBACK: "0"
 options:
   logging: CLOUD_LOGGING_ONLY

@@ -1,4 +1,5 @@
-# 一次性：建 Terraform 状态桶（开版本控制）与发布流水线用的服务账号。
+# 一次性：建 Terraform 状态桶（开版本控制）、共用的镜像仓库与发布流水线用的服务账号。
+# 各环境的 Cloud Run 从这个仓库拉镜像（授权在 modules/platform 里，环境自己给自己的服务代理授权）。
 # 用运营者本人的凭据跑：gcloud auth application-default login && terraform apply
 terraform {
   required_version = ">= 1.6"
@@ -11,7 +12,7 @@ terraform {
 }
 
 variable "project_id" {
-  description = "放状态桶与 CI 的项目（jl-shared）"
+  description = "放状态桶与 CI 的项目（joblander-shared）"
   type        = string
 }
 
@@ -21,7 +22,7 @@ variable "region" {
 }
 
 variable "deploy_projects" {
-  description = "流水线要部署到的项目（jl-staging、jl-prod）"
+  description = "流水线要部署到的项目（joblander-staging、joblander-prod）"
   type        = list(string)
 }
 
@@ -31,7 +32,8 @@ provider "google" {
 }
 
 resource "google_project_service" "apis" {
-  for_each           = toset(["storage.googleapis.com", "cloudbuild.googleapis.com", "iam.googleapis.com"])
+  for_each = toset(["storage.googleapis.com", "cloudbuild.googleapis.com", "iam.googleapis.com",
+  "artifactregistry.googleapis.com", "logging.googleapis.com"])
   service            = each.value
   disable_on_destroy = false
 }
@@ -49,7 +51,16 @@ resource "google_storage_bucket" "tf_state" {
   }
 }
 
+# 两个环境共用一套镜像：staging 验证过的同一个镜像原样发到 prod
+resource "google_artifact_registry_repository" "images" {
+  repository_id = "joblander"
+  location      = var.region
+  format        = "DOCKER"
+  depends_on    = [google_project_service.apis]
+}
+
 # Cloud Build 发布用的身份：能推镜像、部署 Cloud Run、跑迁移作业；不能改 IAM 与密钥
+# （官网存储桶的写权限与刷 CDN 的权限在各环境里单独给，见 modules/platform/edge.tf）
 resource "google_service_account" "deployer" {
   account_id   = "jl-deployer"
   display_name = "joblander CI 发布"
@@ -57,12 +68,25 @@ resource "google_service_account" "deployer" {
 
 resource "google_project_iam_member" "deployer" {
   for_each = {
-    for pair in setproduct(var.deploy_projects, ["roles/run.developer", "roles/artifactregistry.writer",
-    "roles/iam.serviceAccountUser", "roles/storage.objectAdmin", "roles/logging.logWriter"]) :
+    for pair in setproduct(var.deploy_projects, ["roles/run.developer", "roles/iam.serviceAccountUser"]) :
     "${pair[0]}-${pair[1]}" => { project = pair[0], role = pair[1] }
   }
   project = each.value.project
   role    = each.value.role
+  member  = "serviceAccount:${google_service_account.deployer.email}"
+}
+
+resource "google_artifact_registry_repository_iam_member" "deployer_push" {
+  location   = google_artifact_registry_repository.images.location
+  repository = google_artifact_registry_repository.images.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${google_service_account.deployer.email}"
+}
+
+# 构建在本项目里跑，日志写在这里
+resource "google_project_iam_member" "deployer_logs" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
   member  = "serviceAccount:${google_service_account.deployer.email}"
 }
 
@@ -72,4 +96,8 @@ output "state_bucket" {
 
 output "deployer" {
   value = google_service_account.deployer.email
+}
+
+output "image_repository" {
+  value = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images.repository_id}"
 }

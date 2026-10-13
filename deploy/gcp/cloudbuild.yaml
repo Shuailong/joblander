@@ -2,8 +2,8 @@
 # 触发：main 分支推送（Cloud Build 触发器，连接 GitHub 仓库）。prod 另走 cloudbuild.prod.yaml（需人工批准）。
 substitutions:
   _REGION: asia-southeast1
-  _REPO_PROJECT: jl-shared
-  _STAGING_PROJECT: jl-staging
+  _REPO_PROJECT: joblander-shared
+  _STAGING_PROJECT: joblander-staging
   _STAGING_HOST: app.staging.ailayoff.me
 options:
   logging: CLOUD_LOGGING_ONLY

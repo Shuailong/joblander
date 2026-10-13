@@ -26,7 +26,7 @@ output "buckets" {
 }
 
 output "artifact_registry" {
-  value = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images.repository_id}"
+  value = "${var.image_repo.location}-docker.pkg.dev/${var.image_repo.project}/${var.image_repo.name}"
 }
 
 output "secrets_to_fill" {

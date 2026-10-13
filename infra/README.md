@@ -15,28 +15,28 @@
 
 ## 第一次搭建（按顺序）
 
-1. **项目**：建 `jl-shared`、`jl-staging`、`jl-prod` 三个项目并挂上结算账户（控制台或 gcloud）。
+1. **项目**：建 `joblander-shared`、`joblander-staging`、`joblander-prod` 三个项目并挂上结算账户（控制台或 gcloud）。
 2. **状态桶与发布身份**（一次性，用运营者凭据）：
    ```bash
    cd bootstrap
-   terraform init && terraform apply -var project_id=jl-shared \
-     -var 'deploy_projects=["jl-staging","jl-prod"]'
+   terraform init && terraform apply -var project_id=joblander-shared \
+     -var 'deploy_projects=["joblander-staging","joblander-prod"]'
    ```
 3. **环境**（先 staging 后 prod）：
    ```bash
    cd envs/staging
    cp terraform.tfvars.example terraform.tfvars   # 改成真实值：gateway_settings（管理员、发件人…）、
                                                   # privacy_v2_date、DNS（serve_from / legacy_records）
-   terraform init -backend-config="bucket=jl-shared-tf-state"
+   terraform init -backend-config="bucket=joblander-shared-tf-state"
    terraform apply
    ```
    首次 apply 时服务用的是占位镜像（Google 的 hello 镜像），之后由 CI 发布真实镜像。
 4. **填外部密钥**（不进 Terraform 状态）：apply 输出的 `secrets_to_fill` 逐个放值，例如
    ```bash
-   printf '%s' "$OPENAI_KEY" | gcloud secrets versions add jl-prod-openai-api-key --data-file=- --project jl-prod
+   printf '%s' "$OPENAI_KEY" | gcloud secrets versions add jl-prod-openai-api-key --data-file=- --project joblander-prod
    ```
    `model-prices` 的值是计费单价 JSON（与 Fly 网关的 `MODEL_PRICES` 相同）。
-5. **Google 登录**：在 `jl-prod` 建 OAuth 客户端（Web 应用），回调地址
+5. **Google 登录**：在 `joblander-prod` 建 OAuth 客户端（Web 应用），回调地址
    `https://app.ailayoff.me/auth/callback`，客户端 ID / 密钥放进对应密钥。
 6. **管理后台的 IAP**（可选）：建 OAuth 品牌与客户端，在 tfvars 里打开 `iap.enabled` 并填成员。
 7. **DNS 与证书**：先托管、后切流。`manage_dns = true` 时 Cloud DNS 里的 app / 官网记录按 `serve_from` 指向：
@@ -47,9 +47,9 @@
    `cloud/gateway/OPERATIONS.gcp.md`「切流」。
 8. **数据库迁移**：每次发布前跑一次迁移作业（CI 会自动跑）：
    ```bash
-   gcloud run jobs execute jl-prod-migrate --region asia-southeast1 --wait --project jl-prod
+   gcloud run jobs execute jl-prod-migrate --region asia-southeast1 --wait --project joblander-prod
    ```
-9. **发布触发器**（控制台 Cloud Build，项目 `jl-shared`，先连上 GitHub 仓库）：
+9. **发布触发器**（控制台 Cloud Build，项目 `joblander-shared`，先连上 GitHub 仓库）：
    主干推送 → `deploy/gcp/cloudbuild.yaml`（自动发 staging）；手动 + 需审批 → `cloudbuild.prod.yaml`（生产灰度 10%）；
    手动 → `cloudbuild.promote.yaml`（转正 / `_ROLLBACK=1` 回滚）；`site/**` 变更 → `cloudbuild.site.yaml`。
    服务账号都用 bootstrap 建的发布身份。

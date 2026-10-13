@@ -4,7 +4,7 @@
 #   ENV=staging deploy/gcp/gwcli.sh users
 # 命令跑在 Cloud Run 作业 jl-<环境>-gw-cli 里（连得上私有 IP 的网关库）；输出在 Cloud Logging，这里取回来。
 set -euo pipefail
-env="${ENV:-prod}"; project="${PROJECT:-jl-$env}"; region="${REGION:-asia-southeast1}"
+env="${ENV:-prod}"; project="${PROJECT:-joblander-$env}"; region="${REGION:-asia-southeast1}"
 flags=()
 [ $# -eq 0 ] || flags=(--args="^|^$(IFS='|'; echo "$*")")   # 自定义分隔符：参数里可以有逗号；不带参数 = 打印命令列表
 ex=$(gcloud run jobs execute "jl-$env-gw-cli" --project "$project" --region "$region" --wait \

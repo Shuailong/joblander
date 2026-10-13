@@ -11,7 +11,7 @@
   cutover.py gateway     --batch B [--force]          跑网关库复制作业（导入报告必须全绿）
   cutover.py maintenance on|off|status [说明…] --where fly|gcp
 
-公共参数：--env prod|staging（默认 prod；项目默认 jl-<env>，用 --project 改）、--region、--dry-run（只打印命令）。
+公共参数：--env prod|staging（默认 prod；项目默认 joblander-<env>，用 --project 改）、--region、--dry-run（只打印命令）。
 """
 
 from __future__ import annotations
@@ -263,7 +263,7 @@ def export(d: Path, only: list[str] | None, jobs: int, keep_running: bool) -> No
 class Gcp:
     def __init__(self, a: argparse.Namespace):
         self.env, self.region = a.env, a.region
-        self.project = a.project or f"jl-{a.env}"
+        self.project = a.project or f"joblander-{a.env}"
         self.bucket = f"{self.project}-migration"
 
     def batch_uri(self, batch: str) -> str:

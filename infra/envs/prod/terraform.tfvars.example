@@ -1,4 +1,4 @@
-project_id      = "jl-prod"
+project_id      = "joblander-prod"
 app_domain      = "app.ailayoff.me"
 site_domain     = "ailayoff.me"
 manage_dns      = true

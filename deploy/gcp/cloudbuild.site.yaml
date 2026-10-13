@@ -1,7 +1,7 @@
 # 官网：site/ 有变更时触发 → 同步到官网存储桶 → 刷新 CDN 缓存 → 检查首页。
 substitutions:
-  _PROJECT: jl-prod
-  _BUCKET: jl-prod-site
+  _PROJECT: joblander-prod
+  _BUCKET: joblander-prod-site
   _URL_MAP: jl-prod-https
   _SITE: ailayoff.me
 options:
