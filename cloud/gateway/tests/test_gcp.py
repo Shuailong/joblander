@@ -95,8 +95,8 @@ def test_analytics_rules(store, v2):
     store.consent("a@x.com", privacy_v2.VERSION)                  # 已有用户（开通早于 v2 生效）
     u = store.get("a@x.com")
     assert not privacy_v2.analytics_allowed(u, now=u.consented_at + 3600)          # 退出期内不采集
-    assert privacy_v2.analytics_allowed(u, now=u.consented_at + 15 * 86400)
-    assert privacy_v2.analytics_starts(u) == u.consented_at + 14 * 86400
+    assert privacy_v2.analytics_allowed(u, now=u.consented_at + 86400 + 60)                 # 退出期 1 天
+    assert privacy_v2.analytics_starts(u) == u.consented_at + 86400
     _new_user(store)
     store.consent("n@x.com", privacy_v2.VERSION)
     assert privacy_v2.analytics_allowed(store.get("n@x.com"))                       # 新用户：确认即可

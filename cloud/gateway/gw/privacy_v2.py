@@ -5,7 +5,7 @@
 - 新增可关闭的「行为数据」：会话的 IP 与城市级位置、设备与浏览器、带时间的页面访问（页面模板）、
   操作结果与耗时——不含公司名与任何文字内容；
 - 访问日志含页面路径（排障与安全，30 天，仅运维可读）；
-- 同意方式是「通知 + 可关闭」：新用户注册时就看到开关；老用户确认 v2 后有 14 天退出期，期间不采集。
+- 同意方式是「通知 + 可关闭」：新用户注册时就看到开关；老用户确认 v2 后有 1 天退出期，期间不采集。
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 VERSION = os.environ.get("PRIVACY_V2_DATE", "2026-12-01")   # 生效日：切流当天设成实际日期
-GRACE_DAYS = 14                                               # 老用户的退出期
+GRACE_DAYS = 1                                                # 老用户的退出期（确认后这么多天才开始采集）
 PURGE_DAYS = 30                                               # 关闭后多久内删掉已采集的行为数据
 
 
@@ -78,7 +78,7 @@ PRIV = {
 <h2>行为数据怎么关</h2>
 <ul>
 <li>新用户：开通前的确认页上有「帮助改进产品」开关，默认打开，可以当场关掉。</li>
-<li>已有用户：本说明生效后，你在确认时就能看到这个开关；<b>确认后 14 天内不采集</b>，这期间可以先关掉。</li>
+<li>已有用户：本说明生效后，你在确认时就能看到这个开关；<b>确认后 1 天内不采集</b>，这期间可以先关掉。</li>
 <li>任何时候都可以在「设置 › 数据与隐私」里关闭。关闭后立即停止采集，已经采集的行为数据在 30 天内删除；关闭不影响任何功能。</li>
 <li>去标识化的内容统计（例如大家的简历平均有多少条经历）：<b>目前不做</b>。将来如果要做，会单独征求你的同意，不会默认打开。</li>
 </ul>
@@ -186,7 +186,7 @@ readable only by operations. Your email, search terms or credentials are never p
 <h2>Switching behavior data off</h2>
 <ul>
 <li>New users: the confirmation page before your space is set up has a "Help improve joblander" switch, on by default, which you can turn off right there.</li>
-<li>Existing users: you see the same switch when you confirm this notice; <b>nothing is collected for 14 days after you confirm</b>, so you can turn it off first.</li>
+<li>Existing users: you see the same switch when you confirm this notice; <b>nothing is collected for a day after you confirm</b>, so you can turn it off first.</li>
 <li>You can turn it off at any time under Settings › Data &amp; privacy. Collection stops immediately and behavior data already collected is deleted within 30 days; nothing else changes.</li>
 <li>De-identified statistics about content (e.g. how many entries resumes have on average): <b>not done today</b>. If that ever changes, you'll be asked separately, and it won't be on by default.</li>
 </ul>
@@ -272,13 +272,13 @@ CONSENT = {
    lead="开通或继续使用你的空间之前，请花一分钟看一下数据怎么处理：",
    check="我已阅读并同意<a href=\"/_gw/privacy\" target=\"_blank\">隐私说明</a>",
    analytics="帮助改进产品：记录我的使用行为（IP 与城市级位置、页面访问与操作结果，不含任何内容）。随时可在设置里关闭。",
-   analytics_note="已有账户确认后 14 天内不采集，这期间也可以先关掉。",
+   analytics_note="已有账户确认后 1 天内不采集，这期间也可以先关掉。",
    go="同意并继续", no="不同意，退出"),
  "en": dict(title="Before you start · joblander", h1="Before you start",
    lead="Before we set up or continue your space, here's how your data is handled:",
    check="I have read and agree to the <a href=\"/_gw/privacy\" target=\"_blank\">privacy notice</a>",
    analytics="Help improve joblander: record how I use the app (IP and city-level location, page visits and outcomes — never any content). "
              "You can switch this off in Settings at any time.",
-   analytics_note="For existing accounts nothing is collected for 14 days after you confirm, so you can switch it off first.",
+   analytics_note="For existing accounts nothing is collected for a day after you confirm, so you can switch it off first.",
    go="Agree and continue", no="Decline and sign out"),
 }

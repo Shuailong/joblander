@@ -147,7 +147,7 @@ function analyticsState(a){
   document.getElementById('analytics-on').checked = a.on;
   if (!a.on) st.textContent = {{ _('已关闭：不记录你的使用行为。')|jsq }};
   else if (!a.active && a.starts) st.textContent = {{ _('已开启，{d} 起开始记录（在这之前随时可以关闭）。')|jsq }}
-    .replace('{d}', new Date(a.starts * 1000).toLocaleDateString());
+    .replace('{d}', new Date(a.starts * 1000).toLocaleString([], {month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'}));
   else st.textContent = {{ _('已开启：正在记录，随时可以关闭。')|jsq }};
 }
 (window.jlMe || Promise.resolve(null)).then(me => {

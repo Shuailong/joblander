@@ -20,7 +20,7 @@ extra_dns_records = [
   { name = "resend._domainkey.ailayoff.me.", type = "TXT", ttl = 3600, rrdatas = ["\"p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC1s6Vhew6FeU/N3doOR...（从 GoDaddy 抄完整值）\""] },
   { name = "_dmarc.ailayoff.me.", type = "TXT", ttl = 3600, rrdatas = ["\"v=DMARC1; p=quarantine; adkim=r; aspf=r; rua=mailto:dmarc_rua@onsecureserver.net;\""] },
 ]
-# 隐私说明 v2 生效日 = 切流当天（这天之前开通的是老用户：确认后 14 天才开始采集行为数据）
+# 隐私说明 v2 生效日 = 切流当天（这天之前开通的是老用户：确认后 1 天才开始采集行为数据）
 privacy_v2_date = "2026-11-02"
 
 # 网关与计量的运营设置（Fly 上是 fly secrets；`fly secrets list -a joblander-gw` 看有哪些，值照抄）
