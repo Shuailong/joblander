@@ -1,0 +1,5 @@
+project_id  = "jl-staging"
+app_domain  = "app.staging.ailayoff.me"
+site_domain = "staging.ailayoff.me"
+manage_dns  = false
+alert_email = "ops@ailayoff.me"

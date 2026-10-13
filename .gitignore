@@ -18,3 +18,9 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+
+# Terraform：本地缓存、状态与真实变量值不进仓库（锁文件要进）
+infra/**/.terraform/
+*.tfstate
+*.tfstate.*
+infra/**/terraform.tfvars

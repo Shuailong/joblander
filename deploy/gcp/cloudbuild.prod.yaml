@@ -1,0 +1,21 @@
+# 生产发布（手动触发、需要审批；只在值守时段 08:00–22:00 发）：
+# 迁移（只做向后兼容的「先扩后缩」）→ 各服务新 revision 先接 10% 流量。
+# 观察 1 小时无告警后跑 cloudbuild.promote.yaml 切到 100%；有问题跑 promote 时带 _ROLLBACK=1。
+substitutions:
+  _REGION: asia-southeast1
+  _REPO_PROJECT: jl-shared
+  _PROD_PROJECT: jl-prod
+  _TAG: ""          # 要发的版本（staging 已验证过的 SHORT_SHA）
+options:
+  logging: CLOUD_LOGGING_ONLY
+steps:
+  - id: canary
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - deploy/gcp/release.sh
+      - "${_PROD_PROJECT}"
+      - jl-prod
+      - "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/engine:${_TAG}"
+      - "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/gateway:${_TAG}"
+      - "10"

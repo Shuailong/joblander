@@ -1,0 +1,20 @@
+# 官网：site/ 有变更时触发 → 同步到官网存储桶 → 刷新 CDN 缓存 → 检查首页。
+substitutions:
+  _PROJECT: jl-prod
+  _BUCKET: jl-prod-site
+  _URL_MAP: jl-prod-https
+  _SITE: ailayoff.me
+options:
+  logging: CLOUD_LOGGING_ONLY
+steps:
+  - id: sync
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        gcloud storage rsync site "gs://${_BUCKET}" --recursive --delete-unmatched-destination-objects \
+          --exclude '^\.vercel/.*|^\.gitignore$' --project "${_PROJECT}"
+        gcloud compute url-maps invalidate-cdn-cache "${_URL_MAP}" --path "/*" --project "${_PROJECT}" --async
+        curl -fsS --retry 5 --retry-delay 10 "https://${_SITE}/" >/dev/null

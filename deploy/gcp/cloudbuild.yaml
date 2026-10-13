@@ -1,0 +1,78 @@
+# 主干流水线：测试 → 构建两枚镜像 → 推 Artifact Registry → 发 staging（迁移 → 各服务）→ 冒烟。
+# 触发：main 分支推送（Cloud Build 触发器，连接 GitHub 仓库）。prod 另走 cloudbuild.prod.yaml（需人工批准）。
+substitutions:
+  _REGION: asia-southeast1
+  _REPO_PROJECT: jl-shared
+  _STAGING_PROJECT: jl-staging
+  _STAGING_HOST: app.staging.ailayoff.me
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+steps:
+  - id: engine-tests
+    name: python:3.12-slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        apt-get update -qq && apt-get install -y -qq nodejs npm >/dev/null
+        pip install -q -e ".[dev,cloud]" -r cloud/gateway/requirements.txt
+        # Postgres 后端的测试用 PGlite（WASM 版 Postgres）跑：本地与 CI 同一套
+        (cd /tmp && npm init -y >/dev/null && npm install -q @electric-sql/pglite@0.3 @electric-sql/pglite-socket@0.0 >/dev/null)
+        (/tmp/node_modules/.bin/pglite-server --port=55432 --max-connections=16 &) && sleep 3
+        export JOBLANDER_TEST_PG_DSN="postgresql://postgres:postgres@127.0.0.1:55432/postgres?sslmode=disable&gssencmode=disable"
+        python -m pytest -q
+        JOBLANDER_TEST_CLOUDPATH=1 python -m pytest -q -p no:cacheprovider
+
+  - id: gateway-tests
+    name: python:3.12-slim
+    entrypoint: bash
+    dir: cloud/gateway
+    args:
+      - -c
+      - |
+        pip install -q -r requirements.txt pytest "psycopg[binary]>=3.2"
+        python -m pytest -q
+
+  - id: build-engine
+    name: gcr.io/cloud-builders/docker
+    waitFor: [engine-tests]
+    args: [build, -t, "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/engine:${SHORT_SHA}", "."]
+
+  - id: build-gateway
+    name: gcr.io/cloud-builders/docker
+    waitFor: [gateway-tests]
+    args: [build, -t, "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/gateway:${SHORT_SHA}", cloud/gateway]
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    waitFor: [build-engine, build-gateway]
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        docker push "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/engine:${SHORT_SHA}"
+        docker push "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/gateway:${SHORT_SHA}"
+
+  - id: deploy-staging
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [push]
+    entrypoint: bash
+    args:
+      - deploy/gcp/release.sh
+      - "${_STAGING_PROJECT}"
+      - jl-staging
+      - "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/engine:${SHORT_SHA}"
+      - "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/gateway:${SHORT_SHA}"
+      - "100"
+
+  - id: smoke-staging
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [deploy-staging]
+    entrypoint: bash
+    args: [-c, "curl -fsS --retry 5 --retry-delay 5 https://${_STAGING_HOST}/healthz"]
+
+images:
+  - "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/engine:${SHORT_SHA}"
+  - "${_REGION}-docker.pkg.dev/${_REPO_PROJECT}/joblander/gateway:${SHORT_SHA}"
