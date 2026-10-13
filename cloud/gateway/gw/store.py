@@ -70,6 +70,10 @@ CREATE TABLE IF NOT EXISTS mail_queue (             -- 给用户的信先排队�
   status TEXT NOT NULL DEFAULT 'pending',          -- pending | sent | failed
   tries INTEGER NOT NULL DEFAULT 0, error TEXT, created_at REAL NOT NULL, sent_at REAL
 );
+CREATE TABLE IF NOT EXISTS sources (               -- 第一次登录（含被拦）时从哪来：来源网站的域名与 utm 标签，不记完整网址
+  email TEXT PRIMARY KEY, ref TEXT, utm_source TEXT, utm_medium TEXT, utm_campaign TEXT, at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS usage_at ON usage (at);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);   -- 零散状态（如每日汇总上次发到哪）
 CREATE TABLE IF NOT EXISTS grants (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,6 +117,13 @@ class Store:
                     "lang TEXT", "low_notified_at REAL"):
             try:
                 self.db.execute(f"ALTER TABLE users ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
+        for t, col in (("usage", "feature TEXT"),           # 花在哪个功能上（引擎带来的路由模板 / 定时作业名）
+                       ("usage", "latency_ms INTEGER"),     # 上游从发出到收完用了多久
+                       ("ai_errors", "feature TEXT")):
+            try:
+                self.db.execute(f"ALTER TABLE {t} ADD COLUMN {col}")
             except sqlite3.OperationalError:
                 pass
         for col in ("requested_at REAL",      # 被拦过的人获邀时记下首次被拦时间（增长曲线用）
@@ -165,8 +176,9 @@ class Store:
     def dismiss(self, email: str) -> bool:
         e = email.lower()
         gone = self.db.execute("DELETE FROM waitlist WHERE email=?", (e,)).rowcount > 0
-        if gone and not self.get(e) and not self.is_invited(e):           # 被拦的人清掉就不留地点
+        if gone and not self.get(e) and not self.is_invited(e):           # 被拦的人清掉就不留地点与来源
             self.db.execute("DELETE FROM geo WHERE email=?", (e,))
+            self.db.execute("DELETE FROM sources WHERE email=?", (e,))
         return gone
 
     # ---------- 地点 ----------
@@ -175,6 +187,14 @@ class Store:
         self.db.execute("INSERT OR REPLACE INTO geo VALUES (?,?,?,?,?,?,?,?,?)",
                         (email.lower(), ip, g.get("country"), g.get("country_name"), g.get("region"),
                          g.get("city"), g.get("lat"), g.get("lon"), time.time()))
+
+    # ---------- 来源 ----------
+
+    def note_source(self, email: str, src: dict) -> None:
+        """只记第一次：之后再登录不覆盖。src 的值由调用方清洗过（域名 / 短标签）。"""
+        self.db.execute("INSERT OR IGNORE INTO sources VALUES (?,?,?,?,?,?)",
+                        (email.lower(), src.get("ref"), src.get("utm_source"), src.get("utm_medium"),
+                         src.get("utm_campaign"), time.time()))
 
     # ---------- 用户 ----------
 
@@ -239,18 +259,22 @@ class Store:
             self._grant(email, amount, reason)
 
     def charge(self, email: str, model: str, prompt: int, completion: int, cost: float,
-               low_at: float | None = None) -> bool:
+               low_at: float | None = None, feature: str | None = None, latency_ms: int | None = None) -> bool:
         """记账。给了 low_at 时：余额这次跌破 low_at 且还没提醒过 → 记下已提醒并返回 True。"""
         e = email.lower()
         with self.lock:
             self.db.execute("INSERT INTO usage (email, model, prompt_tokens, completion_tokens, "
-                            "cost_usd, at) VALUES (?,?,?,?,?,?)",
-                            (e, model, prompt, completion, cost, time.time()))
+                            "cost_usd, at, feature, latency_ms) VALUES (?,?,?,?,?,?,?,?)",
+                            (e, model, prompt, completion, cost, time.time(), feature, latency_ms))
             self.db.execute("UPDATE users SET spent_usd = spent_usd + ? WHERE email=?", (cost, e))
             if low_at is None:
                 return False
             return self.db.execute("UPDATE users SET low_notified_at = ? WHERE email=? AND low_notified_at IS NULL "
                                    "AND credit_usd - spent_usd < ?", (time.time(), e, low_at)).rowcount > 0
+
+    def spent_since(self, since: float) -> float:
+        """全平台 since 以来的花费（全局预算用）。"""
+        return self.db.execute("SELECT COALESCE(SUM(cost_usd), 0) FROM usage WHERE at >= ?", (since,)).fetchone()[0]
 
     def set_lang(self, email: str, lang: str) -> None:
         self.db.execute("UPDATE users SET lang=? WHERE email=?", (lang, email.lower()))
@@ -312,8 +336,8 @@ class Store:
                        "u.privacy_version, u.machine_id, u.error, u.low_notified_at, "
                        "MAX(g.at) AS last_at, COUNT(g.id) AS calls FROM users u "
                        "LEFT JOIN usage g ON g.email = u.email GROUP BY u.email ORDER BY last_at DESC, u.created_at DESC"),
-            "usage": q("SELECT email, model, prompt_tokens, completion_tokens, cost_usd, at FROM usage "
-                       "WHERE at >= ? ORDER BY at", since),
+            "usage": q("SELECT email, model, prompt_tokens, completion_tokens, cost_usd, at, feature, latency_ms "
+                       "FROM usage WHERE at >= ? ORDER BY at", since),
             "active_days": q("SELECT email, day FROM active_days WHERE day >= ?",
                              time.strftime("%Y-%m-%d", time.gmtime(since - 86400))),
             "credit_requests": q("SELECT r.*, u.credit_usd, u.spent_usd FROM credit_requests r "
@@ -331,6 +355,7 @@ class Store:
             "queued_invites": [r["to_email"] for r in q("SELECT DISTINCT to_email FROM mail_queue "
                                                         "WHERE kind='invited' AND status='pending'")],
             "geo": q("SELECT email, ip, country, country_name, region, city, lat, lon, at FROM geo"),
+            "sources": q("SELECT email, ref, utm_source, utm_medium, utm_campaign, at FROM sources"),
             "grants": q("SELECT email, amount_usd, reason, at FROM grants ORDER BY id DESC LIMIT 2000"),
         }
 
@@ -424,9 +449,9 @@ class Store:
 
     # ---------- 上游失败 ----------
 
-    def record_ai_error(self, email: str, model: str, status: int, kind: str) -> None:
-        self.db.execute("INSERT INTO ai_errors (email, model, status, kind, at) VALUES (?,?,?,?,?)",
-                        (email.lower(), model, status, kind[:80], time.time()))
+    def record_ai_error(self, email: str, model: str, status: int, kind: str, feature: str | None = None) -> None:
+        self.db.execute("INSERT INTO ai_errors (email, model, status, kind, at, feature) VALUES (?,?,?,?,?,?)",
+                        (email.lower(), model, status, kind[:80], time.time(), feature))
 
     def ai_errors_since(self, since: float) -> list[dict]:
         return [dict(r) for r in self.db.execute(
@@ -459,13 +484,14 @@ class Store:
         return {"account": dict(u) if u else None,
                 "invited": self.is_invited(e),
                 "grants": q("SELECT amount_usd, reason, at FROM grants WHERE email=? ORDER BY id"),
-                "usage": q("SELECT model, prompt_tokens, completion_tokens, cost_usd, at FROM usage "
+                "usage": q("SELECT model, feature, prompt_tokens, completion_tokens, cost_usd, latency_ms, at FROM usage "
                            "WHERE email=? ORDER BY id"),
                 "feedback": q("SELECT message, page, lang, user_agent, at FROM feedback WHERE email=? ORDER BY id"),
                 "credit_requests": q("SELECT message, status, amount_usd, at, decided_at FROM credit_requests "
                                      "WHERE email=? ORDER BY id"),
                 "events": q("SELECT name, day, n FROM events WHERE email=? ORDER BY day, name"),
                 "location": q("SELECT ip, country, region, city, at FROM geo WHERE email=?"),
+                "source": q("SELECT ref, utm_source, utm_medium, utm_campaign, at FROM sources WHERE email=?"),
                 "mail": q("SELECT kind, status, created_at, sent_at FROM mail_queue WHERE to_email=? ORDER BY id"),
                 "active_days": [r["day"] for r in q("SELECT day FROM active_days WHERE email=? ORDER BY day")]}
 
@@ -473,6 +499,6 @@ class Store:
         """彻底删除：账户、邀请、额度流水、用量、反馈一并删掉。机器与卷由调用方先销毁。"""
         e = email.lower()
         with self.lock:
-            for t in ("usage", "ai_errors", "events", "active_days", "credit_requests", "grants", "feedback", "invites", "waitlist", "geo", "users"):
+            for t in ("usage", "ai_errors", "events", "active_days", "credit_requests", "grants", "feedback", "invites", "waitlist", "geo", "sources", "users"):
                 self.db.execute(f"DELETE FROM {t} WHERE email=?", (e,))
             self.db.execute("DELETE FROM mail_queue WHERE to_email=?", (e,))

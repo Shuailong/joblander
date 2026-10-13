@@ -138,7 +138,10 @@ def start_task(kind: str, label: str, fn) -> str:
     if os.environ.get("JOBLANDER_TASKS_SYNC"):    # 测试/脚本：内联执行同一条链路
         run()
     else:
-        threading.Thread(target=run, daemon=True, name=f"task-{kind}").start()
+        # 带上发起它的请求的上下文：AI 花费记在发起它的那个功能名下（llm.FEATURE）
+        import contextvars
+        ctx = contextvars.copy_context()
+        threading.Thread(target=ctx.run, args=(run,), daemon=True, name=f"task-{kind}").start()
     return tid
 
 
@@ -291,13 +294,24 @@ def create_app(with_daemon: bool = True) -> FastAPI:
 
     @app.middleware("http")
     async def _usage_events(request, call_next):
-        """云端版：成功的请求记「方法 + 路由模板」，供网关后台画漏斗与功能使用（见 telemetry.py）。"""
-        resp = await call_next(request)
+        """云端版：成功的请求记「方法 + 路由模板」，供网关后台画漏斗与功能使用（见 telemetry.py）；
+        处理请求期间把同一个名字设为当前功能，这次请求里的 AI 调用就记在它名下（llm.FEATURE）。"""
+        from joblander import telemetry
+        if not telemetry.enabled():
+            return await call_next(request)
+        from starlette.routing import Match
+
+        from joblander.llm import FEATURE
+        path = next((getattr(r, "path", None) for r in app.router.routes
+                     if r.matches(request.scope)[0] == Match.FULL), None)
+        tok = FEATURE.set(f"{request.method} {path}" if path else "")
+        try:
+            resp = await call_next(request)
+        finally:
+            FEATURE.reset(tok)
         if resp.status_code < 400:
-            from joblander import telemetry
-            if telemetry.enabled():
-                route = request.scope.get("route")
-                telemetry.record(request.method, getattr(route, "path", None))
+            route = request.scope.get("route")
+            telemetry.record(request.method, getattr(route, "path", None))
         return resp
 
     @app.middleware("http")

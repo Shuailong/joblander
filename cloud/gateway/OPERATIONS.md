@@ -13,6 +13,11 @@ $GW "python -m gw.cli"            # 不带参数 = 打印命令列表
 
 一页看完：用户数、7 天活跃、今天 / 7 天 / 累计花费、30 天每日花费图、**用户分布**（世界地图 + 国家 / 城市排行）、每个用户的状态与余额与地区与最近活跃、被拦名单、待登录的邀请、按模型用量、最近反馈、额度发放记录。可以直接点：**邀请**（发邮件）、**清掉**被拦记录、给用户**加额度**（单次 ≤ $100）、批 / 不批额度申请。
 
+- **本月花费 / 预算**：顶部 KPI；没设 `MONTHLY_BUDGET_USD` 时标黄提示「未设预算上限」。
+- **按功能花费**：每个功能（路由模板，或 `定时：…` 的夜扫 / 晨报等）的调用数、人数、花费、占比、每次成本、平均耗时；
+  表下是每人 30 天花费的中位数 / P90 / P99 / 最高。「未标注」= 引擎升级前的调用，升级后会越来越少。
+- **来源**：每个人第一次登录（含被拦）时从哪来——`utm_source · utm_campaign`，没有就是来源网站域名。官网会把访客的外站来源
+  （`ref_host`）和 utm 参数转带到去 app 的链接上。发帖时给链接加 `?utm_source=reddit&utm_campaign=xxx` 就能分清每个渠道。
 - **分页与搜索**：长表每页 50 条；右上角搜邮箱会同时筛用户、被拦名单、额度申请与待登录邀请。操作完回到原来那页。
 - **批量**：被拦名单与额度申请都能勾选（表头全选本页、Shift 连选），一次邀请 / 清掉，或按同一金额批准 / 不批。
 - **邮件排队**：所有给用户的信（邀请——后台与 `gw.cli invite` 都算、额度已批、余额提醒）先进库里的发信队列（`mail_queue` 表，重启不丢），网关每封间隔 0.6 秒按顺序发，**最近 24 小时最多 `MAIL_DAILY_LIMIT` 封**（默认 90，给每日汇总与告警留余量），多的自动顺延。Resend 回 429「额度用完」就停一小时再试，不算失败；其他失败重试 5 次后放弃。标题旁显示「待发 · 24 小时已发 x/上限 · 放弃」。放弃的邀请在「邀请」卡片标「邮件未发出」，点「重发」即可。
@@ -78,7 +83,7 @@ cd cloud/gateway && fly deploy -a joblander-gw --ha=false
 
 ### 改了引擎（`joblander/`，用户机器跑的那部分）
 
-vN 取比上一次大一的数字（截至 2026-10-12 线上是 v24）：
+vN 取比上一次大一的数字（截至 2026-10-13 线上是 v25）：
 
 ```bash
 fly deploy --build-only --push -c deploy/fly.users.toml --image-label vN .
@@ -105,6 +110,7 @@ $GW "python -m gw.cli upgrade registry.fly.io/joblander-users:vN"               
 | `DIGEST_AT` | 每日汇总几点发，默认 `09:00`（网关时区）；设空 = 不发 |
 | `RESEND_API_KEY` | 发邮件用；不设则不发信（记录照存，用命令查） |
 | `MAIL_FROM` | 发件人，如 `joblander <hello@ailayoff.me>`；域名须在 Resend 验证过。不设 = 不给用户发信 |
+| `MONTHLY_BUDGET_USD` | 全平台每月 AI + 搜索预算（美元，按网关时区的自然月）。到 70% / 90% 各邮件告警一次，到 100% **所有人**的 AI 与搜索暂停（引擎提示「平台本月预算已用完」），调大或下月自动恢复。默认 0 = 不设上限 |
 | `LOW_BALANCE_USD` | 额度提醒线，默认 0.5 |
 | `FREE_CREDIT_USD` | 新用户赠送额度，默认 2 |
 | `USER_IMAGE` | 新用户机器用的镜像 |
@@ -124,6 +130,8 @@ $GW "python -m gw.cli upgrade registry.fly.io/joblander-users:vN"               
 - **AI 调用失败**：后台「24 小时 AI 失败」与「AI 调用失败」表按状态码 / 类型汇总；同类错误首次出现会邮件告警（3 小时一封）。
   `rate_limit_exceeded` = OpenAI 限流（引擎会自动退避重试，频繁出现就升 OpenAI 的 usage tier）；
   `insufficient_quota` = OpenAI 账户没钱了，去 platform.openai.com 充值。
+- **所有人都提示「平台本月 AI 预算已用完」**：`MONTHLY_BUDGET_USD` 到顶了（会收到 100% 告警邮件）。先看后台「按功能花费」
+  是不是某个功能 / 某个人异常；确认正常就 `fly secrets set -a joblander-gw MONTHLY_BUDGET_USD=<更大的数>`（网关重启后 1 分钟内生效）。
 - **闲置休眠**：网关每分钟检查一次，闲置超过 `IDLE_MINUTES` 且引擎 `/api/busy` 说没在跑任务的机器会被挂起（每轮最多 3 台），
   有请求或到 `WAKE_AT` 的点再启动（挂起的恢复约几百毫秒，部署新镜像后的第一次是冷启动，慢几秒）。
   后台「机器在线」看当前几台醒着，用户表里「休眠」= 正在睡。日志里 `put N idle machine(s) to sleep` /

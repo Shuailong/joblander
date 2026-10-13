@@ -16,7 +16,7 @@ import uvicorn
 
 from gw.flyapi import Fly
 from gw.meter import create_meter_app
-from gw.notify import send_ai_alert
+from gw.notify import send_ai_alert, send_budget_alert
 from gw.store import Store
 from gw.web import Settings, create_web_app
 
@@ -53,6 +53,7 @@ def build():
         wake_at=env("WAKE_AT", "02:35,08:20,21:35,sun 20:05"),
         digest_at=env("DIGEST_AT", "09:00"),
         mail_daily_limit=int(env("MAIL_DAILY_LIMIT", "90")),
+        monthly_budget_usd=float(env("MONTHLY_BUDGET_USD", "0")),
     )
     if settings.mail_from:                   # 有了已验证域名，给管理员的通知也用它发
         settings.feedback_from = settings.mail_from
@@ -79,12 +80,20 @@ def build():
         except Exception:                                       # noqa: BLE001
             pass
 
+    async def on_budget(level: float, spent: float, budget: float) -> None:
+        try:
+            await send_budget_alert(mail_http, settings.resend_api_key, settings.feedback_to,
+                                    sender=settings.feedback_from, level=level, spent=spent, budget=budget)
+        except Exception:                                       # noqa: BLE001
+            pass
+
     meter = create_meter_app(store, env("OPENAI_API_KEY"), prices,
                              tavily_key=env("TAVILY_API_KEY", ""),
                              search_price_usd=float(env("SEARCH_PRICE_USD", "0.01")),
                              low_balance_usd=settings.low_balance_usd,
                              on_low=on_low if settings.mail_from else None, on_error=on_error,
-                             timezone=settings.timezone)
+                             timezone=settings.timezone,
+                             monthly_budget_usd=settings.monthly_budget_usd, on_budget=on_budget)
     return web, meter
 
 

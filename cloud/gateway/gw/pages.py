@@ -534,12 +534,13 @@ _PRIV = {
 <li><b>账户</b>：Google 登录只取你的<b>邮箱地址</b>（权限范围 openid + email），看不到你的邮件、日历或通讯录。</li>
 <li><b>你提供的内容</b>：简历、战绩库、目标薪资与红线、公司档案、面试笔记、你贴进来的邀约或 JD。</li>
 <li><b>系统生成的内容</b>：匹配评估、尽调报告、面试 brief、定制简历、日记与周报。</li>
-<li><b>用量记录</b>：每次 AI 调用的模型、token 数、费用与时间（用于额度计费）。</li>
+<li><b>用量记录</b>：每次 AI 调用的模型、token 数、费用、耗时、时间，以及是哪个功能发起的（只记功能名称，如「定制简历」，不含内容），用于额度计费与核算各功能的成本。</li>
 <li><b>反馈</b>：你主动提交的反馈内容、所在页面和浏览器标识。</li>
 <li><b>功能使用记录</b>：你用了哪些页面和功能、什么时候用的（只记功能名称与时间，不含公司名、简历或任何你写的内容），用于看大家卡在哪一步、改进产品。</li>
 <li><b>使用日期</b>：你哪天打开过应用（只记日期，不记做了什么），用于统计活跃人数。</li>
 <li><b>技术日志</b>：请求时间、状态码、IP 地址，用于排障与防滥用；不记录页面路径与内容。</li>
 <li><b>大致所在地</b>：最近一次登录（含未受邀的登录）或当天首次访问时的 IP，以及据此离线推算的国家 / 省份 / 城市（用镜像内的 IP 库查，不把 IP 发给任何第三方），用于看用户来自哪里；只保留最新一条，删除账户或清除未受邀记录时一并删除。IP 定位数据来自 <a href="https://db-ip.com">DB-IP</a>。</li>
+<li><b>从哪来</b>：第一次登录（含未受邀的登录）时，你是从哪个网站点过来的（只记网站域名，不记具体网址）以及链接上的推广标签（utm 参数），用于了解大家是怎么知道这里的；删除账户或清除未受邀记录时一并删除。</li>
 <li><b>未受邀的登录</b>：没在邀请名单的人登录时，记下邮箱、尝试次数与时间，并通知运营者以便邀请；获邀或被清除时即删除。</li>
 </ul>
 
@@ -614,12 +615,13 @@ project's author as a free, invite-only beta. "I" below means the operator.</p>
 <li><b>Account</b>: Google sign-in only shares your <b>email address</b> (scopes openid + email) — not your mail, calendar or contacts.</li>
 <li><b>What you provide</b>: resume, achievement bank, target pay and red lines, company files, interview notes, invitations or JDs you paste.</li>
 <li><b>What the system generates</b>: fit assessments, research reports, interview briefs, tailored resumes, diaries and weekly reports.</li>
-<li><b>Usage records</b>: model, tokens, cost and time of each AI call (for credit metering).</li>
+<li><b>Usage records</b>: model, tokens, cost, duration and time of each AI call, and which feature made it (the feature name only, e.g. "tailor resume" — no content), for credit metering and working out what each feature costs.</li>
 <li><b>Feedback</b>: what you submit, the page you were on and your browser's user agent.</li>
 <li><b>Feature usage</b>: which pages and features you used and when (the feature name and time only — no company names, resume or anything you wrote), to see where people get stuck and improve the product.</li>
 <li><b>Days of use</b>: which days you opened the app (the date only, not what you did), to count active users.</li>
 <li><b>Technical logs</b>: request time, status code and IP address for troubleshooting and abuse prevention; page paths and content are not logged.</li>
 <li><b>Approximate location</b>: the IP of your latest sign-in (including uninvited ones) or first visit of the day, and the country / region / city looked up from it offline (an IP database inside the server — the IP isn't sent to any third party), to see where users come from. Only the latest one is kept, and it's deleted with your account or with an uninvited-sign-in record. IP geolocation by <a href="https://db-ip.com">DB-IP</a>.</li>
+<li><b>Where you came from</b>: at your first sign-in (including uninvited ones), the website you came from (its domain only, not the full address) and any campaign tags on the link (utm parameters), to learn how people find this; deleted with your account or with an uninvited-sign-in record.</li>
 <li><b>Uninvited sign-ins</b>: if you sign in without an invite, your email, attempt count and time are kept and the operator is notified so they can invite you; the record is deleted once you're invited or it's cleared.</li>
 </ul>
 

@@ -741,6 +741,23 @@ window.va = window.va || function () { (window.vaq = window.vaq || []).push(argu
 </script>
 <script defer src="/_vercel/insights/script.js"></script>
 <script>
+(function(){                                    // 去 app 的链接带上访客真正的来源（外站域名 + utm），app 登录时记一次
+  var q = new URLSearchParams(location.search), add = new URLSearchParams();
+  ['utm_source', 'utm_medium', 'utm_campaign', 'ref'].forEach(function(k){ if (q.get(k)) add.set(k, q.get(k)); });
+  try {
+    var h = document.referrer ? new URL(document.referrer).hostname : '';
+    if (h && h !== location.hostname) add.set('ref_host', h);
+  } catch (e) {}
+  if (!add.toString()) return;
+  document.querySelectorAll('a[href^="https://app.ailayoff.me"]').forEach(function(a){
+    if (a.pathname !== '/' && a.pathname !== '') return;   // 只改进入 app 的链接，隐私说明等页面不动
+    var u = new URL(a.href);
+    add.forEach(function(v, k){ u.searchParams.set(k, v); });
+    a.href = u.toString();
+  });
+})();
+</script>
+<script>
 (function(){
   var b = document.getElementById('btnInterested');
   var t = document.getElementById('ithanks');

@@ -23,7 +23,7 @@ DAYS = 30
 PAGE = 10                                           # 每张表一页几条：超过就分页
 # 后台的查询参数：q 搜邮箱；其余是各表的页码（用户 / 被拦 / 额度申请 / 待登录邀请 / 反馈 / 发放 /
 # AI 失败 / 功能使用 / 回访 / 按模型 / 国家 / 城市）
-RET_KEYS = ("q", "pu", "pw", "pr", "pi", "pf", "pg", "pe", "pt", "pv", "pm", "pc", "py")
+RET_KEYS = ("q", "pu", "pw", "pr", "pi", "pf", "pg", "pe", "pt", "pv", "pm", "pc", "py", "pb", "ps")
 
 _STATUS = {"ready": "就绪", "asleep": "休眠", "new": "未开通", "provisioning": "开通中", "failed": "开通失败", "deleting": "删除中"}
 
@@ -370,7 +370,7 @@ box.querySelector('.zre').onclick=()=>svg.transition().call(z.transform,d3.zoomI
 
 def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, flash: str = "",
            asleep: set[str] | None = None, params: dict | None = None, mail: dict | None = None,
-           now: float | None = None) -> HTMLResponse:
+           now: float | None = None, budget: tuple[float, float] | None = None) -> HTMLResponse:
     now = now or time.time()
     tz = ZoneInfo(tz_name)
     users, usage = snap["users"], snap["usage"]
@@ -405,6 +405,9 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
         (f"${cost(today0):.2f}", "今天花费", ""),
         (f"${cost(now - 7 * day):.2f}", "7 天花费", ""),
         (f"${total_spent:.2f}", "累计花费", ""),
+        *([(f"${budget[0]:.2f} / ${budget[1]:g}", f"本月花费 / 预算（{budget[0] / budget[1] * 100:.0f}%）",
+            "warn" if budget[0] >= .7 * budget[1] else "") if budget[1] > 0 else
+           (f"${budget[0]:.2f}", "本月花费（未设预算上限）", "warn")] if budget else []),
         (len(errs24), "24 小时 AI 失败", "warn" if errs24 else ""),
         *([(f'{sum(1 for u in users if u["status"] == "ready" and u["email"] not in asleep)}'
             f' / {sum(1 for u in users if u["status"] == "ready")}', "机器在线（其余休眠）", "")]
@@ -626,6 +629,56 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
                       for k, v in model_rows) + '</table>' + model_pg
                   if by_model else f'<p class="empty">{DAYS} 天内没有调用</p>')
 
+    # ---- 按功能花费 + 每人花费分布 ----
+    by_feat: dict[str, list] = defaultdict(lambda: [0, set(), 0.0, 0, 0])   # 调用 / 人 / 花费 / 耗时和 / 有耗时的次数
+    per_user: dict[str, float] = defaultdict(float)
+    for u in usage:
+        f = by_feat[u.get("feature") or ""]
+        f[0] += 1; f[1].add(u["email"]); f[2] += u["cost_usd"]
+        if u.get("latency_ms") is not None:
+            f[3] += u["latency_ms"]; f[4] += 1
+        per_user[u["email"]] += u["cost_usd"]
+    tagged = sum(v[2] for k, v in by_feat.items() if k)
+    all_cost = sum(v[2] for v in by_feat.values()) or 1
+
+    def feat_label(k: str) -> str:
+        if not k:
+            return "未标注（引擎升级前的调用）"
+        if k.startswith("job:"):
+            return f"定时：{bi.JOB_LABELS.get(k[4:], k[4:])}"
+        return bi.LABELS.get(k, k)
+    fc_rows, fc_pg = paged(sorted(by_feat.items(), key=lambda kv: -kv[1][2]), "pb", "featcost")
+    costs = sorted(per_user.values())
+
+    def pct(p: float) -> float:
+        return costs[min(len(costs) - 1, int(p * len(costs)))] if costs else 0.0
+    featcost_html = ('<table><tr><th>功能</th><th class="n">调用</th><th class="n">人</th><th class="n">花费</th>'
+                     '<th class="n">占比</th><th class="n">每次</th><th class="n">平均耗时</th></tr>' + "".join(
+                         f'<tr><td title="{_e(k)}">{_e(feat_label(k))}</td><td class="n">{v[0]}</td>'
+                         f'<td class="n">{len(v[1])}</td><td class="n">${v[2]:.3f}</td>'
+                         f'<td class="n">{v[2] / all_cost * 100:.0f}%</td><td class="n">${v[2] / v[0]:.4f}</td>'
+                         f'<td class="n">{f"{v[3] / v[4] / 1000:.1f}s" if v[4] else "—"}</td></tr>'
+                         for k, v in fc_rows) + '</table>' + fc_pg +
+                     f'<p class="foot">每人 {DAYS} 天花费（{len(costs)} 个用过 AI 的人）：中位数 ${pct(.5):.3f} · '
+                     f'P90 ${pct(.9):.3f} · P99 ${pct(.99):.3f} · 最高 ${costs[-1] if costs else 0:.3f}'
+                     f' · 已标注功能的花费占 {tagged / all_cost * 100:.0f}%</p>'
+                     if by_feat else f'<p class="empty">{DAYS} 天内没有调用</p>')
+
+    # ---- 来源：第一次登录时从哪来 ----
+    reg_set = {u["email"] for u in users}
+    by_src: dict[str, list] = defaultdict(lambda: [0, 0])                  # 合计 / 已注册
+    for s in snap.get("sources", []):
+        key = " · ".join(x for x in (s.get("utm_source"), s.get("utm_campaign")) if x) or s.get("ref") or ""
+        by_src[key][0] += 1
+        by_src[key][1] += s["email"] in reg_set
+    src_rows, src_pg = paged(sorted(by_src.items(), key=lambda kv: (-kv[1][0], kv[0])), "ps", "sources")
+    src_html = ('<table><tr><th>来源</th><th class="n">来过</th><th class="n">已注册</th></tr>' + "".join(
+        f'<tr><td>{_e(k) if k else "<span class=dim>直接访问 / 未知</span>"}</td><td class="n">{v[0]}</td>'
+        f'<td class="n">{v[1]}</td></tr>' for k, v in src_rows) + '</table>' + src_pg +
+                '<p class="foot">登录（含被拦）时记一次，只记最初的来源：utm_source · utm_campaign，没有就记来源网站域名。'
+                '记录来源这个功能上线前就来过的人不在表里。</p>'
+                if by_src else '<p class="empty">还没有来源记录</p>')
+
     # ---- 额度申请：同样一整张表一个表单 ----
     def req_row(r: dict) -> str:
         bal = (r["credit_usd"] or 0) - (r["spent_usd"] or 0)
@@ -764,6 +817,8 @@ def render(snap: dict, *, low_usd: float, tz_name: str, privacy_version: str, fl
 <div class="card" id="users"><h2>用户 <small>按最近活跃排序 · 余额低于 ${low_usd:g} 标红</small></h2>{users_html}</div>
 <div class="card" id="waitlist"><h2>被拦的登录 <small>邀请会给对方发邮件（排队慢慢发）· 勾选可批量，Shift 连选</small></h2>{wl_html}</div>
 <div class="card" id="invites"><h2>邀请 <small>已邀请、还没登录的人</small></h2>{invite_form}{pend_html}</div>
+<div class="card" id="featcost"><h2>按功能花费 <small>近 {DAYS} 天 · 引擎带来的功能标签</small></h2>{featcost_html}</div>
+<div class="card" id="sources"><h2>来源 <small>用户从哪来的</small></h2>{src_html}</div>
 <div class="card" id="models"><h2>按模型 <small>近 {DAYS} 天</small></h2>{model_html}</div>
 <div class="card" id="errors"><h2>AI 调用失败 <small>上游限流 / 额度 / 网络 · 首次出现会邮件告警</small></h2>{err_html}</div>
 <div class="card" id="feedback"><h2>最近反馈 <small>✉ = 已进每日汇总邮件</small></h2>{fb_html}</div>

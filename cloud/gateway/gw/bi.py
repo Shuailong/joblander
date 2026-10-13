@@ -33,6 +33,14 @@ LABELS = {
 }
 
 
+# 引擎定时作业（job:名字）的中文名
+JOB_LABELS = {
+    "nightly_sourcing": "夜间搜岗", "morning_report": "晨报", "evening_diary": "日记草稿", "weekly_report": "周报",
+    "gmail_scan": "邮件扫描", "calendar_watch": "日历盯面试", "transcript_watch": "面试录音转写",
+    "notion_diff_pull": "Notion 同步",
+}
+
+
 def _day(ts: float, tz: ZoneInfo) -> str:
     return datetime.fromtimestamp(ts, tz).strftime("%Y-%m-%d")
 

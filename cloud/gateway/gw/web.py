@@ -12,11 +12,12 @@ import hmac
 import html
 import json
 import logging
+import re
 import secrets
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -62,6 +63,33 @@ class Settings:
     mail_gap_s: float = 0.6      # 给用户发信时每封之间的间隔（Resend 默认每秒 2 封）
     mail_daily_limit: int = 90   # 最近 24 小时最多给用户发几封（Resend 免费档每天 100，留几封给汇总与告警）；超了就等
     mail_idle_s: float = 3       # 队列空着时多久看一次
+    monthly_budget_usd: float = 0.0   # 全平台每月 AI 预算（计量口按它熔断）；0 = 不设上限
+
+
+# ---------- 来源：从哪来的（来源网站域名 + utm 标签），只记第一次 ----------
+
+SRC_COOKIE = "jl_src"
+_TAG = re.compile(r"[a-z0-9][a-z0-9._\-]{0,59}")
+
+
+def _tag(v: str | None) -> str | None:
+    v = (v or "").strip().lower()
+    return v if _TAG.fullmatch(v) else None
+
+
+def source_of(request: Request, own_host: str) -> dict:
+    """这次请求带来的来源：Referer 只取域名（外站才算），utm_* / ref 参数只收短标签。"""
+    host = (urlparse(request.headers.get("referer") or "").hostname or "").lower()
+    q = request.query_params
+    src = {"ref": _tag(q.get("ref_host")) or (_tag(host) if host and host != own_host else None),
+           "utm_source": _tag(q.get("utm_source")) or _tag(q.get("ref")),
+           "utm_medium": _tag(q.get("utm_medium")), "utm_campaign": _tag(q.get("utm_campaign"))}
+    return {k: v for k, v in src.items() if v}
+
+
+def read_source(cookie: str | None) -> dict:
+    keys = ("ref", "utm_source", "utm_medium", "utm_campaign")
+    return {k: t for k, v in parse_qsl(cookie or "") if k in keys and (t := _tag(v))}
 
 
 # ---------- 会话：HMAC 签名的 email|过期时间，不存服务端 ----------
@@ -331,8 +359,15 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
 
     # ---------- 登录 ----------
 
+    def keep_source(request: Request, resp: Response) -> Response:
+        """第一次带着来源进来就记进 cookie（30 天），登录时落库；已有就不覆盖（只记最初的来源）。"""
+        if not request.cookies.get(SRC_COOKIE) and (src := source_of(request, settings.public_host)):
+            resp.set_cookie(SRC_COOKIE, urlencode(src), max_age=30 * 86400, httponly=True, secure=True,
+                            samesite="lax")
+        return resp
+
     @app.get("/auth/login")
-    async def login():
+    async def login(request: Request):
         state = secrets.token_urlsafe(16)
         url = GOOGLE_AUTH + "?" + urlencode({
             "client_id": settings.google_client_id, "redirect_uri": redirect_uri,
@@ -340,7 +375,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             "prompt": "select_account"})
         resp = RedirectResponse(url, status_code=302)
         resp.set_cookie("jl_state", state, max_age=600, httponly=True, secure=True, samesite="lax")
-        return resp
+        return keep_source(request, resp)
 
     @app.get("/auth/callback")
     async def callback(request: Request, code: str = "", state: str = ""):
@@ -361,6 +396,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             lg = lang(request)
             store.record_blocked(email, lg)                     # 不当场发信：每天汇总一封给管理员
             note_geo(email, request)
+            store.note_source(email, read_source(request.cookies.get(SRC_COOKIE)))
             t = pages.msg("beta", lg)
             return _page(t, f"<h1>{t}</h1><p>{pages.msg('not_invited_mail' if settings.mail_from else 'not_invited', lg,
                                                                 email=html.escape(email))}</p>",
@@ -369,6 +405,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             store.create(email, settings.free_credit_usd)
         store.set_lang(email, lang(request))
         note_geo(email, request)
+        store.note_source(email, read_source(request.cookies.get(SRC_COOKIE)))
         resp = RedirectResponse("/", status_code=302)
         resp.set_cookie(SESSION_COOKIE, make_session(settings.session_secret, email),
                         max_age=SESSION_TTL, httponly=True, secure=True, samesite="lax")
@@ -562,7 +599,10 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
                             privacy_version=pages.PRIVACY_VERSION, flash=m[:200],
                             params={k: v for k, v in request.query_params.items() if k in RET_KEYS},
                             mail=({**store.mail_stats(time.time() - 86400), "limit": settings.mail_daily_limit}
-                                  if mail_on() else None))
+                                  if mail_on() else None),
+                            budget=(store.spent_since(datetime.now(ZoneInfo(settings.timezone)).replace(
+                                day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()),
+                                settings.monthly_budget_usd))
 
     async def admin_form(request: Request) -> tuple[str, dict] | None:
         email = admin_of(request)
@@ -749,7 +789,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         if not email:
             if request.method != "GET" or path.startswith("api/"):
                 return Response(status_code=401)
-            return pages.landing(lang(request))
+            return keep_source(request, pages.landing(lang(request)))
         user = store.get(email)
         if user is None:                                        # 会话在、人被删了
             return RedirectResponse("/auth/logout", status_code=302)
