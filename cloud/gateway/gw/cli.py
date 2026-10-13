@@ -21,8 +21,19 @@ from gw.flyapi import Fly
 from gw.store import Store
 
 
+def _backend():
+    """Fly：Machines API；GCP（GW_MODE=gcp）：共享引擎的任务服务。"""
+    if os.environ.get("GW_MODE") == "gcp":
+        from gw.shared import SharedEngine
+        return SharedEngine(os.environ["ENGINE_URL"], os.environ["WORKER_URL"],
+                            os.environ["JOBLANDER_TENANT_TOKEN_SECRET"])
+    return Fly(os.environ["FLY_API_TOKEN"], os.environ.get("USER_APP", "joblander-users"),
+               os.environ.get("FLY_REGION", "sin"))
+
+
 def main(argv: list[str]) -> None:
-    store = Store(os.environ.get("GW_DB", "/data/gw.sqlite"))
+    from gw.main import db_target
+    store = Store(db_target())
     if not argv:
         print(__doc__); return
     cmd, *args = argv
@@ -61,6 +72,8 @@ def main(argv: list[str]) -> None:
             print(f"{u.email:36} {u.status:12} {u.machine_id or '-':16} "
                   f"余额 ${u.balance_usd:7.2f}  已用 ${u.spent_usd:.2f}  {u.error or ''}")
     elif cmd == "upgrade":
+        if os.environ.get("GW_MODE") == "gcp":
+            raise SystemExit("GCP 形态没有逐台机器：引擎由流水线一次发布（deploy/gcp/release.sh）")
         asyncio.run(_upgrade(store, args[0]))
     elif cmd == "feedback":
         for f in store.list_feedback(int(args[0]) if args else 20):
@@ -103,8 +116,7 @@ async def _reset(store: Store, email: str) -> None:
     u = store.get(email)
     if u is None:
         raise SystemExit(f"{email} 不存在")
-    fly = Fly(os.environ["FLY_API_TOKEN"], os.environ.get("USER_APP", "joblander-users"),
-              os.environ.get("FLY_REGION", "sin"))
+    fly = _backend()
     if u.machine_id:
         await fly.destroy_machine(u.machine_id)
     if u.volume_id:

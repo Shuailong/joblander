@@ -45,8 +45,20 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
                      low_balance_usd: float | None = None,
                      on_low: Callable[[str], Awaitable[None]] | None = None,
                      on_error: Callable[[int, str], Awaitable[None]] | None = None,
-                     timezone: str = "Asia/Singapore") -> FastAPI:
+                     timezone: str = "Asia/Singapore", trust_tenant_header: bool = False) -> FastAPI:
+    """trust_tenant_header（GCP 形态）：调用方只可能是引擎 / 任务服务（Cloud Run IAM 保证），
+    它们在 X-Joblander-Tenant 里指明账户；Fly 形态按每台机器的计量子 key 认人。"""
     app = FastAPI(title="joblander-meter")
+
+    @app.get("/healthz")
+    async def healthz():
+        return {"ok": True}
+
+    def who(request: Request):
+        if trust_tenant_header:
+            return store.by_tenant(request.headers.get("x-joblander-tenant") or "")
+        auth = request.headers.get("authorization") or ""
+        return store.by_meter_key(auth.removeprefix("Bearer ").strip()) if auth else None
     http = client or httpx.AsyncClient(timeout=httpx.Timeout(600, connect=10))
     pending: set[asyncio.Task] = set()
     tz = ZoneInfo(timezone)
@@ -67,6 +79,9 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
             kind = ""
         kind = kind or f"http_{status}"
         store.record_ai_error(email, model, status, kind)
+        if trust_tenant_header:            # GCP：结构化日志 → 日志指标 → 告警（额度耗尽 P1、限流 P2）
+            print(json.dumps({"severity": "WARNING", "event": "upstream_error", "kind": kind,
+                              "status": status, "model": model}), flush=True)
         if on_error:
             t = asyncio.create_task(on_error(status, kind))
             pending.add(t)
@@ -75,8 +90,7 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
     @app.post("/v1/events")
     async def events(request: Request):
         """引擎每分钟报一批使用记录（方法 + 路由模板 + 时间），后台画漏斗用。格式不对的条目直接丢。"""
-        auth = request.headers.get("authorization") or ""
-        user = store.by_meter_key(auth.removeprefix("Bearer ").strip()) if auth else None
+        user = who(request)
         if user is None:
             return _reject("unknown key", 401, "auth")
         try:
@@ -97,8 +111,7 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
     @app.post("/v1/search")
     async def search(request: Request):
         """公司调研的搜索：平台 Tavily key 只在这里；按次计费，与 AI 共用一份额度。"""
-        auth = request.headers.get("authorization") or ""
-        user = store.by_meter_key(auth.removeprefix("Bearer ").strip()) if auth else None
+        user = who(request)
         if user is None:
             return _reject("unknown key", 401, "auth")
         if not tavily_key:
@@ -126,8 +139,7 @@ def create_meter_app(store: Store, openai_key: str, prices: dict,
 
     @app.post("/v1/chat/completions")
     async def chat(request: Request):
-        auth = request.headers.get("authorization") or ""
-        user = store.by_meter_key(auth.removeprefix("Bearer ").strip()) if auth else None
+        user = who(request)
         if user is None:
             return _reject("unknown key", 401, "auth")
         if user.balance_usd <= 0:

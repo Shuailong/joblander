@@ -1,4 +1,4 @@
-"""网关的唯一状态：一个 SQLite 文件（Fly 卷上）。用户、邀请、额度、用量全在这里。
+"""网关的唯一状态：Fly 上是卷上的 SQLite 文件，GCP 上是 Cloud SQL（见 db.py）。用户、邀请、额度、用量全在这里。
 
 额度模型：credit_usd 是累计授予的额度（免费试用 + 日后充值），spent_usd 是累计花费；
 余额 = credit - spent。充值 / 订阅最终都落成「给 credit 加数」，计量这边不用改。
@@ -105,8 +105,8 @@ class User:
 
 class Store:
     def __init__(self, path: str):
-        self.db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
-        self.db.row_factory = sqlite3.Row
+        from gw import db as gwdb
+        self.db = gwdb.connect(path)          # SQLite 文件路径（Fly），或 Postgres 连接串（GCP，见 db.py）
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
         for col in ("consented_at REAL", "privacy_version TEXT",     # 旧库就地加列
@@ -203,6 +203,12 @@ class Store:
                 (email.lower(), secrets.token_urlsafe(32), hash_key(meter_key), time.time()))
             self._grant(email, free_credit, "免费试用")
         return self.get(email), meter_key
+
+    def by_tenant(self, tenant_id: str) -> User | None:
+        """GCP 形态：引擎调计量时用账户 ID 指明是谁（users.volume_id 存的就是账户 ID）。"""
+        if not tenant_id:
+            return None
+        return self._user(self.db.execute("SELECT * FROM users WHERE volume_id=?", (tenant_id,)).fetchone())
 
     def rotate_meter_key(self, email: str) -> str:
         meter_key = "jlm-" + secrets.token_urlsafe(32)

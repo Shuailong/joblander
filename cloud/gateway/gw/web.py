@@ -35,7 +35,8 @@ GOOGLE_USERINFO = "https://openidconnect.googleapis.com/v1/userinfo"
 # 逐跳头不转发；cookie 是网关自己的登录态，不给用户 machine
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te",
        "trailer", "transfer-encoding", "upgrade", "host", "cookie", "content-length",
-       "x-joblander-gateway", "x-joblander-set-lang"}
+       "x-joblander-gateway", "x-joblander-set-lang",
+       "x-joblander-tenant-token", "x-serverless-authorization"}   # 只能由网关自己填，客户端带来的一律丢
 
 
 @dataclass
@@ -62,6 +63,7 @@ class Settings:
     mail_gap_s: float = 0.6      # 给用户发信时每封之间的间隔（Resend 默认每秒 2 封）
     mail_daily_limit: int = 90   # 最近 24 小时最多给用户发几封（Resend 免费档每天 100，留几封给汇总与告警）；超了就等
     mail_idle_s: float = 3       # 队列空着时多久看一次
+    leader: object | None = None # 多实例（GCP）：只有拿到领头锁的实例跑发信与每日汇总；None = 单实例
 
 
 # ---------- 会话：HMAC 签名的 email|过期时间，不存服务端 ----------
@@ -101,6 +103,13 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
 
     from fastapi.staticfiles import StaticFiles
     app.mount("/_gw/static", StaticFiles(directory=Path(__file__).parent / "static"), name="gwstatic")
+
+    @app.get("/healthz")
+    async def healthz():                   # Cloud Run 启动探针与 Uptime 检查
+        return {"ok": True}
+
+    def leading() -> bool:
+        return settings.leader is None or settings.leader.ok()
     http = upstream or httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10))
     google = httpx.AsyncClient(timeout=20)
     provisioning: dict[str, asyncio.Task] = {}
@@ -142,6 +151,9 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         mail_wake[:] = [asyncio.Event()]
         last_prune = 0.0
         while True:
+            if not leading():                   # 多实例：别的实例在发
+                await asyncio.sleep(30)
+                continue
             now = time.time()
             if now - last_prune > 3600:
                 store.prune_mail(now - 7 * 86400)
@@ -210,7 +222,8 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         hh, mm = (int(x) for x in settings.digest_at.split(":"))
         while True:
             now = datetime.now(tz)
-            if (now.hour, now.minute) >= (hh, mm) and store.get_kv("digest_day") != now.strftime("%Y-%m-%d"):
+            if (leading() and (now.hour, now.minute) >= (hh, mm)
+                    and store.get_kv("digest_day") != now.strftime("%Y-%m-%d")):
                 try:
                     if await send_digest() is not False:
                         store.set_kv("digest_day", now.strftime("%Y-%m-%d"))
@@ -772,12 +785,12 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             store.touch_day(email, day)
             note_geo(email, request)                            # 地点也每天更新一次
             seen_days.add((email, day))
-        url = f"http://{fly.address(user.machine_id)}:8899/{path}"
+        url = fly.url_for(user, path)
         headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP}
         headers["host"] = settings.public_host
         if request.cookies.get("jl_lang") in ("zh", "en"):   # 首页选过的语言带进引擎（设置里改的仍优先）
             headers["accept-language"] = request.cookies["jl_lang"]
-        headers["x-joblander-gateway"] = user.gateway_token
+        headers.update(await fly.auth_headers(user))           # Fly：机器专属口令；GCP：账户令牌 + 服务身份
         chosen = request.cookies.get("jl_lang_set")
         if chosen in ("zh", "en"):
             headers["x-joblander-set-lang"] = chosen

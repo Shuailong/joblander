@@ -94,5 +94,12 @@ class Fly:
                     raise
                 await asyncio.sleep(min(2 * (i + 1), 10))
 
+    def url_for(self, user, path: str) -> str:
+        """转发目标：这个人自己的 machine（私网）。GCP 形态见 shared.SharedEngine。"""
+        return f"http://{self.address(user.machine_id)}:8899/{path}"
+
+    async def auth_headers(self, user) -> dict[str, str]:
+        return {"x-joblander-gateway": user.gateway_token}
+
     def address(self, machine_id: str) -> str:
         return f"{machine_id}.vm.{self.app}.internal"
