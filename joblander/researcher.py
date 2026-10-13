@@ -51,6 +51,20 @@ def _check_public_url(url: str) -> None:
             raise ValueError(f"拒绝抓取非公网地址：{host} → {ip}")
 
 
+class _PublicOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    """跟随重定向前重新检查目标：公网页面 302 到内网地址，同样拒绝。"""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _check_public_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def safe_urlopen(req: urllib.request.Request, timeout: float = 20):
+    """抓外部链接统一走这里：首个地址与每一跳重定向都必须是公网地址。"""
+    _check_public_url(req.full_url)
+    return urllib.request.build_opener(_PublicOnlyRedirect()).open(req, timeout=timeout)
+
+
 def fetch_url(url: str, timeout: int = 20) -> str:
     """公开页面抓取 → 保留块结构的 markdown 风格文本（登录态站点走浏览器人工贴入）。
     v0 曾把全部空白折叠成一整行——LLM 无所谓，人没法读（2026-08-11 JD 快照报障）。"""
@@ -59,7 +73,7 @@ def fetch_url(url: str, timeout: int = 20) -> str:
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
         "Accept-Language": "en-US,en;q=0.9,zh;q=0.8"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with safe_urlopen(req, timeout=timeout) as resp:
         html = resp.read().decode("utf-8", errors="replace")
     return _html_to_md(html)
 

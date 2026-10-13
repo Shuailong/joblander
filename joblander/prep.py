@@ -38,7 +38,7 @@ def _load_projection(cfg) -> list[dict[str, Any]]:
     path = cfg.workspace_dir / "09-projections" / "tracker.json"
     if not path.exists():
         raise FileNotFoundError(f"投影不存在：{path}（先跑 python -m joblander pull）")
-    with open(path, encoding="utf-8") as f:
+    with path.open(encoding="utf-8") as f:
         return json.load(f)["rows"]
 
 
@@ -60,7 +60,7 @@ def _load_playbook(cfg) -> list[dict[str, Any]]:
     path = cfg.workspace_dir / "03-materials" / "playbook.yaml"
     if not path.exists():
         return []
-    with open(path, encoding="utf-8") as f:
+    with path.open(encoding="utf-8") as f:
         return yaml.safe_load(f) or []
 
 

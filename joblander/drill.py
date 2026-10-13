@@ -599,8 +599,41 @@ Path("result.json").write_text(json.dumps(out, default=repr), encoding="utf-8")
 """
 
 
-def run_drill(pid: str, code: str, timeout: float = TIMEOUT_S) -> dict:
-    """跑用户代码对题目全部用例。verdict: pass / fail / error / timeout。"""
+def _hardened_env() -> dict[str, str]:
+    """沙箱里给用户代码的环境：只有能跑 Python 的最小变量，不继承服务的任何配置与凭据。"""
+    return {"PATH": "/usr/local/bin:/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONIOENCODING": "utf-8", "HOME": "/tmp", "LANG": "C.UTF-8"}
+
+
+def _limits(timeout: float):
+    """子进程资源上限：CPU 秒数、内存、单文件大小、进程数、打开文件数（Linux）。"""
+    def apply() -> None:
+        import resource
+        cpu = int(timeout) + 1
+        for res, val in ((resource.RLIMIT_CPU, cpu), (resource.RLIMIT_AS, 512 * 1024 * 1024),
+                         (resource.RLIMIT_FSIZE, 8 * 1024 * 1024), (resource.RLIMIT_NOFILE, 64),
+                         (getattr(resource, "RLIMIT_NPROC", None), 64)):
+            if res is not None:
+                try:
+                    resource.setrlimit(res, (val, val))
+                except (ValueError, OSError):
+                    pass
+    return apply
+
+
+def run_drill(pid: str, code: str, timeout: float = TIMEOUT_S, hardened: bool = False) -> dict:
+    """跑用户代码对题目全部用例。verdict: pass / fail / error / timeout。
+
+    多租户形态下用户代码绝不能在引擎里跑（那里有数据库与密钥）：配了 JOBLANDER_SANDBOX_URL
+    就交给独立的沙箱服务（无服务账号权限、无出网、无密钥）；没配则拒绝。
+    hardened=True 是沙箱服务自己调用时用：最小环境变量 + 资源上限。"""
+    import os
+    sandbox = os.environ.get("JOBLANDER_SANDBOX_URL", "")
+    if sandbox and not hardened:
+        return _run_in_sandbox(sandbox, pid, code)
+    from joblander import runtime
+    if runtime.is_multi() and not hardened:
+        return {"ok": False, "error": "练兵场暂不可用：云端版需要隔离沙箱运行代码"}
     p = get_problem(pid)
     if not p:
         return {"ok": False, "error": f"未知题目：{pid}"}
@@ -614,8 +647,9 @@ def run_drill(pid: str, code: str, timeout: float = TIMEOUT_S) -> dict:
             encoding="utf-8")
         (d / "harn.py").write_text(_HARNESS, encoding="utf-8")
         try:
+            extra = {"env": _hardened_env(), "preexec_fn": _limits(timeout)} if hardened else {}
             proc = subprocess.run([sys.executable, "harn.py"], cwd=d,
-                                  capture_output=True, text=True, timeout=timeout)
+                                  capture_output=True, text=True, timeout=timeout, **extra)
         except subprocess.TimeoutExpired:
             return {"ok": True, "verdict": "timeout", "passed": 0,
                     "total": len(p["tests"]), "cases": [],
@@ -642,3 +676,22 @@ def run_drill(pid: str, code: str, timeout: float = TIMEOUT_S) -> dict:
         return {"ok": True, "verdict": "pass" if passed == len(cases) else "fail",
                 "passed": passed, "total": len(cases), "cases": cases,
                 "error": "", "stdout": stdout}
+
+
+def _run_in_sandbox(url: str, pid: str, code: str) -> dict:
+    """把代码交给沙箱服务跑（Cloud Run 之间用 ID 令牌鉴权）。"""
+    import urllib.error
+    import urllib.request
+
+    from joblander import gcp, runtime
+    headers = {"Content-Type": "application/json"}
+    token = gcp.id_token(runtime.audience_of(url))
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url.rstrip("/") + "/run", method="POST", headers=headers,
+                                 data=json.dumps({"id": pid, "code": code}).encode())
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT_S + 20) as resp:
+            return json.loads(resp.read())
+    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        return {"ok": False, "error": f"沙箱暂时不可用：{e}"}

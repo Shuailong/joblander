@@ -129,9 +129,22 @@ def test_skip_stops_redirect(cfg, monkeypatch):
 
 def test_concurrent_bootstrap_spends_once(cfg, monkeypatch):
     """按钮连点：第二单在花钱之前就被拒（云端实测出过 20 秒内连跑 3 次、后者覆盖前者）。"""
+    import threading
+
+    from joblander.tenancy import tenant_lock
     llm = MockLLM([LLM_OUT])
-    assert wizard._BOOTSTRAP_LOCK.acquire(blocking=False)      # 模拟第一单还在跑
+    holding, release = threading.Event(), threading.Event()
+
+    def first_order():                     # 模拟第一单还在跑：另一条线程持有本账户的生成锁
+        with tenant_lock("bootstrap"):
+            holding.set()
+            release.wait(5)
+
+    t = threading.Thread(target=first_order)
+    t.start()
+    assert holding.wait(5)
     try:
+        assert wizard.generating()
         with pytest.raises(ValueError, match="正在生成中"):
             wizard.bootstrap_from_resume(cfg, llm, RESUME)
         monkeypatch.setattr("joblander.web.app.load_config", lambda: cfg)
@@ -141,7 +154,9 @@ def test_concurrent_bootstrap_spends_once(cfg, monkeypatch):
                         files={"file": ("cv.txt", RESUME.encode(), "text/plain")})
         assert r.status_code == 409
     finally:
-        wizard._BOOTSTRAP_LOCK.release()
+        release.set()
+        t.join(5)
+    assert not wizard.generating()
     assert llm.calls == []
     wizard.bootstrap_from_resume(cfg, llm, RESUME)              # 锁释放后照常
     assert len(llm.calls) == 1

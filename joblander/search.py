@@ -105,11 +105,10 @@ NO_KEY_HINT = ("内置零 key 引擎已被各家反爬拦截（2026-08 实测）
 
 def _gateway(query: str, url: str, max_results: int = 6) -> list[dict[str, str]]:
     """云端版：搜索经网关计量代理（平台 key 只在网关，按次记账；余额耗尽同样被拒）。"""
-    import os
+    from joblander import runtime
     req = urllib.request.Request(
         url, data=json.dumps({"query": query, "max_results": max_results}).encode(),
-        headers={"Content-Type": "application/json",
-                 "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}"})
+        headers={"Content-Type": "application/json", **runtime.upstream_headers(url)})
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read())

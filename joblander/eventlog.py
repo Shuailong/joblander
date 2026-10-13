@@ -1,6 +1,7 @@
 """Event Log — append-only JSONL，唯一事实源（DESIGN P3 / ADR-1）。
 
 P0 形态：单文件、单进程、无锁。重放 = 重建投影 = 回归测试。
+路径可以是本地 Path，也可以是账户空间的 CloudPath（多租户形态）：一律经 path.open 读写。
 """
 
 from __future__ import annotations
@@ -10,12 +11,13 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
+from joblander.storage import as_path
 from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 
 class EventLog:
     def __init__(self, path: str | Path):
-        self.path = Path(path)
+        self.path = as_path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def append(
@@ -31,14 +33,14 @@ class EventLog:
             "source": source,
             "payload": payload or {},
         }
-        with open(self.path, "a", encoding="utf-8") as f:
+        with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
         return event
 
     def events(self) -> Iterator[dict[str, Any]]:
         if not self.path.exists():
             return
-        with open(self.path, encoding="utf-8") as f:
+        with self.path.open(encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:
@@ -52,7 +54,7 @@ class EventLog:
         线性增长且永不回落。倒着读 + 早停，代价只跟真正要看的条数有关。"""
         if not self.path.exists():
             return
-        with open(self.path, "rb") as f:
+        with self.path.open("rb") as f:
             f.seek(0, 2)
             pos = f.tell()
             buf = b""

@@ -261,7 +261,7 @@ def pull_tracker(cfg) -> list[dict[str, Any]]:
     proj_dir = cfg.workspace_dir / "09-projections"
     proj_dir.mkdir(parents=True, exist_ok=True)
     proj_path = proj_dir / "tracker.json"
-    with open(proj_path, "w", encoding="utf-8") as f:
+    with proj_path.open("w", encoding="utf-8") as f:
         json.dump({"pulled_rows": len(rows), "rows": rows}, f, ensure_ascii=False, indent=1)
 
     EventLog(cfg.workspace_dir / "08-events" / "event-log.jsonl").append(

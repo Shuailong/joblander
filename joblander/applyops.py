@@ -99,7 +99,8 @@ def _proposal_file(cfg, proposal_path: str | Path) -> Path:
     这两个参数直接来自 web 表单（/api/proposal/apply|reject|amend_apply）。
     不夹紧的话，reject 会把任意 JSON 文件改写成带 approved:false 的内容，
     apply 还能顺着 jd_file 删掉 workspace 外的文件。"""
-    p = Path(proposal_path).expanduser().resolve()
+    from joblander.storage import ws_path
+    p = ws_path(cfg, proposal_path).expanduser().resolve()
     allowed = [(cfg.workspace_dir / d).resolve() for d in ("11-shadow", "12-intake")]
     if not any(p == a or a in p.parents for a in allowed):
         raise ValueError(f"提案路径越界：{p}（只允许 11-shadow / 12-intake 下的文件）")

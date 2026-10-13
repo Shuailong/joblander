@@ -37,8 +37,9 @@ def _http_error(e: urllib.error.HTTPError) -> LLMError:
     body = e.read().decode(errors="replace")
     msg = f"{e.code}: {body[:300]}"
     if "insufficient_quota" in body:             # 平台账户没钱了：重试没用，说清楚是谁的问题
+        from joblander import runtime
         return LLMError("AI 服务暂时不可用：平台的 OpenAI 账户额度耗尽，运营方已收到告警"
-                        if os.environ.get("JOBLANDER_GATEWAY_TOKEN")
+                        if runtime.is_cloud()
                         else f"OpenAI 账户额度耗尽（insufficient_quota），请到 OpenAI 后台充值：{msg}")
     if e.code == 429 or e.code in (500, 502, 503, 504):
         try:
@@ -162,7 +163,10 @@ class OpenAIChat:
         if base:
             self.URL = base.rstrip("/") + "/chat/completions"
         self.key = api_key or os.environ.get("OPENAI_API_KEY")
-        if not self.key:
+        from joblander import runtime
+        # 多租户：走计量服务，凭本服务身份 + 账户头鉴权（见 runtime.upstream_headers），不需要 key
+        self.metered = runtime.is_multi() and not api_key and bool(base)
+        if not self.key and not self.metered:
             raise LLMError("缺 OPENAI_API_KEY 环境变量")
 
     def generate(self, prompt: str, system: str | None = None, json_mode: bool = False,
@@ -180,13 +184,16 @@ class OpenAIChat:
         if json_mode:
             body["response_format"] = {"type": "json_object"}
         try:
+            from joblander import runtime
             return _with_retry(lambda: _http_sse_text(
-                self.URL, body, {"Authorization": f"Bearer {self.key}"},
+                self.URL, body,
+                runtime.upstream_headers(self.URL) if self.metered else {"Authorization": f"Bearer {self.key}"},
                 timeout=600 if effort == "high" else 300))
         except LLMError as e:
             if _is_budget_error(e):
+                from joblander import runtime
                 raise QuotaExceeded("AI 额度已用完——在「设置 › 账户」里申请更多额度"
-                                    if os.environ.get("JOBLANDER_GATEWAY_TOKEN")
+                                    if runtime.is_cloud()
                                     else "AI 额度已用完——充值或订阅后继续使用") from e
             raise
 

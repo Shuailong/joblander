@@ -13,36 +13,24 @@ Notion 正文 `### YYYY-MM-DD` 存量条目，按（日期,标题）去重、本
 from __future__ import annotations
 
 import json
-import os
 import re
 import secrets
-import tempfile
-import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from joblander.storage import atomic_write_text, bytes_io  # noqa: F401  （wizard / arsenal 从这里引用）
+from joblander.tenancy import tenant_lock
 from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 
 # 档案是不可再生的资产：时间线、meta 全是「读全量 → 改 → 写全量」。
-# 进程内有三路并发写它（web 请求线程、start_task 后台任务线程、daemon 线程），
+# 有多路并发写它（web 请求、后台任务、调度器；多租户形态下还可能在不同实例上），
 # 交错会丢条目；write_text 直接截断原文件，中途崩就是半截文件。
-_ARCHIVE_LOCK = threading.RLock()
+# 按账户加锁（本机是进程内可重入锁，多租户是数据库咨询锁），写入走 atomic_write_text。
 
 
-def atomic_write_text(path: Path, text: str) -> None:
-    """同目录临时文件 + os.replace：要么旧内容，要么新内容，不会留下半截。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+def _archive_lock():
+    return tenant_lock("archive")
 
 
 KINDS = ("interview", "oa", "call", "email", "apply", "note", "retro", "assessment",
@@ -134,7 +122,7 @@ def load_meta(cfg, company: str) -> dict[str, Any]:
         return {}
 
 def save_meta(cfg, company: str, patch: dict[str, Any]) -> dict[str, Any]:
-    with _ARCHIVE_LOCK:                 # 读-改-写：并发下不加锁会互相盖掉字段
+    with _archive_lock():                 # 读-改-写：并发下不加锁会互相盖掉字段
         meta = load_meta(cfg, company)
         meta.update({k: v for k, v in patch.items()})
         meta["updated"] = datetime.now(SGT).isoformat(timespec="seconds")
@@ -202,7 +190,7 @@ def timeline_add(cfg, company: str, *, kind: str = "note", title: str = "",
     }
     if ref:
         entry["ref"] = ref
-    with _ARCHIVE_LOCK:                 # 读全量→追加→写全量：交错会丢条目
+    with _archive_lock():                 # 读全量→追加→写全量：交错会丢条目
         entries = local_entries(cfg, company)
         entries.append(entry)
         _write_all(cfg, company, entries)
@@ -571,7 +559,7 @@ def bind_orphan_attachments(cfg, company: str) -> list[dict[str, str]]:
 
     公司页每次 GET 都会调它（自愈），所以两个标签页同时打开就是两路并发读-改-写：
     不串行的话同一个孤儿附件会被各建一条事件。整段进锁。"""
-    with _ARCHIVE_LOCK:
+    with _archive_lock():
         return _bind_orphan_attachments(cfg, company)
 
 
@@ -805,7 +793,7 @@ def _docx_text(p: Path) -> str:
             else:
                 walk(ch, buf)
 
-    with zipfile.ZipFile(p) as z:
+    with zipfile.ZipFile(bytes_io(p)) as z:
         names = z.namelist()
         parts = sorted(n for n in names if re.fullmatch(r"word/header\d*\.xml", n))
         for name in parts + ["word/document.xml"]:
@@ -827,7 +815,7 @@ def _file_text(p: Path) -> str:
     if p.suffix.lower() == ".pdf":
         try:
             from pypdf import PdfReader
-            text = "\n".join(pg.extract_text() or "" for pg in PdfReader(str(p)).pages)
+            text = "\n".join(pg.extract_text() or "" for pg in PdfReader(bytes_io(p)).pages)
             return text.translate(_LIGATURES)
         except Exception as e:
             return f"（PDF 抽取失败：{e}）"
@@ -853,8 +841,11 @@ def jd_text(cfg, company: str) -> str:
 
 def _download(url: str, timeout: int = 30) -> bytes:
     import urllib.request
+
+    from joblander.researcher import safe_urlopen
+    # Notion「外部文件」块的链接可以指向任何地方：首个地址与每一跳重定向都须是公网
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (joblander)"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with safe_urlopen(req, timeout=timeout) as resp:
         return resp.read()
 
 

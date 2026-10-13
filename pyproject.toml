@@ -20,6 +20,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.27"]   # httpx: fastapi TestClient 依赖
+# 云端多租户形态（GCP）：Postgres 后端 + 按账户加密。本机版与 Fly 版不需要。
+cloud = ["psycopg[binary]>=3.2", "psycopg-pool>=3.2", "cryptography>=42"]
 
 [project.scripts]
 joblander = "joblander.__main__:main"
@@ -27,7 +29,7 @@ joblander = "joblander.__main__:main"
 # 显式声明包：仓库根还有 site/（官网静态页）与 tests/，
 # 扁平布局自动发现会因「多个顶层包」直接拒绝构建。
 [tool.setuptools]
-packages = ["joblander", "joblander.web", "evals"]
+packages = ["joblander", "joblander.web", "joblander.storage", "joblander.cloud", "evals"]
 
 [tool.setuptools.package-data]
 "joblander.web" = ["templates/*.html", "static/*"]

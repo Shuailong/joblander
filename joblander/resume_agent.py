@@ -136,10 +136,18 @@ def _to_pdf(html_path: Path) -> Path | None:
     chrome = _find_chrome()
     if not chrome:
         return None
+    from joblander.storage import local_copy
     try:
-        subprocess.run([chrome, "--headless", "--disable-gpu", "--no-pdf-header-footer",
-                        f"--print-to-pdf={pdf}", f"file://{html_path}"],
-                       capture_output=True, timeout=60, check=True)
+        # 账户空间里的 HTML 先落成临时本地文件再交给 Chromium，产物写回原处；本地路径原样使用
+        with local_copy(html_path) as src:
+            out = src.with_suffix(".pdf")
+            subprocess.run([chrome, "--headless", "--disable-gpu", "--no-pdf-header-footer",
+                            f"--print-to-pdf={out}", f"file://{src}"],
+                           capture_output=True, timeout=60, check=True)
+            if not out.exists():
+                return None
+            if out != pdf:
+                pdf.write_bytes(out.read_bytes())
         return pdf if pdf.exists() else None
     except Exception:
         return None

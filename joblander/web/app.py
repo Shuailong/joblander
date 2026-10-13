@@ -26,6 +26,7 @@ from joblander import company as companyfile
 from joblander.applyops import apply_proposal, list_pending, reject_proposal
 from joblander.config import load_config
 from joblander.eventlog import EventLog
+from joblander.tasks import TASKS  # noqa: F401  （测试与旧代码按 dict 用它）
 
 from joblander.tz import LOCAL_TZ as SGT   # 单一来源，JOBLANDER_TZ 可覆盖
 from joblander.web.i18n import _ as _t      # 报错文案按界面语言（模板里的 _ 另行注入）
@@ -103,43 +104,21 @@ def md_to_html(text: str) -> str:
 
 
 # ---------- 后台任务（长 LLM 作业不锁页面：托盘可见、切页不丢、完成即提醒） ----------
-TASKS: dict[str, dict] = {}     # 内存注册表：产物全部落盘，状态可丢（重启即清）
+# 登记表按账户分开（多租户下在数据库里），见 joblander/tasks.py。TASKS 是当前账户的 dict 视图。
 
 
 def start_task(kind: str, label: str, fn) -> str:
-    import os
-    import threading
-    import time
-    import uuid
+    from joblander import tasks
     from joblander.web.i18n import _
-    tid = uuid.uuid4().hex[:8]
     label = _(label)                       # 请求上下文里定语言：托盘与提示都显示这一份
-    TASKS[tid] = {"id": tid, "kind": kind, "label": label, "status": "running",
-                  "started": time.time(), "result": None, "error": ""}
 
-    def run():
-        try:
-            TASKS[tid]["result"] = fn()
-            TASKS[tid]["status"] = "done"
-        except Exception as e:
-            TASKS[tid]["error"] = str(e)
-            TASKS[tid]["status"] = "error"
-            # TASKS 是内存注册表，失败条目 120 秒后就从 /api/tasks 消失、重启即清空。
-            # 不落盘的话，一次失败的生成除了当时那个红字提示，事后再无任何痕迹可查。
-            try:                       # start_task 是模块级函数，失败路径上现取 cfg
-                from joblander.config import load_config as _lc
-                EventLog(_lc().workspace_dir / "08-events" / "event-log.jsonl").append(
-                    "task.failed", "web", {"kind": kind, "label": label,
-                                           "error": str(e)[:300]})
-            except Exception:
-                pass
-        TASKS[tid]["ended"] = time.time()
+    def on_error(err: str) -> None:
+        # 托盘里的失败条目 2 分钟后消失：落一条事件，事后仍可查
+        from joblander.tenancy import current_cfg
+        EventLog(current_cfg().workspace_dir / "08-events" / "event-log.jsonl").append(
+            "task.failed", "web", {"kind": kind, "label": label, "error": err[:300]})
 
-    if os.environ.get("JOBLANDER_TASKS_SYNC"):    # 测试/脚本：内联执行同一条链路
-        run()
-    else:
-        threading.Thread(target=run, daemon=True, name=f"task-{kind}").start()
-    return tid
+    return tasks.start(kind, label, fn, on_error=on_error)
 
 
 _LOG_STATS: dict = {}
@@ -153,16 +132,19 @@ def _log_stats(log) -> tuple[int, dict[str, int]]:
         st = log.path.stat()
     except OSError:
         return 0, {}
+    from joblander.tenancy import tenant_id
+    slot = (tenant_id(), str(log.path))          # 多租户：指纹碰巧相同也不能串到别的账户
     key = (st.st_size, st.st_mtime_ns)
-    if _LOG_STATS.get("key") == key:
-        return _LOG_STATS["n"], _LOG_STATS["kinds"]
+    hit = _LOG_STATS.get(slot)
+    if hit and hit["key"] == key:
+        return hit["n"], hit["kinds"]
     n = 0
     kinds: dict[str, int] = {}
     for e in log.events():
         n += 1
         k = e.get("kind", "?")
         kinds[k] = kinds.get(k, 0) + 1
-    _LOG_STATS.update(key=key, n=n, kinds=kinds)
+    _LOG_STATS[slot] = {"key": key, "n": n, "kinds": kinds}
     return n, kinds
 
 
@@ -170,13 +152,14 @@ def recent_tasks() -> list[dict]:
     import time
 
     from joblander.web.i18n import _
+    from joblander import tasks
     now = time.time()
     out = []
-    for t in TASKS.values():
-        if t["status"] == "running" or now - t.get("ended", now) < 120:
-            # 任务线程里拿不到请求语言：报错在返回给浏览器时再按当前界面语言翻
-            out.append({k: t[k] for k in ("id", "kind", "label", "status")}
-                       | {"error": _(t["error"]) if t["error"] else "", "secs": int(now - t["started"])})
+    for t in tasks.recent():
+        # 任务线程里拿不到请求语言：报错在返回给浏览器时再按当前界面语言翻
+        out.append({k: t.get(k, "") for k in ("id", "kind", "label", "status")}
+                   | {"error": _(t["error"]) if t.get("error") else "",
+                      "secs": int(now - (t.get("started") or now))})
     return sorted(out, key=lambda t: -t["secs"])
 
 
@@ -207,7 +190,15 @@ def greeting(now: datetime) -> str:
 def create_app(with_daemon: bool = True) -> FastAPI:
     from contextlib import asynccontextmanager
 
-    cfg = load_config()
+    from joblander import runtime, tenancy
+    if runtime.is_multi():
+        # 多租户：所有账户共享这个进程。cfg 换成代理，每次取值都落到「当前请求的账户」；
+        # 账户由 cloud/engine.py 的中间件按网关令牌设置。调度器不在进程内跑（Cloud Tasks 按账户投递）。
+        cfg = tenancy.ConfigProxy()
+        with_daemon = False
+    else:
+        cfg = load_config()
+        tenancy.set_default_config(cfg)
     daemon = None
 
     @asynccontextmanager
@@ -377,7 +368,7 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         kw.setdefault("lang", i18n.get_lang())
         kw.setdefault("i18n_js", i18n.JS_STRINGS if kw["lang"] == "en" else {})
         kw.setdefault("features", wizard.features(cfg))
-        kw.setdefault("cloud", bool(os.environ.get("JOBLANDER_GATEWAY_TOKEN")))
+        kw.setdefault("cloud", runtime.is_cloud())
         cred = cfg.workspace_dir / ".credentials"
         kw.setdefault("conn", {"gmail": (cred / "gmail_token.json").exists(),
                                "calendar": (cred / "calendar_token.json").exists()})
@@ -428,13 +419,13 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             return [scrub(x) for x in v] if isinstance(v, list) else v
 
         buf = io.BytesIO()
-        ws = Path(cfg.workspace_dir)
+        ws = cfg.workspace_dir
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("config.yaml", yaml.safe_dump(scrub(cfg.raw), allow_unicode=True, sort_keys=False))
             if ws.is_dir():
                 for f in sorted(ws.rglob("*")):
                     if f.is_file() and not f.is_symlink():
-                        z.write(f, "workspace/" + f.relative_to(ws).as_posix())
+                        z.writestr("workspace/" + f.relative_to(ws).as_posix(), f.read_bytes())
         name = f"joblander-data-{datetime.now(SGT):%Y%m%d}.zip"
         return Response(buf.getvalue(), media_type="application/zip",
                         headers={"content-disposition": f'attachment; filename="{name}"'})
@@ -1118,7 +1109,11 @@ def create_app(with_daemon: bool = True) -> FastAPI:
             # CSP sandbox：照常渲染给人看，但剥夺脚本与同源身份——预览不受影响。
             headers["Content-Security-Policy"] = "sandbox; default-src 'none'; " \
                                                  "img-src data:; style-src 'unsafe-inline'"
-        return FileResponse(p, media_type=media, headers=headers)
+        if isinstance(p, Path):
+            return FileResponse(p, media_type=media, headers=headers)
+        import mimetypes
+        return Response(p.read_bytes(), headers=headers,
+                        media_type=media or mimetypes.guess_type(p.name)[0] or "application/octet-stream")
 
     # ---------- API（写操作 = 人在 UI 上的审批动作） ----------
 
@@ -1128,14 +1123,8 @@ def create_app(with_daemon: bool = True) -> FastAPI:
         if daemon is not None:
             daemon.patch_state(updates)
             return
-        sp = cfg.workspace_dir / "08-events" / "daemon-state.json"
-        try:
-            state = json.loads(sp.read_text(encoding="utf-8")) if sp.exists() else {}
-        except Exception:
-            state = {}
-        state.update(updates)
-        sp.parent.mkdir(parents=True, exist_ok=True)
-        sp.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
+        from joblander.daemon import merge_state
+        merge_state(cfg, updates)
 
     @app.post("/api/pull")
     def api_pull():
@@ -1388,7 +1377,8 @@ def create_app(with_daemon: bool = True) -> FastAPI:
     @app.get("/api/busy")
     def api_busy():
         """云端网关问：现在能不能让这台机器休眠？有任务在跑（用户点的或定时 job）就不能。"""
-        tasks = [t["kind"] for t in TASKS.values() if t["status"] == "running"]
+        from joblander import tasks as _tasks
+        tasks = _tasks.running_kinds()
         job = daemon.running if daemon else None
         return {"busy": bool(tasks or job), "tasks": tasks, "job": job}
 

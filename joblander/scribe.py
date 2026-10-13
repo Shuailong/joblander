@@ -145,10 +145,11 @@ def suggest_fields(cfg, llm, row: dict[str, Any], note_text: str,
 
 def load_transcript(path: str | Path) -> str:
     """转写加载：.md/.txt 直读；.pdf 走 pypdf 文本抽取（豆包导出 PDF 为文本型）。"""
-    p = Path(path)
+    from joblander.storage import as_path, bytes_io
+    p = as_path(path)
     if p.suffix.lower() == ".pdf":
         from pypdf import PdfReader
-        return "\n".join(page.extract_text() or "" for page in PdfReader(str(p)).pages)
+        return "\n".join(page.extract_text() or "" for page in PdfReader(bytes_io(p)).pages)
     return p.read_text(encoding="utf-8")
 
 

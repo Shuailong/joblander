@@ -23,10 +23,13 @@ class ConfigError(RuntimeError):
 @dataclass
 class Config:
     raw: dict[str, Any]
-    path: Path
+    path: Path                      # 多租户形态下是账户空间里的 CloudPath（<账户根>/config.yaml）
+    root: Any = None                # 多租户：账户根（CloudPath）；workspace 固定在 <根>/workspace
 
     @property
     def workspace_dir(self) -> Path:
+        if self.root is not None:
+            return self.root / "workspace"
         d = self.raw.get("workspace_dir")
         if not d:
             raise ConfigError("config 缺少 workspace_dir")
@@ -60,6 +63,13 @@ def load_config(path: str | Path | None = None) -> Config:
     return Config(raw=raw, path=p)
 
 
+def load_tenant_config(root: Any) -> Config:
+    """多租户：读账户根下的 config.yaml（开通账户时写入，见 cloud/provision.py）。"""
+    p = root / "config.yaml"
+    raw = yaml.safe_load(p.read_text(encoding="utf-8")) if p.exists() else {}
+    return Config(raw=raw or {}, path=p, root=root)
+
+
 def update_config(cfg: Config, patch: dict[str, Any]) -> None:
     """网页设置向导的写配置入口：深合并 patch → 原子写回 cfg.path，并就地更新 cfg.raw
     （web 进程持有的是同一个 cfg，写完即生效，不用重启）。
@@ -76,6 +86,10 @@ def update_config(cfg: Config, patch: dict[str, Any]) -> None:
                 dst[k] = v
 
     merge(cfg.raw, patch)
+    if not isinstance(cfg.path, Path):              # 账户空间：一次写入即原子，也没有手写注释可丢
+        from joblander.storage import atomic_write_text
+        atomic_write_text(cfg.path, yaml.safe_dump(cfg.raw, allow_unicode=True, sort_keys=False))
+        return
     bak = cfg.path.with_name(cfg.path.name + ".bak")
     if cfg.path.exists() and not bak.exists():
         bak.write_bytes(cfg.path.read_bytes())

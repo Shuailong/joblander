@@ -5,7 +5,13 @@ REPO_ROOT 落在 site-packages，用户照 README 在自己 clone 目录里建�
 会被完全无视——装完第一条命令 onboard 就崩，且报错路径指向 site-packages 让人摸不着头脑。
 """
 
+import os
+
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    bool(os.environ.get("JOBLANDER_TEST_CLOUDPATH")),
+    reason="本文件测的就是本地配置文件与本地 workspace 路径的发现逻辑")
 import yaml
 
 from joblander.config import ConfigError, load_config

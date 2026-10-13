@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import re
-import threading
 from typing import Any
 
 from joblander.config import update_config
@@ -19,7 +18,6 @@ from joblander.config import update_config
 SKIP_MARK = ("08-events", "setup-skipped")
 # 生成走后台任务、按钮可连点：不加锁的话几个任务同时过「已有弹药库」检查，
 # 各花一次钱、后完成的覆盖先完成的（云端实测：20 秒内跑了 3 次）
-_BOOTSTRAP_LOCK = threading.Lock()
 
 # Analyst 硬依赖 fx；向导给一张默认表（→ SGD），用户日后可在 config 里改
 DEFAULT_FX = {"SGD": 1.0, "USD": 1.34, "EUR": 1.45, "GBP": 1.70, "RMB": 0.186,
@@ -136,12 +134,11 @@ def bootstrap_from_resume(cfg, llm, resume_text: str) -> dict[str, Any]:
         raise ValueError("读不出简历文字——文件可能损坏或不是文字版，换一份 PDF 或 Word 再传")
     if len(text) < 200:
         raise ValueError("简历文字太少——可能是扫描版 PDF，换一份能选中文字的版本")
-    if not _BOOTSTRAP_LOCK.acquire(blocking=False):
-        raise ValueError("弹药库正在生成中——稍等一分钟，不用重复点")
-    try:
+    from joblander.tenancy import tenant_lock
+    with tenant_lock("bootstrap", blocking=False) as got:     # 按账户：多租户下别人生成不挡你
+        if not got:
+            raise ValueError("弹药库正在生成中——稍等一分钟，不用重复点")
         return _bootstrap(cfg, llm, text)
-    finally:
-        _BOOTSTRAP_LOCK.release()
 
 
 def bank_has_content(cfg) -> bool:
@@ -149,7 +146,9 @@ def bank_has_content(cfg) -> bool:
 
 
 def generating() -> bool:
-    return _BOOTSTRAP_LOCK.locked()
+    from joblander.tenancy import tenant_lock
+    with tenant_lock("bootstrap", blocking=False) as got:
+        return not got
 
 
 def _bootstrap(cfg, llm, text: str) -> dict[str, Any]:

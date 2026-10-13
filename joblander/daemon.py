@@ -326,6 +326,8 @@ class Daemon:
                 self._log().append("job.failed", "daemon",
                                    {"job": name, "error": str(e)[:300],
                                     "trace": traceback.format_exc()[-500:]})
+                from joblander.obs import log_event
+                log_event("job_failed", "WARNING", job=name, error=str(e))
             finally:
                 self.running = None
         self._save_state()
@@ -343,3 +345,43 @@ class Daemon:
 
     def stop(self):
         self._stop.set()
+
+
+# ---------- 进程外的状态写入与单轮调度（网页手动刷新 / 多租户） ----------
+
+def merge_state(cfg, updates: dict[str, Any]) -> dict[str, Any]:
+    """在常驻调度器之外更新状态文件：按账户加锁读-改-写，只动传进来的键。
+    网页的手动刷新时间戳（无常驻调度器时）与多租户的单轮调度都走这里。"""
+    from joblander.tenancy import tenant_lock
+    sp = cfg.workspace_dir / "08-events" / "daemon-state.json"
+    with tenant_lock("daemon-state"):
+        try:
+            state = json.loads(sp.read_text(encoding="utf-8")) if sp.exists() else {}
+        except Exception:
+            state = {}
+        state.update(updates)
+        sp.parent.mkdir(parents=True, exist_ok=True)
+        sp.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
+    return state
+
+
+def tick_once(cfg) -> bool:
+    """多租户：替当前账户跑一轮调度（Cloud Tasks 每分钟按账户投递一次）。
+
+    同一账户同时只跑一轮——上一轮的夜扫还没结束，这一轮直接跳过（返回 False）。
+    收尾时只把「本轮改过的键」合并回状态文件，不覆盖网页在这期间写进来的时间戳
+    （常驻调度器靠 patch_state 单写者解决同一问题，这里没有常驻进程）。"""
+    import copy
+
+    from joblander.tenancy import tenant_lock
+    with tenant_lock("daemon-tick", blocking=False) as got:
+        if not got:
+            return False
+        d = Daemon(cfg)
+        before = copy.deepcopy(d.state)
+        d._save_state = lambda: None          # 本轮结束统一合并
+        d.tick()
+        changed = {k: v for k, v in d.state.items() if before.get(k) != v}
+        if changed:
+            merge_state(cfg, changed)
+        return True
