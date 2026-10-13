@@ -2,6 +2,7 @@ locals {
   apis = [
     "artifactregistry.googleapis.com",
     "bigquery.googleapis.com",
+    "certificatemanager.googleapis.com",
     "billingbudgets.googleapis.com",
     "binaryauthorization.googleapis.com",
     "cloudbuild.googleapis.com",

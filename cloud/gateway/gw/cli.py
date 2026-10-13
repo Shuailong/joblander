@@ -9,6 +9,8 @@
   upgrade <image>              把全部用户 machine 换到新镜像（数据在卷上，不受影响）
   feedback [n]                 最近 n 条用户反馈（默认 20）
   reset <email>                销毁该用户的 machine 与卷（数据不可恢复），下次登录按新用户重新开通
+  maintenance on [说明] | off | status
+                               维护模式（切流时用）：只有管理员能进，其他人看「正在搬家」；停发信、停每日汇总、停叫醒 / 挂起
 """
 
 from __future__ import annotations
@@ -68,13 +70,34 @@ def main(argv: list[str]) -> None:
         u = store.get(email)
         print(f"{email} 余额 ${u.balance_usd:.2f}")
     elif cmd == "users":
+        gcp = os.environ.get("GW_MODE") == "gcp"                 # GCP：第三列是账户号（Fly：机器 ID）
         for u in store.all():
-            print(f"{u.email:36} {u.status:12} {u.machine_id or '-':16} "
+            print(f"{u.email:36} {u.status:12} {(u.volume_id if gcp else u.machine_id) or '-':22} "
                   f"余额 ${u.balance_usd:7.2f}  已用 ${u.spent_usd:.2f}  {u.error or ''}")
     elif cmd == "upgrade":
         if os.environ.get("GW_MODE") == "gcp":
             raise SystemExit("GCP 形态没有逐台机器：引擎由流水线一次发布（deploy/gcp/release.sh）")
         asyncio.run(_upgrade(store, args[0]))
+    elif cmd == "maintenance":
+        import json as _json
+        import time as _t
+
+        from gw.store import MAINTENANCE_KEY
+        sub = args[0] if args else "status"
+        if sub == "on":
+            store.set_kv(MAINTENANCE_KEY, _json.dumps({"since": _t.time(), "note": " ".join(args[1:])},
+                                                      ensure_ascii=False))
+        elif sub == "off":
+            store.del_kv(MAINTENANCE_KEY)
+        elif sub != "status":
+            raise SystemExit("用法：maintenance on [说明] | off | status")
+        raw = store.get_kv(MAINTENANCE_KEY)
+        if raw:
+            m = _json.loads(raw)
+            print(f"维护模式：开（{_t.strftime('%m-%d %H:%M', _t.localtime(m.get('since', 0)))} 起）{m.get('note') or ''}"
+                  "；5 秒内各实例生效")
+        else:
+            print("维护模式：关")
     elif cmd == "feedback":
         for f in store.list_feedback(int(args[0]) if args else 20):
             import time as _t

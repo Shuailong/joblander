@@ -36,7 +36,8 @@ locals {
     JOBLANDER_TENANT_TOKEN_SECRET = "tenant-token-secret"
     JOBLANDER_LOG_SALT            = "log-salt"
   }
-  gateway_env = {
+  # 运营设置（管理员、发件人、额度…）在前，平台固定项在后（同名时以平台为准）
+  gateway_env = merge(var.gateway_settings, {
     GW_MODE      = "gcp"
     PUBLIC_HOST  = var.app_domain
     ENGINE_URL   = local.run_url.engine
@@ -45,12 +46,22 @@ locals {
     GW_DB_NAME   = "gateway"
     GW_DB_USER   = "gateway"
     IDLE_MINUTES = "0"
-  }
+  })
   # 隐私 v2：生效日、会话事件进 Pub/Sub、关掉开关 / 删除账户的人每天从 BigQuery 清理
   gateway_v2_env = {
     PRIVACY_V2_DATE = var.privacy_v2_date
     EVENTS_TOPIC    = google_pubsub_topic.events.id
     EVENTS_TABLE    = "${var.project_id}.${google_bigquery_dataset.layers["raw"].dataset_id}.${google_bigquery_table.events.table_id}"
+  }
+  gateway_secrets = {
+    GW_DB_PASSWORD                = "db-gateway-password"
+    GOOGLE_CLIENT_ID              = "google-oauth-client-id"
+    GOOGLE_CLIENT_SECRET          = "google-oauth-client-secret"
+    SESSION_SECRET                = "session-secret"
+    JOBLANDER_TENANT_TOKEN_SECRET = "tenant-token-secret"
+    RESEND_API_KEY                = "resend-api-key"
+    MODEL_PRICES                  = "model-prices"
+    JOBLANDER_LOG_SALT            = "log-salt"
   }
   vpc_egress = {
     network    = google_compute_network.vpc.id
@@ -100,16 +111,7 @@ resource "google_cloud_run_v2_service" "gateway" {
         }
       }
       dynamic "env" {
-        for_each = {
-          GW_DB_PASSWORD                = "db-gateway-password"
-          GOOGLE_CLIENT_ID              = "google-oauth-client-id"
-          GOOGLE_CLIENT_SECRET          = "google-oauth-client-secret"
-          SESSION_SECRET                = "session-secret"
-          JOBLANDER_TENANT_TOKEN_SECRET = "tenant-token-secret"
-          RESEND_API_KEY                = "resend-api-key"
-          MODEL_PRICES                  = "model-prices"
-          JOBLANDER_LOG_SALT            = "log-salt"
-        }
+        for_each = local.gateway_secrets
         content {
           name = env.key
           value_source {
@@ -163,8 +165,8 @@ resource "google_cloud_run_v2_service" "meter" {
         limits = { cpu = "1", memory = "512Mi" }
       }
       dynamic "env" {
-        for_each = { GW_ROLE = "meter", GW_MODE = "gcp", GW_DB_HOST = local.sql_host,
-        GW_DB_NAME = "gateway", GW_DB_USER = "gateway" }
+        for_each = merge(var.gateway_settings, { GW_ROLE = "meter", GW_MODE = "gcp", GW_DB_HOST = local.sql_host,
+        GW_DB_NAME = "gateway", GW_DB_USER = "gateway" })
         content {
           name  = env.key
           value = env.value
@@ -495,6 +497,115 @@ resource "google_cloud_run_v2_job" "migrate" {
             secret_key_ref {
               secret  = local.secret["db-engine-app-password"]
               version = "latest"
+            }
+          }
+        }
+      }
+    }
+  }
+  lifecycle {
+    ignore_changes = [template[0].template[0].containers[0].image, client, client_version]
+  }
+  depends_on = [google_secret_manager_secret_iam_member.access]
+}
+
+# ---------- 切流（Fly → GCP，deploy/gcp/cutover.py 调用）与管理命令 ----------
+# cutover：把 Fly 卷的打包导入引擎账户并逐文件比对（引擎镜像，任务服务的服务账号：库、密钥、大文件桶都有权限）
+resource "google_cloud_run_v2_job" "cutover" {
+  name                = "${local.name}-cutover"
+  project             = var.project_id
+  location            = var.region
+  deletion_protection = var.deletion_protection
+  labels              = local.labels
+  template {
+    task_count = 1
+    template {
+      service_account = google_service_account.sa["worker"].email
+      max_retries     = 0
+      timeout         = "14400s"
+      vpc_access {
+        egress = "ALL_TRAFFIC"
+        network_interfaces {
+          network    = local.vpc_egress.network
+          subnetwork = local.vpc_egress.subnetwork
+        }
+      }
+      containers {
+        image = var.engine_image
+        resources {
+          limits = { cpu = "2", memory = "4Gi" }
+        }
+        dynamic "env" {
+          for_each = merge(local.engine_env, { JOBLANDER_ROLE = "cutover" })
+          content {
+            name  = env.key
+            value = env.value
+          }
+        }
+        dynamic "env" {
+          for_each = local.engine_secrets
+          content {
+            name = env.key
+            value_source {
+              secret_key_ref {
+                secret  = local.secret[env.value]
+                version = "latest"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  lifecycle {
+    ignore_changes = [template[0].template[0].containers[0].image, client, client_version]
+  }
+  depends_on = [google_secret_manager_secret_iam_member.access]
+}
+
+# gw-cutover：Fly 网关库 → 本环境网关库；gw-cli：管理命令（邀请、加额度、维护模式……），参数在执行时给
+resource "google_cloud_run_v2_job" "gateway_tool" {
+  for_each            = { "gw-cutover" = "gw.cutover", "gw-cli" = "gw.cli" }
+  name                = "${local.name}-${each.key}"
+  project             = var.project_id
+  location            = var.region
+  deletion_protection = var.deletion_protection
+  labels              = local.labels
+  template {
+    task_count = 1
+    template {
+      service_account = google_service_account.sa["gateway"].email
+      max_retries     = 0
+      timeout         = "3600s"
+      vpc_access {
+        egress = "ALL_TRAFFIC"
+        network_interfaces {
+          network    = local.vpc_egress.network
+          subnetwork = local.vpc_egress.subnetwork
+        }
+      }
+      containers {
+        image   = var.gateway_image
+        command = ["python", "-m", each.value]
+        resources {
+          limits = { cpu = "1", memory = "2Gi" }
+        }
+        dynamic "env" {
+          for_each = merge(local.gateway_env, local.gateway_v2_env)
+          content {
+            name  = env.key
+            value = env.value
+          }
+        }
+        dynamic "env" {
+          for_each = local.gateway_secrets
+          content {
+            name = env.key
+            value_source {
+              secret_key_ref {
+                secret  = local.secret[env.value]
+                version = "latest"
+              }
             }
           }
         }

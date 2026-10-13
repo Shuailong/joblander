@@ -4,7 +4,7 @@
 `modules/platform`，按环境实例化：`envs/staging`、`envs/prod`（各自独立项目）。
 
 ```
-负载均衡器（Cloud Armor · CDN · 托管证书 · 地理位置头）
+负载均衡器（Cloud Armor · CDN · 证书（Certificate Manager，DNS 授权）· 地理位置头）
   ├─ app.ailayoff.me ──→ gateway ──账户令牌──→ engine ──→ meter（OpenAI / Tavily）
   │                        │                     └──→ sandbox（练兵场代码，无权限、无出网）
   │                        └──开通 / 删除 / 迁移──→ worker ←─ Cloud Tasks ←─ Cloud Scheduler（每分钟）
@@ -25,7 +25,8 @@
 3. **环境**（先 staging 后 prod）：
    ```bash
    cd envs/staging
-   cp terraform.tfvars.example terraform.tfvars   # 改成真实值
+   cp terraform.tfvars.example terraform.tfvars   # 改成真实值：gateway_settings（管理员、发件人…）、
+                                                  # privacy_v2_date、DNS（serve_from / legacy_records）
    terraform init -backend-config="bucket=jl-shared-tf-state"
    terraform apply
    ```
@@ -38,12 +39,22 @@
 5. **Google 登录**：在 `jl-prod` 建 OAuth 客户端（Web 应用），回调地址
    `https://app.ailayoff.me/auth/callback`，客户端 ID / 密钥放进对应密钥。
 6. **管理后台的 IAP**（可选）：建 OAuth 品牌与客户端，在 tfvars 里打开 `iap.enabled` 并填成员。
-7. **DNS**：`manage_dns = true` 时把 GoDaddy 的 NS 改成输出里的 `dns_name_servers`；
-   Resend 的 DKIM / SPF / MX 记录先抄进 `extra_dns_records`。托管证书在 DNS 生效后自动签发（约 15–60 分钟）。
+7. **DNS 与证书**：先托管、后切流。`manage_dns = true` 时 Cloud DNS 里的 app / 官网记录按 `serve_from` 指向：
+   `legacy` = 仍指 Fly / Vercel（`legacy_records`），`gcp` = 本负载均衡器。GoDaddy 上其余记录（Resend 等）全部抄进
+   `extra_dns_records`，核对无误后再把 GoDaddy 的 NS 改成输出里的 `dns_name_servers`。
+   证书走 Certificate Manager 的 DNS 授权（`_acme-challenge` 记录自动加进 Cloud DNS；不托管时见输出 `dns_for_registrar`
+   手工加），所以**切流前就能签好**，不会出现「切过去了证书还在签」的空窗。整个过程见
+   `cloud/gateway/OPERATIONS.gcp.md`「切流」。
 8. **数据库迁移**：每次发布前跑一次迁移作业（CI 会自动跑）：
    ```bash
    gcloud run jobs execute jl-prod-migrate --region asia-southeast1 --wait --project jl-prod
    ```
+9. **发布触发器**（控制台 Cloud Build，项目 `jl-shared`，先连上 GitHub 仓库）：
+   主干推送 → `deploy/gcp/cloudbuild.yaml`（自动发 staging）；手动 + 需审批 → `cloudbuild.prod.yaml`（生产灰度 10%）；
+   手动 → `cloudbuild.promote.yaml`（转正 / `_ROLLBACK=1` 回滚）；`site/**` 变更 → `cloudbuild.site.yaml`。
+   服务账号都用 bootstrap 建的发布身份。
+
+日常运维（发布、配置、告警、恢复、维护模式、切流）见 `cloud/gateway/OPERATIONS.gcp.md`。
 
 ## 约定
 

@@ -212,19 +212,52 @@ resource "google_compute_url_map" "https" {
   }
 }
 
-resource "google_compute_managed_ssl_certificate" "main" {
+# 证书：Certificate Manager + DNS 授权。授权记录（_acme-challenge 的 CNAME）一加上证书就开始签，
+# 不必等 DNS 指过来——切流那一刻证书已经是好的，不会出现「切过去了但证书还在签」的空窗。
+locals {
+  front_hosts = [var.app_domain, var.site_domain, "www.${var.site_domain}"]
+}
+
+resource "google_certificate_manager_dns_authorization" "front" {
+  for_each   = toset(local.front_hosts)
+  name       = "${local.name}-${replace(each.value, ".", "-")}"
+  project    = var.project_id
+  domain     = each.value
+  labels     = local.labels
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_certificate_manager_certificate" "main" {
   name    = "${local.name}-cert"
   project = var.project_id
+  labels  = local.labels
   managed {
-    domains = [var.app_domain, var.site_domain, "www.${var.site_domain}"]
+    domains            = local.front_hosts
+    dns_authorizations = [for h in local.front_hosts : google_certificate_manager_dns_authorization.front[h].id]
   }
 }
 
+resource "google_certificate_manager_certificate_map" "main" {
+  name    = "${local.name}-certs"
+  project = var.project_id
+  labels  = local.labels
+}
+
+resource "google_certificate_manager_certificate_map_entry" "front" {
+  for_each     = toset(local.front_hosts)
+  name         = "${local.name}-${replace(each.value, ".", "-")}"
+  project      = var.project_id
+  map          = google_certificate_manager_certificate_map.main.name
+  hostname     = each.value
+  certificates = [google_certificate_manager_certificate.main.id]
+  labels       = local.labels
+}
+
 resource "google_compute_target_https_proxy" "https" {
-  name             = "${local.name}-https-proxy"
-  project          = var.project_id
-  url_map          = google_compute_url_map.https.id
-  ssl_certificates = [google_compute_managed_ssl_certificate.main.id]
+  name            = "${local.name}-https-proxy"
+  project         = var.project_id
+  url_map         = google_compute_url_map.https.id
+  certificate_map = "//certificatemanager.googleapis.com/${google_certificate_manager_certificate_map.main.id}"
 }
 
 resource "google_compute_global_forwarding_rule" "https" {
@@ -262,6 +295,17 @@ resource "google_compute_global_forwarding_rule" "http" {
 }
 
 # ---------- Cloud DNS（可选：GoDaddy 把 NS 指过来即可） ----------
+# 先托管、后切流：serve_from = legacy 时 app / 官网仍指向 Fly 与 Vercel（原样搬过来的记录），
+# NS 指过来、全网生效之后，切流那一刻把 serve_from 改成 gcp 再 apply——只改记录的值，TTL 300 秒。
+# 两种状态下 A 记录同名同类型，Terraform 原地改值，不会先删后建。
+locals {
+  front_records = merge([
+    for h in local.front_hosts : var.serve_from == "gcp"
+    ? { "${h}/A" = { name = h, type = "A", rrdatas = [google_compute_global_address.lb.address] } }
+    : { for t, v in lookup(var.legacy_records, h, {}) : "${h}/${t}" => { name = h, type = t, rrdatas = v } }
+  ]...)
+}
+
 resource "google_dns_managed_zone" "site" {
   count    = var.manage_dns ? 1 : 0
   name     = replace(var.site_domain, ".", "-")
@@ -271,17 +315,34 @@ resource "google_dns_managed_zone" "site" {
   dnssec_config {
     state = "on"
   }
+  lifecycle {
+    precondition {
+      condition     = var.serve_from == "gcp" || alltrue([for h in local.front_hosts : contains(keys(var.legacy_records), h)])
+      error_message = "serve_from = legacy 时，legacy_records 必须给出 app、官网与 www 三个域名的原记录（否则托管过来就断）。"
+    }
+  }
   depends_on = [google_project_service.apis]
 }
 
-resource "google_dns_record_set" "lb" {
-  for_each     = var.manage_dns ? toset([var.app_domain, var.site_domain, "www.${var.site_domain}"]) : toset([])
+resource "google_dns_record_set" "front" {
+  for_each     = var.manage_dns ? local.front_records : {}
   project      = var.project_id
   managed_zone = google_dns_managed_zone.site[0].name
-  name         = "${each.value}."
-  type         = "A"
+  name         = "${each.value.name}."
+  type         = each.value.type
   ttl          = 300
-  rrdatas      = [google_compute_global_address.lb.address]
+  rrdatas      = each.value.rrdatas
+}
+
+# 证书的 DNS 授权记录（不托管 DNS 时见输出 dns_for_registrar，手工加到 GoDaddy）
+resource "google_dns_record_set" "acme" {
+  for_each     = var.manage_dns ? google_certificate_manager_dns_authorization.front : {}
+  project      = var.project_id
+  managed_zone = google_dns_managed_zone.site[0].name
+  name         = each.value.dns_resource_record[0].name
+  type         = each.value.dns_resource_record[0].type
+  ttl          = 300
+  rrdatas      = [each.value.dns_resource_record[0].data]
 }
 
 resource "google_dns_record_set" "extra" {

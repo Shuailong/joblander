@@ -157,8 +157,15 @@ resource "google_storage_bucket" "migration" {
   depends_on = [google_kms_crypto_key_iam_member.data_users]
 }
 
-resource "google_storage_bucket_iam_member" "migration_reader" {
+# 迁移暂存桶：任务服务账号读打包、写导入报告（切流作业用它）；网关账号读网关库备份与报告
+resource "google_storage_bucket_iam_member" "migration_worker" {
+  bucket = google_storage_bucket.migration.name
+  role   = "roles/storage.objectUser"
+  member = "serviceAccount:${google_service_account.sa["worker"].email}"
+}
+
+resource "google_storage_bucket_iam_member" "migration_gateway" {
   bucket = google_storage_bucket.migration.name
   role   = "roles/storage.objectViewer"
-  member = "serviceAccount:${google_service_account.sa["worker"].email}"
+  member = "serviceAccount:${google_service_account.sa["gateway"].email}"
 }

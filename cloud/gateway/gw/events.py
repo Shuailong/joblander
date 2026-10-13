@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import time
+import urllib.parse
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -50,10 +51,24 @@ def geo(request: Request) -> dict:
 
 def device(ua: str) -> dict:
     u = ua.lower()
+    if any(w in u for w in ("bot", "spider", "crawl", "slurp", "headless")):
+        return {"device": "bot", "browser": "other"}
     kind = "tablet" if ("ipad" in u or "tablet" in u) else "mobile" if ("mobi" in u or "android" in u) else "desktop"
     browser = ("edge" if "edg/" in u else "chrome" if "chrome/" in u or "crios" in u else
                "firefox" if "firefox/" in u or "fxios" in u else "safari" if "safari/" in u else "other")
     return {"device": kind, "browser": browser}
+
+
+def site_pageview(pub, request: Request, body: dict, now: float | None = None) -> dict | None:
+    """官网页面浏览：路径只收简单字符、来源只留域名。机器人照记（device = bot），分析时滤掉。"""
+    path = str(body.get("p") or "")[:100]                    # 没带路径（不是我们的埋点）就不记
+    if not re.fullmatch(r"/[A-Za-z0-9/_.\-]*", path):
+        return None
+    ref = urllib.parse.urlsplit(str(body.get("r") or "")[:500]).hostname or ""
+    ev = {"v": 1, "type": "site_pv", "at": time.time() if now is None else now, "path": path, "ref": ref[:100],
+          "country": geo(request)["country"], **device(request.headers.get("user-agent") or "")}
+    pub.emit(ev)
+    return ev
 
 
 class Publisher:

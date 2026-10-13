@@ -42,3 +42,11 @@ output "dns_name_servers" {
 output "tasks_queue" {
   value = google_cloud_tasks_queue.jobs.id
 }
+
+output "dns_for_registrar" {
+  description = "证书的 DNS 授权记录（manage_dns = true 时已自动加进 Cloud DNS，否则手工加到 GoDaddy）与当前流量指向"
+  value = {
+    acme_challenges = { for h, a in google_certificate_manager_dns_authorization.front : h => a.dns_resource_record[0] }
+    serve_from      = var.serve_from
+  }
+}

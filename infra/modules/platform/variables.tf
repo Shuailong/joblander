@@ -34,6 +34,22 @@ variable "manage_dns" {
   default     = false
 }
 
+variable "serve_from" {
+  description = "app 与官网的流量指向：legacy = 仍在 Fly / Vercel（切流前），gcp = 本环境的负载均衡器。只在 manage_dns = true 时起作用"
+  type        = string
+  default     = "legacy"
+  validation {
+    condition     = contains(["legacy", "gcp"], var.serve_from)
+    error_message = "只能是 legacy 或 gcp。"
+  }
+}
+
+variable "legacy_records" {
+  description = "切流前 app / 官网的原记录：{ 域名 = { A = [...], AAAA = [...] } }。用 A / AAAA 而不是 CNAME，切流时才能原地改值"
+  type        = map(map(list(string)))
+  default     = {}
+}
+
 variable "extra_dns_records" {
   description = "原样搬过来的其他记录（Resend 的 DKIM / SPF / MX 等）"
   type = list(object({
@@ -98,6 +114,18 @@ variable "sql" {
     tier              = "db-custom-2-8192"
     high_availability = true
     disk_gb           = 50
+  }
+}
+
+variable "gateway_settings" {
+  description = <<-EOT
+    网关与计量的运营设置（Fly 上原来是 fly secrets 里的这些）：ADMIN_EMAILS（必填）、FEEDBACK_TO、MAIL_FROM、
+    DIGEST_AT、MAIL_DAILY_LIMIT、FREE_CREDIT_USD、LOW_BALANCE_USD、SEARCH_PRICE_USD。值的含义见 cloud/gateway/OPERATIONS.gcp.md
+  EOT
+  type        = map(string)
+  validation {
+    condition     = trimspace(lookup(var.gateway_settings, "ADMIN_EMAILS", "")) != ""
+    error_message = "gateway_settings 里必须有 ADMIN_EMAILS（否则没人进得了管理后台）。"
   }
 }
 

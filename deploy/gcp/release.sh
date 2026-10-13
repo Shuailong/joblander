@@ -8,6 +8,11 @@ region="${REGION:-asia-southeast1}"
 
 gcloud run jobs update "${prefix}-migrate" --image "$engine" --project "$project" --region "$region" --quiet
 gcloud run jobs execute "${prefix}-migrate" --wait --project "$project" --region "$region"
+# 其余作业也换上新镜像：切流导入（引擎）、网关库复制与管理命令（网关）
+gcloud run jobs update "${prefix}-cutover" --image "$engine" --project "$project" --region "$region" --quiet
+for j in gw-cutover gw-cli; do
+  gcloud run jobs update "${prefix}-$j" --image "$gateway" --project "$project" --region "$region" --quiet
+done
 
 deploy() {  # 服务 镜像
   local svc="${prefix}-$1" image="$2"

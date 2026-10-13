@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS grants (
 );
 """
 
+MAINTENANCE_KEY = "maintenance"     # kv：维护模式（切流时打开）；值是 {"since": 时间, "note": 说明}
+
 
 def hash_key(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()

@@ -226,3 +226,103 @@ def test_client_ip_behind_google_load_balancer(monkeypatch):
     assert client_ip(req) == "203.0.113.7"
     monkeypatch.delenv("GW_MODE")
     assert client_ip(req) == "6.6.6.6"                                         # Fly：入口代理覆盖过这个头
+
+
+# ---------- 切流：Fly 网关的 SQLite 库 → GCP 网关库 ----------
+
+def _sqlite_store(path):
+    """真 SQLite 文件上的网关库（Postgres 模式下 db.connect 换成了连 Postgres，这里绕开）。"""
+    import sqlite3
+
+    from gw import db
+    from gw.store import Store
+
+    def real(target):
+        conn = sqlite3.connect(target, check_same_thread=False, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        return conn
+    orig, db.connect = db.connect, real
+    try:
+        return Store(str(path))
+    finally:
+        db.connect = orig
+
+
+def _fly_db(tmp_path):
+    from gw.store import MAINTENANCE_KEY
+    src = _sqlite_store(tmp_path / "fly.sqlite")
+    src.create("a@x.com", 2.0)
+    src.set_status("a@x.com", "ready", machine_id="m_1", volume_id="vol_1")
+    src.create("n@x.com", 2.0)                                       # 登录过但从没开通
+    src.charge("a@x.com", "gpt-5.6-sol", 100, 20, 0.25)
+    src.grant("a@x.com", 5, "朋友内测")
+    src.enqueue_mail("b@x.com", "invited", "zh", {"x": "1"})
+    src.set_kv(MAINTENANCE_KEY, json.dumps({"since": 1.0, "note": "搬家"}))
+    src.set_geo("a@x.com", "203.0.113.9", {"country": "SG", "city": "Singapore"})
+    return tmp_path / "fly.sqlite"
+
+
+def _target(tmp_path):
+    import os
+    return os.environ.get("GW_TEST_PG_DSN") or str(tmp_path / "gcp.sqlite")
+
+
+PLAN = {"users": [{"email": "a@x.com", "machine_id": "m_1", "volume_id": "vol_1", "tenant_id": "t0123456789abcdef0123"},
+                  {"email": "n@x.com", "machine_id": None, "volume_id": None, "tenant_id": None}]}
+REPORT = {"tenants": {"t0123456789abcdef0123": {"ok": True}}}
+
+
+def test_cutover_copies_every_table_and_maps_accounts(tmp_path):
+    from gw import cutover
+    from gw.store import MAINTENANCE_KEY, Store
+    import sqlite3
+    src = _fly_db(tmp_path)
+    counts = cutover.copy(src, _target(tmp_path), PLAN, REPORT)
+    with sqlite3.connect(src) as c:
+        assert counts == {t: c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in counts}
+    assert counts["users"] == 2 and counts["usage"] == 1 and counts["mail_queue"] == 1 and counts["geo"] == 1
+    gcp = Store(_target(tmp_path))
+    a, n = gcp.get("a@x.com"), gcp.get("n@x.com")
+    assert (a.volume_id, a.machine_id, a.status) == ("t0123456789abcdef0123", "shared", "ready")
+    assert (n.volume_id, n.machine_id, n.status) == (None, None, "new")
+    assert round(a.balance_usd, 2) == round(2 + 5 - 0.25, 2)                  # 额度与花费原样
+    assert gcp.by_tenant("t0123456789abcdef0123").email == "a@x.com"         # 计量按账户号认人
+    assert json.loads(gcp.get_kv(MAINTENANCE_KEY))["note"] == "搬家"          # 新网关起来时仍在维护中
+    assert gcp.next_mail()["to_email"] == "b@x.com"                            # 没发完的信接着发
+    gcp.grant("a@x.com", 1, "切流后")                                          # 自增序列接上了
+    assert len([r for r in gcp.db.execute("SELECT id FROM grants")]) == counts["grants"] + 1
+
+
+def test_cutover_refuses_red_report_and_newer_target(tmp_path):
+    import time
+
+    from gw import cutover
+    from gw.store import Store
+    src = _fly_db(tmp_path)
+    with pytest.raises(SystemExit, match="a@x.com"):
+        cutover.copy(src, _target(tmp_path), PLAN, {"tenants": {"t0123456789abcdef0123": {"ok": False, "error": "缺 3 个文件"}}})
+    cutover.copy(src, _target(tmp_path), PLAN, REPORT)
+    cutover.copy(src, _target(tmp_path), PLAN, REPORT)                          # 彩排后再跑：同一份备份可以重来
+    Store(_target(tmp_path)).charge("a@x.com", "gpt-5.6-sol", 1, 1, 0.01)     # GCP 已经在服务用户
+    Store(_target(tmp_path)).db.execute("UPDATE usage SET at=? WHERE cost_usd=0.01", (time.time() + 3600,))
+    with pytest.raises(SystemExit, match="--force"):
+        cutover.copy(src, _target(tmp_path), PLAN, REPORT)
+    cutover.copy(src, _target(tmp_path), PLAN, REPORT, force=True)
+    assert Store(_target(tmp_path)).db.execute("SELECT COUNT(*) AS n FROM usage").fetchone()["n"] == 1
+
+
+def test_site_pageview_beacon_records_no_ip(store, v2):
+    pub = FakePublisher()
+    c = _web(store, [], SessionEvents(pub))
+    hdr = {"x-forwarded-for": "203.0.113.7, 130.211.0.1", "x-client-geo-location": "SG,SG01,Singapore",
+           "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit Chrome/131 Safari/537.36", "content-type": "text/plain"}
+    body = json.dumps({"p": "/interested/", "r": "https://news.ycombinator.com/item?id=123"})
+    assert c.post("/_pv", content=body, headers=hdr).status_code == 204
+    assert c.post("/_pv", content=json.dumps({"p": "/<script>"}), headers=hdr).status_code == 204   # 怪路径不记
+    assert c.post("/_pv", content=b"not json", headers=hdr).status_code == 204
+    c.post("/_pv", content=json.dumps({"p": "/"}), headers={**hdr, "user-agent": "Googlebot/2.1"})
+    (ev, bot) = pub.events
+    assert {k: ev[k] for k in ("type", "path", "ref", "country", "device", "browser")} == \
+        {"type": "site_pv", "path": "/interested/", "ref": "news.ycombinator.com", "country": "SG",
+         "device": "desktop", "browser": "chrome"}
+    assert "ip" not in ev and "user_key" not in ev and bot["device"] == "bot"

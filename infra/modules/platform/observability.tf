@@ -26,7 +26,7 @@ locals {
   p1_channels = concat([google_monitoring_notification_channel.email.id],
   [for c in google_monitoring_notification_channel.sms : c.id])
   p2_channels = [google_monitoring_notification_channel.email.id]
-  runbook     = "https://github.com/Shuailong/joblander/blob/main/cloud/gateway/OPERATIONS.md"
+  runbook     = "https://github.com/Shuailong/joblander/blob/main/cloud/gateway/OPERATIONS.gcp.md"
 }
 
 # ---------- Uptime 检查（三个地区，每分钟） ----------

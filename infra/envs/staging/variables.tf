@@ -61,3 +61,20 @@ variable "privacy_v2_date" {
   description = "隐私说明 v2 生效日（YYYY-MM-DD）"
   type        = string
 }
+
+variable "serve_from" {
+  description = "app 与官网的流量指向：legacy（切流前）或 gcp"
+  type        = string
+  default     = "legacy"
+}
+
+variable "legacy_records" {
+  description = "切流前 app / 官网的原记录（A / AAAA）"
+  type        = map(map(list(string)))
+  default     = {}
+}
+
+variable "gateway_settings" {
+  description = "网关与计量的运营设置（ADMIN_EMAILS 必填）"
+  type        = map(string)
+}

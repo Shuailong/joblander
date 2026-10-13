@@ -5,11 +5,31 @@ manage_dns      = true
 alert_email     = "ops@ailayoff.me"
 alert_sms       = ""
 billing_account = "XXXXXX-XXXXXX-XXXXXX"
-# Resend 的发信记录原样搬过来（从 GoDaddy 抄）：
+# ---- DNS：先托管、后切流（见 cloud/gateway/OPERATIONS.gcp.md「切流」）----
+# 切流前（serve_from = "legacy"）app / 官网照旧指向 Fly 与 Vercel。用 A / AAAA，不用 CNAME：切流时原地改值。
+# 2026-10-13 查到的现值；托管前用 `fly ips list -a joblander-gw` 与 Vercel 后台再核对一遍。
+serve_from = "legacy"
+legacy_records = {
+  "app.ailayoff.me" = { A = ["66.241.125.165"], AAAA = ["2a09:8280:1::1a6:a9b1:0"] }
+  "ailayoff.me"     = { A = ["76.76.21.21"] }
+  "www.ailayoff.me" = { A = ["76.76.21.21"] }
+}
+# GoDaddy 上其余记录原样搬过来（托管前在 GoDaddy 的 DNS 页面逐条核对，别漏）：
 extra_dns_records = [
-  # { name = "resend._domainkey.ailayoff.me.", type = "TXT", ttl = 3600, rrdatas = ["\"p=MIGf...\""] },
-  # { name = "send.ailayoff.me.", type = "MX", ttl = 3600, rrdatas = ["10 feedback-smtp.ap-northeast-1.amazonses.com."] },
-  # { name = "send.ailayoff.me.", type = "TXT", ttl = 3600, rrdatas = ["\"v=spf1 include:amazonses.com ~all\""] },
+  { name = "send.ailayoff.me.", type = "CNAME", ttl = 3600, rrdatas = ["send.forge.rmta.net."] },
+  { name = "resend._domainkey.ailayoff.me.", type = "TXT", ttl = 3600, rrdatas = ["\"p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC1s6Vhew6FeU/N3doOR...（从 GoDaddy 抄完整值）\""] },
+  { name = "_dmarc.ailayoff.me.", type = "TXT", ttl = 3600, rrdatas = ["\"v=DMARC1; p=quarantine; adkim=r; aspf=r; rua=mailto:dmarc_rua@onsecureserver.net;\""] },
 ]
 # 隐私说明 v2 生效日 = 切流当天（这天之前开通的是老用户：确认后 14 天才开始采集行为数据）
 privacy_v2_date = "2026-11-02"
+
+# 网关与计量的运营设置（Fly 上是 fly secrets；`fly secrets list -a joblander-gw` 看有哪些，值照抄）
+gateway_settings = {
+  ADMIN_EMAILS     = "you@example.com"
+  MAIL_FROM        = "joblander <hello@ailayoff.me>"
+  FEEDBACK_TO      = "you@example.com"
+  DIGEST_AT        = "09:00"
+  MAIL_DAILY_LIMIT = "90"
+  FREE_CREDIT_USD  = "2"
+  LOW_BALANCE_USD  = "0.5"
+}

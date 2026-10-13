@@ -21,11 +21,11 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from gw import pages
 from gw.flyapi import Fly
-from gw.store import Store, User
+from gw.store import MAINTENANCE_KEY, Store, User
 
 SESSION_COOKIE = "jl_session"
 SESSION_TTL = 30 * 86400
@@ -110,14 +110,41 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
     async def healthz():                   # Cloud Run 启动探针与 Uptime 检查
         return {"ok": True}
 
+    @app.post("/_pv")
+    async def site_pageview(request: Request):
+        """官网（存储桶 + CDN）的自有页面埋点：负载均衡器把官网域名下的 /_pv 转到这里。
+        只记页面路径、来源网站（只留域名）、国家与设备类型；不记 IP、不设 Cookie、不认人。"""
+        if settings.events is not None:
+            from gw.events import site_pageview as _pv
+            try:
+                body = json.loads((await request.body())[:2048] or b"{}")
+            except ValueError:
+                body = {}
+            _pv(settings.events.pub, request, body)
+        return Response(status_code=204)
+
     def leading() -> bool:
         return settings.leader is None or settings.leader.ok()
+
+    maint = {"at": 0.0, "on": None}
+
+    def maintenance() -> dict | None:
+        """维护模式（切流时打开，见 gw.cli maintenance）：多实例共用库里的开关，每 5 秒看一次。"""
+        now = time.time()
+        if now - maint["at"] > 5:
+            raw = store.get_kv(MAINTENANCE_KEY)
+            try:
+                maint.update(at=now, on=json.loads(raw) if raw else None)
+            except ValueError:
+                maint.update(at=now, on={"note": ""})
+        return maint["on"]
     http = upstream or httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10))
     google = httpx.AsyncClient(timeout=20)
     provisioning: dict[str, asyncio.Task] = {}
     from gw.sleep import Sleeper
     sleeper = Sleeper(store, fly, http, idle_minutes=settings.idle_minutes, wake_at=settings.wake_at,
-                      tz=settings.timezone, public_host=settings.public_host)
+                      tz=settings.timezone, public_host=settings.public_host,
+                      paused=lambda: maintenance() is not None)     # 维护中：不叫醒、不挂起（导出要用机器）
     app.state.sleeper = sleeper
 
     async def start_sleeper():
@@ -153,7 +180,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         mail_wake[:] = [asyncio.Event()]
         last_prune = 0.0
         while True:
-            if not leading():                   # 多实例：别的实例在发
+            if not leading() or maintenance():  # 多实例：别的实例在发；维护中：队列原样留给切流后的新网关
                 await asyncio.sleep(30)
                 continue
             now = time.time()
@@ -224,7 +251,7 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
         hh, mm = (int(x) for x in settings.digest_at.split(":"))
         while True:
             now = datetime.now(tz)
-            if (leading() and (now.hour, now.minute) >= (hh, mm)
+            if (leading() and not maintenance() and (now.hour, now.minute) >= (hh, mm)
                     and store.get_kv("digest_day") != now.strftime("%Y-%m-%d")):
                 try:
                     if await send_digest() is not False:
@@ -242,13 +269,32 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
     log = logging.getLogger("uvicorn.error")
 
     @app.middleware("http")
+    async def maintenance_gate(request: Request, call_next):
+        """维护中：只放管理员（切流后自测用），其他人看「正在搬家」。登录流程照常，好让管理员登进来。"""
+        m = maintenance()
+        p = request.url.path
+        if m is None or p in ("/healthz", "/_pv") or p.startswith(("/_gw/static/", "/auth/", "/_gw/lang")):
+            return await call_next(request)
+        if (current(request) or "").lower() in settings.admins:
+            return await call_next(request)
+        lg = lang(request)
+        t, body = pages.msg("maint_title", lg), pages.msg("maint_body", lg)
+        if p.startswith(("/api/", "/_gw/")) or "application/json" in (request.headers.get("accept") or ""):
+            return JSONResponse({"error": body, "maintenance": True}, status_code=503, headers={"retry-after": "600"})
+        note = f'<p class="muted">{html.escape(m.get("note") or "")}</p>' if m.get("note") else ""
+        r = _page(t, f"<h1>{t}</h1><p>{body}</p>{note}", refresh=300, lang=lg)
+        r.status_code = 503
+        r.headers["retry-after"] = "600"
+        return r
+
+    @app.middleware("http")
     async def redacted_access_log(request: Request, call_next):
         """访问日志只记方法、路由大类、状态码、IP——URL 里可能有公司名与文档名，不进日志。"""
         t0 = time.time()
         resp = await call_next(request)
         p = request.url.path
         kind = next((k for k in ("/_gw/static", "/_gw/", "/auth/", "/api/", "/static/") if p.startswith(k)), "page")
-        ip = request.client.host if request.client else "-"
+        ip = client_ip(request) or "-"
         log.info("%s %s %s %dms %s", request.method, kind, resp.status_code, (time.time() - t0) * 1000, ip)
         return resp
 

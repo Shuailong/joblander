@@ -42,8 +42,9 @@ def parse_wake(spec: str) -> list[tuple[int | None, int, int]]:
 
 class Sleeper:
     def __init__(self, store: Store, fly: Fly, http: httpx.AsyncClient, *, idle_minutes: int,
-                 wake_at: str, tz: str, public_host: str, now: float | None = None):
+                 wake_at: str, tz: str, public_host: str, now: float | None = None, paused=None):
         self.store, self.fly, self.http = store, fly, http
+        self.paused = paused or (lambda: False)          # 维护中（切流导出）：不叫醒也不挂起
         self.idle = idle_minutes * 60
         self.public_host = public_host               # 引擎只认这个 Host（挡 DNS rebinding），内网地址会被 421
         self.wake_at = parse_wake(wake_at)
@@ -173,6 +174,8 @@ class Sleeper:
 
     async def tick(self, now: float | None = None) -> None:
         now = now or time.time()
+        if self.paused():
+            return
         if self.due_wakes(now):
             n = await self.wake_all()
             log.info("scheduled wake: %d machine(s)", n)

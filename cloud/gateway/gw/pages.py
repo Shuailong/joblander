@@ -403,6 +403,10 @@ MSG = {
  "google_refused": ("Google 没有确认这次登录，请重试。", "Google didn't confirm this sign-in — please try again."),
  "unverified": ("这个 Google 账号的邮箱未验证。", "This Google account's email isn't verified."),
  "relogin": ("重新登录", "Sign in again"),
+ "maint_title": ("正在搬家", "Moving to new servers"),
+ "maint_body": ("joblander 正在搬到新的服务器，你的数据会原样搬过去。很快恢复，请稍后再来（这个页面会自己刷新）。",
+                "joblander is moving to new servers and your data is moving with it. We'll be back shortly — "
+                "this page refreshes on its own."),
  "beta": ("还在内测", "Invite-only beta"),
  "not_invited": ("{email} 还不在邀请名单里。我已经收到通知，加上后你直接回来登录就行；也可以找拉你进来的朋友催一下。",
                  "{email} isn't on the invite list yet. I've been notified — once you're added, just come back and sign in. "

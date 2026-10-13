@@ -1050,3 +1050,44 @@ def test_admin_reminds_invited_but_not_signed_in(store, monkeypatch):
     assert "/" in by["zh@x.com"]["subject"]                                    # 什么线索都没有：中英都放
     assert all(i["mailed_at"] for i in store.admin_snapshot(0)["pending_invites"])
     c.__exit__(None, None, None)
+
+
+# ---------- 维护模式（切流） ----------
+
+def test_maintenance_mode_lets_only_admins_in(store, capsys, monkeypatch):
+    from gw import cli
+    monkeypatch.setattr(cli, "Store", lambda target: store)
+    for e, m in (("a@x.com", "m_1"), ("boss@x.com", "m_2")):
+        store.create(e, 2.0)
+        store.set_status(e, "ready", machine_id=m, volume_id="vol_" + m)
+    cli.main(["maintenance", "on", "预计 11:00 恢复"])
+    assert "维护模式：开" in capsys.readouterr().out
+    seen = []
+    user = _client(store, _fly([]), _upstream(seen), "a@x.com")
+    r = user.get("/")
+    assert r.status_code == 503 and "正在搬家" in r.text and "预计 11:00 恢复" in r.text and not seen
+    assert user.get("/api/tasks").json()["maintenance"] is True
+    assert user.get("/healthz").status_code == 200 and user.get("/auth/login", follow_redirects=False).status_code != 503
+    boss = _client(store, _fly([]), _upstream(seen), "boss@x.com")
+    assert boss.get("/").status_code == 200 and seen                     # 管理员照常进（切流后先自测）
+    cli.main(["maintenance", "off"])
+    seen.clear()
+    assert _client(store, _fly([]), _upstream(seen), "a@x.com").get("/").status_code == 200 and seen
+
+
+def test_sleeper_neither_wakes_nor_suspends_during_maintenance(store):
+    import asyncio
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from gw.sleep import Sleeper
+    store.create("a@x.com", 1.0)
+    store.set_status("a@x.com", "ready", machine_id="m_1", volume_id="vol_1")
+    after_wake = datetime(2026, 10, 13, 2, 36, tzinfo=ZoneInfo("Asia/Singapore")).timestamp()
+    for paused, expect in ((True, []), (False, ["POST"])):
+        calls = []
+        s = Sleeper(store, _fly(calls), _upstream([]), idle_minutes=15, wake_at="02:35", tz="Asia/Singapore",
+                    public_host="app.test", now=after_wake - 3600, paused=lambda p=paused: p)
+        s.asleep.add("a@x.com")
+        asyncio.run(s.tick(now=after_wake))
+        assert [m for m, *_ in calls][:1] == expect

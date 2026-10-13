@@ -26,6 +26,8 @@ module "platform" {
   site_domain             = var.site_domain
   manage_dns              = var.manage_dns
   extra_dns_records       = var.extra_dns_records
+  serve_from              = var.serve_from
+  legacy_records          = var.legacy_records
   engine_image            = var.engine_image
   gateway_image           = var.gateway_image
   alert_email             = var.alert_email
@@ -33,6 +35,7 @@ module "platform" {
   iap                     = var.iap
   iap_oauth_client_secret = var.iap_oauth_client_secret
   privacy_v2_date         = var.privacy_v2_date
+  gateway_settings        = var.gateway_settings
   billing_account         = var.billing_account
   monthly_budget_usd      = var.monthly_budget_usd
   # staging 平时缩到最小：单 zone 的小实例，引擎不常驻

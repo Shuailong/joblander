@@ -8,6 +8,7 @@ case "${JOBLANDER_ROLE:-}" in
   worker)  exec uvicorn --factory joblander.cloud.worker:create_worker_app  --host 0.0.0.0 --port "$PORT" --no-access-log ;;
   sandbox) exec uvicorn --factory joblander.cloud.sandbox:create_sandbox_app --host 0.0.0.0 --port "$PORT" --no-access-log ;;
   migrate) exec python -m joblander.cloud.migrate_db ;;
+  cutover) exec python -m joblander.cloud.cutover "$@" ;;     # 切流：Fly 卷导入账户（参数由作业执行时给）
   "")      exec entrypoint.sh ;;
   *)       echo "unknown JOBLANDER_ROLE: $JOBLANDER_ROLE" >&2; exit 2 ;;
 esac

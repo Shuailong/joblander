@@ -26,5 +26,11 @@ a{color:var(--accent-ink)}
   <p><a href="/">← back to ailayoff.me</a></p>
 </div>
 <script defer src="/_vercel/insights/script.js"></script>
+<script>
+// 自有页面埋点（迁到 Google Cloud 后用；不记 IP、不设 Cookie）。在 Vercel 上 /_pv 不存在，请求被静默丢弃
+(function () { try { var b = JSON.stringify({ p: location.pathname, r: document.referrer || "" });
+  if (navigator.sendBeacon) navigator.sendBeacon("/_pv", b); else fetch("/_pv", { method: "POST", body: b, keepalive: true });
+} catch (e) {} })();
+</script>
 </body>
 </html>
