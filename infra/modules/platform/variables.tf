@@ -178,6 +178,12 @@ variable "billing_account" {
   default     = ""
 }
 
+variable "budget_currency" {
+  description = "预算的币种，必须与结算账户一致（Billing - Job Lander 是 SGD）"
+  type        = string
+  default     = "SGD"
+}
+
 variable "monthly_budget_usd" {
   description = "月预算（美元），50% / 90% / 100% 告警"
   type        = number

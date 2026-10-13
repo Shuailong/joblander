@@ -41,6 +41,9 @@ resource "google_bigquery_table" "events" {
   project             = var.project_id
   deletion_protection = var.deletion_protection
   labels              = local.labels
+  encryption_configuration {
+    kms_key_name = google_kms_crypto_key.data.id # 与数据集默认的 CMEK 一致（不写的话每次 plan 都要重建表）
+  }
   time_partitioning {
     type          = "DAY"
     field         = "publish_time"

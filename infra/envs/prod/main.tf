@@ -60,6 +60,7 @@ module "platform" {
   gateway_settings        = var.gateway_settings
   billing_account         = var.billing_account
   monthly_budget_usd      = var.monthly_budget_usd
+  budget_currency         = var.budget_currency
   sql = {
     tier              = "db-custom-2-8192"
     high_availability = true

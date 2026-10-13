@@ -60,6 +60,7 @@ module "platform" {
   gateway_settings        = var.gateway_settings
   billing_account         = var.billing_account
   monthly_budget_usd      = var.monthly_budget_usd
+  budget_currency         = var.budget_currency
   # staging 平时缩到最小：单 zone 的共享核实例，网关 / 计量 / 引擎都不常驻（约 $75–80/月）
   sql = {
     tier              = "db-g1-small"

@@ -52,6 +52,11 @@ variable "billing_account" {
   type    = string
   default = ""
 }
+variable "budget_currency" {
+  type    = string
+  default = "SGD"
+}
+
 variable "monthly_budget_usd" {
   type    = number
   default = 1100

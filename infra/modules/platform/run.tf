@@ -130,7 +130,7 @@ resource "google_cloud_run_v2_service" "gateway" {
     }
   }
   lifecycle {
-    ignore_changes = [template[0].containers[0].image, client, client_version, annotations]
+    ignore_changes = [template[0].containers[0].image, client, client_version, annotations, scaling]
   }
   depends_on = [google_secret_manager_secret_iam_member.access]
 }
@@ -199,7 +199,7 @@ resource "google_cloud_run_v2_service" "meter" {
     }
   }
   lifecycle {
-    ignore_changes = [template[0].containers[0].image, client, client_version, annotations]
+    ignore_changes = [template[0].containers[0].image, client, client_version, annotations, scaling]
   }
   depends_on = [google_secret_manager_secret_iam_member.access]
 }
@@ -262,7 +262,7 @@ resource "google_cloud_run_v2_service" "engine" {
     }
   }
   lifecycle {
-    ignore_changes = [template[0].containers[0].image, client, client_version, annotations]
+    ignore_changes = [template[0].containers[0].image, client, client_version, annotations, scaling]
   }
   depends_on = [google_secret_manager_secret_iam_member.access]
 }
@@ -328,7 +328,7 @@ resource "google_cloud_run_v2_service" "worker" {
     }
   }
   lifecycle {
-    ignore_changes = [template[0].containers[0].image, client, client_version, annotations]
+    ignore_changes = [template[0].containers[0].image, client, client_version, annotations, scaling]
   }
   depends_on = [google_secret_manager_secret_iam_member.access]
 }
@@ -378,7 +378,7 @@ resource "google_cloud_run_v2_service" "sandbox" {
     }
   }
   lifecycle {
-    ignore_changes = [template[0].containers[0].image, client, client_version, annotations]
+    ignore_changes = [template[0].containers[0].image, client, client_version, annotations, scaling]
   }
 }
 

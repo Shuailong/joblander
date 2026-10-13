@@ -31,6 +31,8 @@
    terraform apply
    ```
    首次 apply 时服务用的是占位镜像（Google 的 hello 镜像），之后由 CI 发布真实镜像。
+   设了 `billing_account`（预算告警）时，先在该项目开 Cloud Billing API：`gcloud services enable cloudbilling.googleapis.com --project <项目>`；
+   预算币种 `budget_currency` 要与结算账户一致（Billing - Job Lander 是 SGD）。
 4. **填外部密钥**（不进 Terraform 状态）：apply 输出的 `secrets_to_fill` 逐个放值，例如
    ```bash
    printf '%s' "$OPENAI_KEY" | gcloud secrets versions add jl-prod-openai-api-key --data-file=- --project joblander-prod
