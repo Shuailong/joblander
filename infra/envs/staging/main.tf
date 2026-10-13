@@ -2,6 +2,11 @@
 #   terraform init -backend-config="bucket=<状态桶>"
 #   terraform apply
 terraform {
+  required_providers {
+    google      = { source = "hashicorp/google", version = "~> 6.10" }
+    google-beta = { source = "hashicorp/google-beta", version = "~> 6.10" }
+    random      = { source = "hashicorp/random", version = "~> 3.6" }
+  }
   backend "gcs" {
     prefix = "staging"
   }
@@ -17,8 +22,23 @@ provider "google-beta" {
   region  = var.region
 }
 
+# 只给预算用：请求里指明计费项目（预算 API 不收没有计费项目的个人登录凭据）
+provider "google" {
+  alias                 = "billing"
+  project               = var.project_id
+  region                = var.region
+  user_project_override = true
+  billing_project       = var.project_id
+}
+
 module "platform" {
-  source                  = "../../modules/platform"
+  source = "../../modules/platform"
+  providers = {
+    google         = google
+    google-beta    = google-beta
+    google.billing = google.billing
+    random         = random
+  }
   project_id              = var.project_id
   region                  = var.region
   env                     = "staging"
@@ -40,12 +60,14 @@ module "platform" {
   gateway_settings        = var.gateway_settings
   billing_account         = var.billing_account
   monthly_budget_usd      = var.monthly_budget_usd
-  # staging 平时缩到最小：单 zone 的小实例，引擎不常驻
+  # staging 平时缩到最小：单 zone 的共享核实例，网关 / 计量 / 引擎都不常驻（约 $75–80/月）
   sql = {
-    tier              = "db-custom-1-3840"
+    tier              = "db-g1-small"
     high_availability = false
     disk_gb           = 20
   }
-  engine_min_instances = 0
-  deletion_protection  = false
+  gateway_min_instances = 0
+  meter_min_instances   = 0
+  engine_min_instances  = 0
+  deletion_protection   = false
 }

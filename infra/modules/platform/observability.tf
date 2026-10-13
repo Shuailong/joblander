@@ -245,6 +245,7 @@ resource "google_monitoring_alert_policy" "burn" {
 
 # ---------- 云成本预算 ----------
 resource "google_billing_budget" "monthly" {
+  provider        = google.billing
   count           = var.billing_account == "" ? 0 : 1
   billing_account = var.billing_account
   display_name    = "${local.name} 月预算"

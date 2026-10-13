@@ -2,6 +2,11 @@
 #   terraform init -backend-config="bucket=<状态桶>"
 #   terraform apply
 terraform {
+  required_providers {
+    google      = { source = "hashicorp/google", version = "~> 6.10" }
+    google-beta = { source = "hashicorp/google-beta", version = "~> 6.10" }
+    random      = { source = "hashicorp/random", version = "~> 3.6" }
+  }
   backend "gcs" {
     prefix = "prod"
   }
@@ -17,8 +22,23 @@ provider "google-beta" {
   region  = var.region
 }
 
+# 只给预算用：请求里指明计费项目（预算 API 不收没有计费项目的个人登录凭据）
+provider "google" {
+  alias                 = "billing"
+  project               = var.project_id
+  region                = var.region
+  user_project_override = true
+  billing_project       = var.project_id
+}
+
 module "platform" {
-  source                  = "../../modules/platform"
+  source = "../../modules/platform"
+  providers = {
+    google         = google
+    google-beta    = google-beta
+    google.billing = google.billing
+    random         = random
+  }
   project_id              = var.project_id
   region                  = var.region
   env                     = "prod"

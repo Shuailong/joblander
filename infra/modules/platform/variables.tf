@@ -148,6 +148,18 @@ variable "privacy_v2_date" {
   }
 }
 
+variable "gateway_min_instances" {
+  description = "网关常驻实例数：1 = 发信队列、每日汇总、清理任务随时在跑；0 = 有人访问才起（staging 省钱用）"
+  type        = number
+  default     = 1
+}
+
+variable "meter_min_instances" {
+  description = "计量服务常驻实例数"
+  type        = number
+  default     = 1
+}
+
 variable "engine_min_instances" {
   description = "引擎常驻实例数（无冷启动）"
   type        = number

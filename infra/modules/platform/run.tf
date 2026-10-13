@@ -86,7 +86,7 @@ resource "google_cloud_run_v2_service" "gateway" {
     max_instance_request_concurrency = 80
     timeout                          = "300s"
     scaling {
-      min_instance_count = 1
+      min_instance_count = var.gateway_min_instances
       max_instance_count = 4
     }
     vpc_access {
@@ -149,7 +149,7 @@ resource "google_cloud_run_v2_service" "meter" {
     max_instance_request_concurrency = 80
     timeout                          = "900s" # 长生成（reasoning=high）可能十分钟
     scaling {
-      min_instance_count = 1
+      min_instance_count = var.meter_min_instances
       max_instance_count = 4
     }
     vpc_access {
