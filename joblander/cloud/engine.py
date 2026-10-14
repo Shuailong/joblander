@@ -15,7 +15,6 @@ from joblander.cloud import backend, tokens
 from joblander.tenancy import use_tenant
 
 HEADER = b"x-joblander-tenant-token"
-OPEN_PATHS = ("/static/",)          # 静态资源不含账户数据
 
 
 class TenantMiddleware:
@@ -28,8 +27,6 @@ class TenantMiddleware:
         path = scope.get("path", "")
         if path == "/healthz":
             return await _json(send, 200, {"ok": True})
-        if path.startswith(OPEN_PATHS):
-            return await self.app(scope, receive, send)
         token = next((v.decode() for k, v in scope.get("headers", []) if k == HEADER), "")
         try:
             tenant_id = tokens.verify(token)

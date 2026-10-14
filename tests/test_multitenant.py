@@ -206,3 +206,13 @@ def test_engine_trusts_forwarded_host_only_with_valid_token(multi, monkeypatch):
     assert ok.status_code == 200                                     # 换回对外域名后过 Host 校验
     assert c.get("/settings", headers=_h(A)).status_code == 421       # 没有对外域名：内部 Host 不认
     assert c.get("/settings", headers={"x-forwarded-host": "app.test"}).status_code == 401   # 没令牌：免谈
+
+
+def test_static_assets_go_through_account_context(multi, monkeypatch):
+    """静态资源也经账户中间件：应用的中间件（界面语言、Host 校验）需要当前账户，绕过去会 500（staging 首次验收时页面无样式）。"""
+    monkeypatch.setenv("JOBLANDER_ALLOWED_HOSTS", "app.test")
+    c = TestClient(__import__("joblander.cloud.engine", fromlist=["x"]).create_engine_app(),
+                   base_url="https://jl-engine-123.asia-southeast1.run.app")
+    r = c.get("/static/app.css", headers={**_h(A), "x-forwarded-host": "app.test"})
+    assert r.status_code == 200 and "text/css" in r.headers["content-type"]
+    assert c.get("/static/app.css").status_code == 401
