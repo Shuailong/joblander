@@ -39,6 +39,12 @@ class TenantMiddleware:
             return await _json(send, 401, {"error": "需要经登录网关访问"})
         if not backend.store().has_tenant(tenant_id):
             return await _json(send, 404, {"error": "账户不存在或已删除"})
+        # 网关为了让 Cloud Run 路由到本服务保留了内部 Host，对外域名放在 X-Forwarded-Host：
+        # 令牌验过（只有网关拿得到）才换回来，应用看到的 Host 与 Fly 上一样（Host 校验、绝对链接照旧）
+        fwd = next((v for k, v in scope.get("headers", []) if k == b"x-forwarded-host"), None)
+        if fwd:
+            scope = dict(scope, headers=[(k, fwd if k == b"host" else v)
+                                         for k, v in scope["headers"] if k != b"x-forwarded-host"])
         from joblander import telemetry
         # 隐私 v2：网关按这个账户的开关与退出期决定能不能记行为数据（浏览器自带的同名头网关会丢掉）
         telemetry.set_analytics(any(k == b"x-joblander-analytics" and v == b"on"

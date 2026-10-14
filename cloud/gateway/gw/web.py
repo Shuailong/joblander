@@ -912,7 +912,10 @@ def create_web_app(settings: Settings, store: Store, fly: Fly,
             seen_days.add((email, day))
         url = fly.url_for(user, path)
         headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP}
-        headers["host"] = settings.public_host
+        if getattr(fly, "routes_by_host", False):              # Cloud Run 按 Host 找服务：不能改，对外域名另放一个头
+            headers["x-forwarded-host"] = settings.public_host
+        else:                                                   # Fly：引擎只认对外域名（挡 DNS rebinding）
+            headers["host"] = settings.public_host
         if request.cookies.get("jl_lang") in ("zh", "en"):   # 首页选过的语言带进引擎（设置里改的仍优先）
             headers["accept-language"] = request.cookies["jl_lang"]
         headers.update(await fly.auth_headers(user))           # Fly：机器专属口令；GCP：账户令牌 + 服务身份

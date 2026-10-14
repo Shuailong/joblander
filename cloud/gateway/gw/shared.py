@@ -65,6 +65,8 @@ class IdTokens:
 class SharedEngine:
     """与 gw.flyapi.Fly 同一组方法，供 web.py / sleep.py 原样调用。"""
 
+    routes_by_host = True       # 转发时保留 Host（Cloud Run 按它路由），对外域名放 X-Forwarded-Host
+
     def __init__(self, engine_url: str, worker_url: str, token_secret: str,
                  client: httpx.AsyncClient | None = None):
         self.engine_url = engine_url.rstrip("/")

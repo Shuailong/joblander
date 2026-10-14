@@ -135,3 +135,27 @@ def test_privacy_v2_switch_reaches_engine(stack, monkeypatch):
     c.get("/sourcing", headers={"x-joblander-analytics": "on"})        # 浏览器自己带 on 也没用
     assert len(telemetry._events) == 1
     telemetry.drain()
+
+
+def test_proxy_keeps_cloud_run_host_and_engine_restores_public_host(stack):
+    """Cloud Run 按 Host 路由：网关不能把 Host 改成对外域名（第一次上 staging 时整站 404）；
+    对外域名走 X-Forwarded-Host，引擎验过令牌后换回来，Host 校验照旧通过。"""
+    store, settings, app = stack
+    c = _login(store, settings, app, "a@x.com")
+    sent = []
+    from joblander.cloud.engine import create_engine_app
+    engine = create_engine_app()
+
+    async def spy(scope, receive, send):
+        if scope["type"] == "http":
+            sent.append(dict(scope["headers"]))
+        await engine(scope, receive, send)
+    import httpx as _h
+    client = _h.AsyncClient(mounts={ENGINE: _h.ASGITransport(app=spy)}, timeout=30)
+    from gw.web import create_web_app
+    app2 = create_web_app(settings, store, SharedEngine(ENGINE, WORKER, SECRET, client=client), client)
+    c2 = TestClient(app2, base_url="https://app.test")
+    c2.cookies.set("jl_session", c.cookies.get("jl_session"))
+    assert c2.get("/settings").status_code == 200
+    h = sent[-1]
+    assert h[b"host"] == b"engine.test" and h[b"x-forwarded-host"] == b"app.test"

@@ -196,3 +196,13 @@ def test_isolation_violation_on_cross_tenant_ciphertext():
     time.sleep(0.02)
     a2 = ring.aead(A, lambda _: wrapped)
     assert a2.decrypt(blob[:12], a1.encrypt(blob[:12], b"z", b"ad"), b"ad") == b"z"   # 过期重解包，同一把钥
+
+
+def test_engine_trusts_forwarded_host_only_with_valid_token(multi, monkeypatch):
+    monkeypatch.setenv("JOBLANDER_ALLOWED_HOSTS", "app.test")
+    c = TestClient(__import__("joblander.cloud.engine", fromlist=["x"]).create_engine_app(),
+                   base_url="https://jl-engine-123.asia-southeast1.run.app")
+    ok = c.get("/settings", headers={**_h(A), "x-forwarded-host": "app.test"})
+    assert ok.status_code == 200                                     # 换回对外域名后过 Host 校验
+    assert c.get("/settings", headers=_h(A)).status_code == 421       # 没有对外域名：内部 Host 不认
+    assert c.get("/settings", headers={"x-forwarded-host": "app.test"}).status_code == 401   # 没令牌：免谈
