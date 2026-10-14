@@ -123,9 +123,12 @@ def migrate(dsn: str, app_role: str = "engine_app", app_password: str | None = N
         role = sql.Identifier(app_role)
         exists = conn.execute("select 1 from pg_roles where rolname = %s", (app_role,)).fetchone()
         if app_password:
-            verb = "alter" if exists else "create"
-            conn.execute(sql.SQL(verb + " role {} with login nosuperuser nocreatedb nocreaterole "
-                                 "nobypassrls password {}").format(role, sql.Literal(app_password)))
+            if exists:     # 只改密码：重申 nosuperuser / nobypassrls 也要超级用户，Cloud SQL 的表所有者不是
+                conn.execute(sql.SQL("alter role {} with login password {}")
+                             .format(role, sql.Literal(app_password)))
+            else:
+                conn.execute(sql.SQL("create role {} with login nosuperuser nocreatedb nocreaterole "
+                                     "nobypassrls password {}").format(role, sql.Literal(app_password)))
             dbname = conn.execute("select current_database()").fetchone()[0]
             conn.execute(sql.SQL("grant connect on database {} to {}").format(sql.Identifier(dbname), role))
             conn.execute(sql.SQL("grant usage on schema public to {}").format(role))
