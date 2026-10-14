@@ -46,7 +46,10 @@ resource "google_compute_security_policy" "edge" {
       action   = "deny(403)"
       match {
         expr {
-          expression = "evaluatePreconfiguredWaf('${rule.value}', {'sensitivity': 1})"
+          expression = (rule.value == "protocolattack-v33-stable"
+            # 921150（参数名里的换行 = 头注入）对 multipart 表单误报：浏览器的普通表单提交被整条拦下
+            ? "evaluatePreconfiguredWaf('${rule.value}', {'sensitivity': 1, 'opt_out_rule_ids': ['owasp-crs-v030301-id921150-protocolattack']})"
+          : "evaluatePreconfiguredWaf('${rule.value}', {'sensitivity': 1})")
         }
       }
       description = rule.value
